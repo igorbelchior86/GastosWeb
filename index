@@ -3,27 +3,28 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"/>
-<title>Controle 365 – Firebase</title>
+<title>Controle 365 – Firebase (mobile‑friendly)</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* === same CSS from final2 (condensed) === */
 :root{--bg:#f2f4f7;--panel:#fff;--panel-alt:#f7f9fc;--accent:#007aff;--accent-hover:#0067d8;--danger:#d92d20;--text:#111827;--text-muted:#6b7280;--border:#d1d5db;--radius:8px;--shadow:0 3px 8px rgba(0,0,0,.05)}
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Inter',sans-serif}
 body{background:var(--bg);color:var(--text);padding:32px;display:flex;justify-content:center}
 .wrapper{max-width:1100px;width:100%}
 .container{background:var(--panel);border-radius:var(--radius);padding:24px;margin-bottom:24px;box-shadow:var(--shadow);border:1px solid var(--border)}
 h2{font-size:1.5rem;font-weight:600;margin-bottom:16px}
+/* form */
 .form-grid{display:grid;grid-template-columns:2fr 1fr;grid-template-areas:"desc value" "method date" ". button";gap:12px;align-items:end}
-.form-grid input,.form-grid select{background:#fff;border:1px solid var(--border);padding:12px 14px;border-radius:var(--radius);font-size:.9rem}
+.form-grid input,.form-grid select{border:1px solid var(--border);padding:12px 14px;border-radius:var(--radius);font-size:.9rem}
 #desc{grid-area:desc;font-size:1rem;font-weight:500}
 #value{grid-area:value}#method{grid-area:method}#opDate{grid-area:date}
 #addBtn{grid-area:button;padding:12px 28px;border:none;border-radius:var(--radius);font-weight:600;background:var(--accent);color:#fff;cursor:pointer}
 #addBtn:hover{background:var(--accent-hover)}
-fieldset{border:none;display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px}
-input,select{background:#fff;border:1px solid var(--border);padding:10px 14px;border-radius:var(--radius);font-size:.9rem}
+/* buttons etc */
 button{padding:10px 20px;font-weight:600;border:none;border-radius:var(--radius);background:var(--accent);color:#fff;cursor:pointer}
 button:hover{background:var(--accent-hover)}button.danger{background:var(--danger)}button.danger:hover{opacity:.9}
-table{width:100%;border-collapse:collapse;margin-top:12px}
+/* table */
+.table-wrapper{overflow-x:auto}
+table{width:100%;border-collapse:collapse;margin-top:12px;min-width:640px}
 thead th{background:var(--panel-alt);font-weight:600;font-size:.85rem;border-bottom:2px solid var(--border)}
 th,td{padding:8px 10px;font-size:.83rem;border:1px solid var(--border);vertical-align:top}
 td.negative{color:#b42318;font-weight:500}td.positive{color:#027a48;font-weight:500}td.saldo-neg{background:#fdeaea}
@@ -36,7 +37,13 @@ details>summary::before{content:"▸";transition:.2s}details[open]>summary::befo
 button.icon{background:none;border:none;color:var(--text-muted);font-size:1rem;cursor:pointer;padding:0 2px}
 button.icon:hover{color:var(--accent-hover)}button.icon.danger:hover{color:var(--danger)}
 small{color:var(--text-muted);font-size:.78rem}
-@media(max-width:640px){.form-grid{grid-template-columns:1fr;grid-template-areas:"desc""value""method""date""button"}}
+/* mobile tweaks */
+@media(max-width:640px){
+  body{padding:16px}
+  .container{padding:16px}
+  .form-grid{grid-template-columns:1fr;grid-template-areas:"desc""value""method""date""button"}
+  #addBtn{width:100%}
+}
 </style>
 </head>
 <body>
@@ -53,13 +60,13 @@ small{color:var(--text-muted);font-size:.78rem}
 
   <div class="container"><details><summary>Gerenciar cartões</summary>
     <div style="margin-top:16px">
-      <fieldset>
+      <fieldset style="display:flex;flex-wrap:wrap;gap:12px">
         <input id="cardName" placeholder="Nome cartão">
-        <input id="cardClose" type="number" min="1" max="31" placeholder="Fechamento (1-31)">
-        <input id="cardDue" type="number" min="1" max="31" placeholder="Vencimento (1-31)">
+        <input id="cardClose" type="number" min="1" max="31" placeholder="Fechamento">
+        <input id="cardDue" type="number" min="1" max="31" placeholder="Vencimento">
         <button id="addCardBtn">Adicionar cartão</button>
       </fieldset>
-      <small>Compras até o fechamento entram na fatura que vence no mesmo mês; após, entram na do mês seguinte.</small>
+      <small>Compras até o fechamento entram na fatura do mesmo mês; após, na seguinte.</small>
       <ul id="cardList" style="margin-top:12px"></ul>
     </div></details>
   </div>
@@ -70,17 +77,20 @@ small{color:var(--text-muted);font-size:.78rem}
       <input id="startInput" type="number" style="flex:0 0 120px">
       <button id="setStartBtn">OK</button>
     </div>
-    <table id="dailyTable"><thead><tr><th style="width:90px">Data</th><th>Descrição</th><th style="width:110px">Gastos dia</th><th style="width:110px">Saldo</th></tr></thead><tbody></tbody></table>
+
+    <div class="table-wrapper">
+      <table id="dailyTable"><thead><tr><th style="width:90px">Data</th><th>Descrição</th><th style="width:110px">Gastos dia</th><th style="width:110px">Saldo</th></tr></thead><tbody></tbody></table>
+    </div>
+
     <button id="resetData" class="danger" style="margin-top:16px">Limpar TODOS os dados</button>
   </div>
 </div>
 
-<!-- Firebase CDN (modular) -->
+<!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
-import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
+import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
-/* --- Seu config copiado --- */
 const firebaseConfig = {
   apiKey: "AIzaSyATGZtBlnSPnFtVgTqJ_E0xmBgzLTmMkI0",
   authDomain: "gastosweb-e7356.firebaseapp.com",
@@ -88,41 +98,37 @@ const firebaseConfig = {
   projectId: "gastosweb-e7356",
   storageBucket: "gastosweb-e7356.firebasestorage.app",
   messagingSenderId: "519966772782",
-  appId: "1:519966772782:web:9ec19e944e23dbe9e899bf",
-  measurementId: "G-JZYYGSJKTZ"
+  appId: "1:519966772782:web:9ec19e944e23dbe9e899bf"
 };
 
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
-const PATH = 'orcamento365_9b8e04c5';   // mesmo nome das regras
+const PATH = 'orcamento365_9b8e04c5';
 
-/* ---- Storage helpers ---- */
-const save = (k,v)=> set(ref(db, `${PATH}/${k}`), v);
-const load = async (k,d)=>{const snap=await get(ref(db,`${PATH}/${k}`));return snap.exists()?snap.val():d;};
+const save=(k,v)=>set(ref(db,`${PATH}/${k}`),v);
+const load=async(k,d)=>{const s=await get(ref(db,`${PATH}/${k}`));return s.exists()?s.val():d;};
 
-/* ---- State variables ---- */
-let transactions=[], cards=[], startBalance=null;
+let transactions=[],cards=[],startBalance=null;
 
-/* ---- Elements ---- */
+/* elements */
 const $=id=>document.getElementById(id);
 const descEl=$('desc'),valueEl=$('value'),methodEl=$('method'),dateEl=$('opDate'),addBtn=$('addBtn');
 const cardNameEl=$('cardName'),cardCloseEl=$('cardClose'),cardDueEl=$('cardDue'),addCardBtn=$('addCardBtn'),cardListEl=$('cardList');
 const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setStartBtn'),resetBtn=$('resetData');
 const tbody=document.querySelector('#dailyTable tbody');
 
-/* ---- Utility functions ---- */
+/* utils */
 const currency=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const meses=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const fmtTS=ts=>new Date(ts).toLocaleDateString('pt-BR')+' '+new Date(ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-function postDate(date,method){
+const postDate=(date,method)=>{
   if(method==='dinheiro')return date;
   const c=cards.find(x=>x.name===method);if(!c)return date;
-  const [y,m,d]=date.split('-').map(Number);let mm=m,yy=y;
-  if(d>c.close){mm++;if(mm===13){mm=1;yy++;}}
+  const [y,m,d]=date.split('-').map(Number);let mm=m,yy=y;if(d>c.close){mm++;if(mm===13){mm=1;yy++;}}
   return yy+'-'+String(mm).padStart(2,'0')+'-'+String(c.due).padStart(2,'0');
-}
+};
 
-/* ---- Dropdown & Card list ---- */
+/* UI helpers */
 function refreshMethods(){methodEl.innerHTML='';cards.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.name;methodEl.appendChild(o);});}
 function renderCardList(){
   cardListEl.innerHTML='';cards.filter(c=>c.name!=='dinheiro').forEach(c=>{
@@ -131,32 +137,27 @@ function renderCardList(){
     li.appendChild(del);cardListEl.appendChild(li);
   });
 }
-
-/* ---- Transaction line helper ---- */
-function lineElem(t){
-  const div=document.createElement('div');div.className='op-line';
-  div.innerHTML=`${t.desc} <span class="value">${currency(t.val)}</span>`;
+const lineElem=t=>{const d=document.createElement('div');d.className='op-line';d.innerHTML=`${t.desc} <span class="value">${currency(t.val)}</span>`;
   const e=document.createElement('button');e.className='icon';e.textContent='✏️';e.onclick=()=>editTx(t.id);
-  const d=document.createElement('button');d.className='icon danger';d.textContent='🗑';d.onclick=()=>delTx(t.id);
-  div.appendChild(e);div.appendChild(d);return div;
-}
+  const del=document.createElement('button');del.className='icon danger';del.textContent='🗑';del.onclick=()=>delTx(t.id);
+  d.appendChild(e);d.appendChild(del);return d;};
 
-/* ---- CRUD operations ---- */
-function addCard(){
-  const n=cardNameEl.value.trim(),close=+cardCloseEl.value,due=+cardDueEl.value;
+/* crud */
+function addCard(){const n=cardNameEl.value.trim(),close=+cardCloseEl.value,due=+cardDueEl.value;
   if(!n||close<1||close>31||due<1||due>31||close>=due||cards.some(c=>c.name===n)){alert('Dados inválidos');return;}
   cards.push({name:n,close,due});save('cards',cards);refreshMethods();renderCardList();
   cardNameEl.value='';cardCloseEl.value='';cardDueEl.value='';
 }
-function addTransaction(){const d=descEl.value.trim(),v=parseFloat(valueEl.value),m=methodEl.value,date=dateEl.value;
+function addTx(){
+  const d=descEl.value.trim(),v=parseFloat(valueEl.value),m=methodEl.value,date=dateEl.value;
   if(!d||isNaN(v)||!date){alert('Campos incompletos');return;}
   transactions.push({id:Date.now(),desc:d,val:v,method:m,opDate:date,postDate:postDate(date,m),ts:new Date().toISOString()});
   save('tx',transactions);descEl.value='';valueEl.value='';dateEl.value=new Date().toISOString().slice(0,10);renderTable();
 }
-function delTx(id){if(!confirm('Apagar?'))return;transactions=transactions.filter(t=>t.id!==id);save('tx',transactions);renderTable();}
-function editTx(id){const t=transactions.find(x=>x.id===id);if(!t)return;const nd=prompt('Descrição',t.desc);if(nd===null)return;const nv=parseFloat(prompt('Valor',t.val));if(isNaN(nv))return;t.desc=nd.trim();t.val=nv;save('tx',transactions);renderTable();}
+const delTx=id=>{if(!confirm('Apagar?'))return;transactions=transactions.filter(t=>t.id!==id);save('tx',transactions);renderTable();};
+const editTx=id=>{const t=transactions.find(x=>x.id===id);if(!t)return;const nd=prompt('Descrição',t.desc);if(nd===null)return;const nv=parseFloat(prompt('Valor',t.val));if(isNaN(nv))return;t.desc=nd.trim();t.val=nv;save('tx',transactions);renderTable();};
 
-/* ---- Table render ---- */
+/* table */
 function renderTable(){
   tbody.innerHTML='';const year=new Date().getFullYear();let saldo=startBalance||0;
   for(let m=0;m<12;m++){
@@ -167,12 +168,12 @@ function renderTable(){
     for(let d=1;d<=31;d++){
       const date=new Date(year,m,d);if(date.getMonth()!==m)break;
       const iso=date.toISOString().slice(0,10);const dayTx=transactions.filter(t=>t.postDate===iso);
-      const daySum=dayTx.reduce((s,t)=>s+t.val,0);saldo+=daySum;
+      const sum=dayTx.reduce((s,t)=>s+t.val,0);saldo+=sum;
       const tr=document.createElement('tr');tr.dataset.month=m;
       tr.innerHTML=`<td>${date.toLocaleDateString('pt-BR')}</td><td></td><td></td><td>${currency(saldo)}</td>`;
       const tdDesc=tr.children[1],tdSum=tr.children[2],tdSaldo=tr.children[3];
       if(saldo<0)tdSaldo.className='saldo-neg';
-      if(daySum!==0){tdSum.textContent=currency(daySum);tdSum.className=daySum<0?'negative':'positive';}
+      if(sum!==0){tdSum.textContent=currency(sum);tdSum.className=sum<0?'negative':'positive';}
       dayTx.filter(t=>t.method==='dinheiro').forEach(t=>tdDesc.appendChild(lineElem(t)));
       const groups={};dayTx.filter(t=>t.method!=='dinheiro').forEach(t=>(groups[t.method]=groups[t.method]||[]).push(t));
       Object.keys(groups).forEach(card=>{
@@ -186,17 +187,9 @@ function renderTable(){
   }
 }
 
-/* ---- Start balance ---- */
-function initStartUI(){
-  if(startBalance!==null){startGroup.style.display='none';}
-  else{startGroup.style.display='flex';}
-}
-setStartBtn.onclick=()=>{
-  const val=parseFloat(startInput.value);if(isNaN(val)){alert('Valor inválido');return;}
-  startBalance=val;save('startBal',startBalance);startGroup.style.display='none';renderTable();
-};
+function initStartUI(){startGroup.style.display=startBalance===null?'flex':'none';}
 
-/* ---- Reset all ---- */
+setStartBtn.onclick=()=>{const v=parseFloat(startInput.value);if(isNaN(v)){alert('Valor inválido');return;}startBalance=v;save('startBal',startBalance);initStartUI();renderTable();};
 resetBtn.onclick=()=>{
   if(!confirm('Apagar tudo?'))return;
   transactions=[];cards=[{name:'dinheiro',close:0,due:0}];startBalance=null;
@@ -204,19 +197,18 @@ resetBtn.onclick=()=>{
   refreshMethods();renderCardList();initStartUI();renderTable();
 };
 
-/* ---- Initial load async ---- */
+addCardBtn.onclick=addCard;
+addBtn.onclick=addTx;
+
+/* initial load */
 (async()=>{
-  transactions = await load('tx',[]);
-  cards        = await load('cards',[{name:'dinheiro',close:0,due:0}]);
-  startBalance = await load('startBal',null);
+  transactions=await load('tx',[]);
+  cards=await load('cards',[{name:'dinheiro',close:0,due:0}]);
+  startBalance=await load('startBal',null);
   refreshMethods();renderCardList();initStartUI();
   dateEl.value=new Date().toISOString().slice(0,10);
   renderTable();
 })();
-
-/* ---- Event listeners ---- */
-addCardBtn.onclick=addCard;
-addBtn.onclick=addTransaction;
 </script>
 </body>
 </html>
