@@ -14,17 +14,17 @@ body{background:var(--bg);color:var(--text);padding:20px;display:flex;justify-co
 .container{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:18px}
 h2{font-size:1.2rem;font-weight:600;margin-bottom:12px}
 
-/*--- form ---*/
+/* --- form --- */
 .form-grid{display:grid;gap:10px}
 .form-grid input,.form-grid select{padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.9rem;width:100%}
 #addBtn{padding:12px;border:none;border-radius:var(--radius);background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
 #addBtn:hover{background:var(--accent-hover)}
 
-/*--- buttons ---*/
+/* --- buttons --- */
 button.danger{background:var(--danger);color:#fff}
 button.danger:hover{opacity:.9}
 
-/*--- table wrapper & table ---*/
+/* --- table --- */
 .table-wrapper{overflow-x:auto}
 table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.82rem}
 thead th{background:var(--panel-alt);text-align:left;font-weight:600;padding:6px}
@@ -36,36 +36,37 @@ tr.month-header{background:var(--panel-alt);cursor:pointer}
 tr.month-header:hover{background:#e9ecf3}
 tr.month-header td{font-weight:600}
 
-/* invoices */
+/* --- invoice blocks --- */
 details.invoice summary{cursor:pointer;list-style:none}
 details.invoice summary::before{content:'▸';margin-right:4px}
 details.invoice[open] summary::before{transform:rotate(90deg)}
 .invoice{background:var(--panel-alt);padding:6px;border-radius:var(--radius);margin-bottom:4px}
-.op-line{display:flex;gap:6px;font-size:.78rem;margin-bottom:2px;flex-wrap:wrap}
+.op-line{display:flex;gap:6px;font-size:.78rem;margin-bottom:2px;align-items:center;flex-wrap:wrap}
 .op-ts{font-size:.68rem;color:var(--text-muted);margin-left:20px}
 button.icon{background:none;border:none;font-size:1rem;color:var(--text-muted);padding:0 2px;cursor:pointer}
 button.icon:hover{color:var(--accent-hover)}
 button.icon.danger:hover{color:var(--danger)}
 small{color:var(--text-muted);font-size:.75rem}
 
-/*--- mobile ---*/
+/* --- mobile tweaks --- */
 @media(max-width:480px){
   .container{padding:14px}
   .form-grid{grid-template-columns:1fr}
-  /* hide Gastos dia col */
+  /* esconder coluna gasto */
   th:nth-child(3),td:nth-child(3){display:none}
-  /* narrow widths */
+  /* larguras fixas */
   th:nth-child(1),td:nth-child(1){width:68px}
   th:nth-child(4),td:nth-child(4){width:88px}
   th,td{padding:4px}
-  .month-header td{font-size:.95rem;padding:6px 4px}
+
+  /* op-line quebra em duas linhas */
+  .op-line{flex-direction:column;align-items:flex-start;gap:2px;line-height:1.15}
+  .op-line span{display:block;font-size:.8rem}
 }
 </style>
 </head>
 <body>
 <div class="wrapper">
-
-  <!-- Lançar operação -->
   <div class="container">
     <h2>Lançar operação</h2>
     <div class="form-grid">
@@ -77,7 +78,6 @@ small{color:var(--text-muted);font-size:.75rem}
     </div>
   </div>
 
-  <!-- Gerenciar cartões -->
   <div class="container">
     <details>
       <summary>Gerenciar cartões</summary>
@@ -94,7 +94,6 @@ small{color:var(--text-muted);font-size:.75rem}
     </details>
   </div>
 
-  <!-- Tabela -->
   <div class="container">
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px" id="startGroup">
       <label for="startInput">Saldo inicial:</label>
@@ -113,142 +112,50 @@ small{color:var(--text-muted);font-size:.75rem}
 
     <button id="resetData" class="danger" style="margin-top:12px">Limpar TODOS</button>
   </div>
-
 </div>
 
-<!-- Firebase + JS -->
+<!-- Firebase + lógica -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
 import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
-/* Config fornecida */
-const firebaseConfig = {
-  apiKey: "AIzaSyATGZtBlnSPnFtVgTqJ_E0xmBgzLTmMkI0",
-  authDomain: "gastosweb-e7356.firebaseapp.com",
-  databaseURL: "https://gastosweb-e7356-default-rtdb.firebaseio.com",
-  projectId: "gastosweb-e7356",
-  storageBucket: "gastosweb-e7356.firebasestorage.app",
-  messagingSenderId: "519966772782",
-  appId: "1:519966772782:web:9ec19e944e23dbe9e899bf"
-};
-
-const app = initializeApp(firebaseConfig);
-const db  = getDatabase(app);
-const PATH='orcamento365_9b8e04c5';
-
+const firebaseConfig = {apiKey:"AIzaSyATGZtBlnSPnFtVgTqJ_E0xmBgzLTmMkI0",authDomain:"gastosweb-e7356.firebaseapp.com",databaseURL:"https://gastosweb-e7356-default-rtdb.firebaseio.com",projectId:"gastosweb-e7356",storageBucket:"gastosweb-e7356.firebasestorage.app",messagingSenderId:"519966772782",appId:"1:519966772782:web:9ec19e944e23dbe9e899bf"};
+const app=initializeApp(firebaseConfig);const db=getDatabase(app);const PATH='orcamento365_9b8e04c5';
 const save=(k,v)=>set(ref(db,`${PATH}/${k}`),v);
 const load=async(k,d)=>{const s=await get(ref(db,`${PATH}/${k}`));return s.exists()?s.val():d;};
 
-/* Estado */
 let transactions=[],cards=[],startBalance=null;
-
-/* DOM */
 const $=id=>document.getElementById(id);
 const desc=$('desc'),val=$('value'),met=$('method'),date=$('opDate'),addBtn=$('addBtn');
 const cardName=$('cardName'),cardClose=$('cardClose'),cardDue=$('cardDue'),addCardBtn=$('addCardBtn'),cardList=$('cardList');
 const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setStartBtn'),resetBtn=$('resetData');
 const tbody=document.querySelector('#dailyTable tbody');
 
-/* Helpers */
 const currency=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const mobile=()=>window.innerWidth<=480;
 const fmtDate=d=>d.toLocaleDateString('pt-BR',mobile()?{day:'2-digit',month:'2-digit'}:{day:'2-digit',month:'2-digit',year:'numeric'});
-const postDate=(iso,method)=>{
-  if(method==='dinheiro')return iso;
-  const c=cards.find(x=>x.name===method);if(!c)return iso;
-  const [y,m,d]=iso.split('-').map(Number);let mm=m,yy=y;if(d>c.close){mm++;if(mm===13){mm=1;yy++;}}
-  return yy+'-'+String(mm).padStart(2,'0')+'-'+String(c.due).padStart(2,'0');
-};
+const postDate=(iso,method)=>{if(method==='dinheiro')return iso;const c=cards.find(x=>x.name===method);if(!c)return iso;const [y,m,d]=iso.split('-').map(Number);let mm=m,yy=y;if(d>c.close){mm++;if(mm===13){mm=1;yy++;}}return yy+'-'+String(mm).padStart(2,'0')+'-'+String(c.due).padStart(2,'0');};
 
-/* UI builders */
 function refreshMethods(){met.innerHTML='';cards.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.name;met.appendChild(o);});}
-function renderCardList(){
-  cardList.innerHTML='';
-  cards.filter(c=>c.name!=='dinheiro').forEach(c=>{
-    const li=document.createElement('li');li.textContent=`${c.name} (${c.close}/${c.due})`;
-    const del=document.createElement('button');del.className='icon danger';del.textContent='🗑';
-    del.onclick=()=>{if(confirm('Excluir cartão?')){cards=cards.filter(x=>x.name!==c.name);save('cards',cards);refreshMethods();renderCardList();renderTable();}};
-    li.appendChild(del);cardList.appendChild(li);
-  });
-}
-function line(t){
-  const div=document.createElement('div');div.className='op-line';
-  div.innerHTML=`${t.desc} <span>${currency(t.val)}</span>`;
-  const e=document.createElement('button');e.className='icon';e.textContent='✏️';e.onclick=()=>editTx(t.id);
-  const d=document.createElement('button');d.className='icon danger';d.textContent='🗑';d.onclick=()=>delTx(t.id);
-  div.appendChild(e);div.appendChild(d);return div;
-}
+function renderCardList(){cardList.innerHTML='';cards.filter(c=>c.name!=='dinheiro').forEach(c=>{const li=document.createElement('li');li.textContent=`${c.name} (${c.close}/${c.due})`;const del=document.createElement('button');del.className='icon danger';del.textContent='🗑';del.onclick=()=>{if(confirm('Excluir cartão?')){cards=cards.filter(x=>x.name!==c.name);save('cards',cards);refreshMethods();renderCardList();renderTable();}};li.appendChild(del);cardList.appendChild(li);});}
+const line=t=>{const d=document.createElement('div');d.className='op-line';d.innerHTML=`${t.desc} <span>${currency(t.val)}</span>`;const e=document.createElement('button');e.className='icon';e.textContent='✏️';e.onclick=()=>editTx(t.id);const del=document.createElement('button');del.className='icon danger';del.textContent='🗑';del.onclick=()=>delTx(t.id);d.appendChild(e);d.appendChild(del);return d;};
 
-/* CRUD */
-function addCard(){
-  const n=cardName.value.trim(),cl=+cardClose.value,du=+cardDue.value;
-  if(!n||cl<1||cl>31||du<1||du>31||cl>=du||cards.some(c=>c.name===n)){alert('Dados inválidos');return;}
-  cards.push({name:n,close:cl,due:du});save('cards',cards);refreshMethods();renderCardList();
-  cardName.value='';cardClose.value='';cardDue.value='';
-}
-function addTx(){
-  const d=desc.value.trim(),v=parseFloat(val.value),m=met.value,iso=date.value;
-  if(!d||isNaN(v)||!iso){alert('Complete os campos');return;}
-  transactions.push({id:Date.now(),desc:d,val:v,method:m,opDate:iso,postDate:postDate(iso,m),ts:new Date().toISOString()});
-  save('tx',transactions);desc.value='';val.value='';date.value=new Date().toISOString().slice(0,10);renderTable();
-}
+function addCard(){const n=cardName.value.trim(),cl=+cardClose.value,du=+cardDue.value;if(!n||cl<1||cl>31||du<1||du>31||cl>=du||cards.some(c=>c.name===n)){alert('Dados inválidos');return;}cards.push({name:n,close:cl,due:du});save('cards',cards);refreshMethods();renderCardList();cardName.value='';cardClose.value='';cardDue.value='';}
+function addTx(){const d=desc.value.trim(),v=parseFloat(val.value),m=met.value,iso=date.value;if(!d||isNaN(v)||!iso){alert('Complete os campos');return;}transactions.push({id:Date.now(),desc:d,val:v,method:m,opDate:iso,postDate:postDate(iso,m),ts:new Date().toISOString()});save('tx',transactions);desc.value='';val.value='';date.value=new Date().toISOString().slice(0,10);renderTable();}
 const delTx=id=>{if(!confirm('Apagar?'))return;transactions=transactions.filter(t=>t.id!==id);save('tx',transactions);renderTable();};
 const editTx=id=>{const t=transactions.find(x=>x.id===id);if(!t)return;const nd=prompt('Descrição',t.desc);if(nd===null)return;const nv=parseFloat(prompt('Valor',t.val));if(isNaN(nv))return;t.desc=nd.trim();t.val=nv;save('tx',transactions);renderTable();};
 
-/* Table render */
-function renderTable(){
-  tbody.innerHTML='';const yr=new Date().getFullYear();let saldo=startBalance||0;
-  for(let m=0;m<12;m++){
-    const head=document.createElement('tr');head.className='month-header';head.dataset.m=m;
-    const cell=document.createElement('td');cell.colSpan=4;cell.textContent=meses[m];head.appendChild(cell);
-    head.onclick=()=>{const hide=head.classList.toggle('closed');document.querySelectorAll(`tr[data-mon='${m}']`).forEach(r=>r.style.display=hide?'none':'table-row');};
-    tbody.appendChild(head);
-    for(let d=1;d<=31;d++){
-      const dateObj=new Date(yr,m,d);if(dateObj.getMonth()!==m)break;
-      const iso=dateObj.toISOString().slice(0,10);const dayTx=transactions.filter(t=>t.postDate===iso);
-      const soma=dayTx.reduce((s,t)=>s+t.val,0);saldo+=soma;
-      const tr=document.createElement('tr');tr.dataset.mon=m;
-      tr.innerHTML=`<td>${fmtDate(dateObj)}</td><td></td><td></td><td>${currency(saldo)}</td>`;
-      const tdD=tr.children[1],tdG=tr.children[2],tdS=tr.children[3];
-      if(saldo<0)tdS.className='saldo-neg';
-      if(soma!==0){tdG.textContent=currency(soma);tdG.className=soma<0?'negative':'positive';}
-      dayTx.filter(t=>t.method==='dinheiro').forEach(t=>tdD.appendChild(line(t)));
-      const gp={};dayTx.filter(t=>t.method!=='dinheiro').forEach(t=>(gp[t.method]=gp[t.method]||[]).push(t));
-      Object.keys(gp).forEach(card=>{
-        const det=document.createElement('details');det.className='invoice';
-        const sum=document.createElement('summary');sum.textContent='Fatura '+card;det.appendChild(sum);
-        gp[card].forEach(t=>{det.appendChild(line(t));const ts=document.createElement('div');ts.className='op-ts';ts.textContent=t.ts.slice(5,16).replace('T',' ');det.appendChild(ts);});
-        tdD.appendChild(det);
-      });
-      tbody.appendChild(tr);
-    }
-  }
-}
-
-/* Start balance */
+function renderTable(){tbody.innerHTML='';const yr=new Date().getFullYear();let saldo=startBalance||0;for(let m=0;m<12;m++){const head=document.createElement('tr');head.className='month-header';head.dataset.m=m;const cell=document.createElement('td');cell.colSpan=4;cell.textContent=meses[m];head.appendChild(cell);head.onclick=()=>{const hide=head.classList.toggle('closed');document.querySelectorAll(`tr[data-mon='${m}']`).forEach(r=>r.style.display=hide?'none':'table-row');};tbody.appendChild(head);for(let d=1;d<=31;d++){const dateObj=new Date(yr,m,d);if(dateObj.getMonth()!==m)break;const iso=dateObj.toISOString().slice(0,10);const dayTx=transactions.filter(t=>t.postDate===iso);const soma=dayTx.reduce((s,t)=>s+t.val,0);saldo+=soma;const tr=document.createElement('tr');tr.dataset.mon=m;tr.innerHTML=`<td>${fmtDate(dateObj)}</td><td></td><td></td><td>${currency(saldo)}</td>`;const tdD=tr.children[1],tdG=tr.children[2],tdS=tr.children[3];if(saldo<0)tdS.className='saldo-neg';if(soma!==0){tdG.textContent=currency(soma);tdG.className=soma<0?'negative':'positive';}dayTx.filter(t=>t.method==='dinheiro').forEach(t=>tdD.appendChild(line(t)));const gp={};dayTx.filter(t=>t.method!=='dinheiro').forEach(t=>(gp[t.method]=gp[t.method]||[]).push(t));Object.keys(gp).forEach(card=>{const det=document.createElement('details');det.className='invoice';const sum=document.createElement('summary');sum.textContent='Fatura '+card;det.appendChild(sum);gp[card].forEach(t=>{det.appendChild(line(t));const ts=document.createElement('div');ts.className='op-ts';ts.textContent=t.ts.slice(5,16).replace('T',' ');det.appendChild(ts);});tdD.appendChild(det);});tbody.appendChild(tr);}}}
 function initStart(){startGroup.style.display=startBalance===null?'flex':'none';}
 setStartBtn.onclick=()=>{const v=parseFloat(startInput.value);if(isNaN(v)){alert('Valor inválido');return;}startBalance=v;save('startBal',v);initStart();renderTable();};
+resetBtn.onclick=()=>{if(!confirm('Resetar tudo?'))return;transactions=[];cards=[{name:'dinheiro',close:0,due:0}];startBalance=null;save('tx',transactions);save('cards',cards);save('startBal',null);refreshMethods();renderCardList();initStart();renderTable();};
+addCardBtn.onclick=addCard;addBtn.onclick=addTx;
 
-/* Reset */
-resetBtn.onclick=()=>{
-  if(!confirm('Resetar tudo?'))return;
-  transactions=[];cards=[{name:'dinheiro',close:0,due:0}];startBalance=null;
-  save('tx',transactions);save('cards',cards);save('startBal',null);
-  refreshMethods();renderCardList();initStart();renderTable();
-};
-addCardBtn.onclick=addCard;
-addBtn.onclick=addTx;
-
-/* Initial load */
 (async()=>{
   transactions=await load('tx',[]);
-  cards=await load('cards',[{name:'dinheiro',close:0,due:0}]);
-  if(!cards.some(c=>c.name==='dinheiro'))cards.unshift({name:'dinheiro',close:0,due:0});
-  startBalance=await load('startBal',null);
-  refreshMethods();renderCardList();initStart();
-  date.value=new Date().toISOString().slice(0,10);
-  renderTable();
+  cards=await load('cards',[{name:'dinheiro',close:0,due:0}]);if(!cards.some(c=>c.name==='dinheiro'))cards.unshift({name:'dinheiro',close:0,due:0});
+  startBalance=await load('startBal',null);refreshMethods();renderCardList();initStart();date.value=new Date().toISOString().slice(0,10);renderTable();
 })();
 </script>
 </body>
