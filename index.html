@@ -47,6 +47,33 @@ button.icon:hover{color:var(--accent-hover)}button.icon.danger:hover{color:var(-
 
 /* mobile tweaks */
 @media(max-width:480px){
+  .container {
+    padding: 16px;
+  }
+  .form-grid {
+    grid-template-columns:1fr;
+    grid-template-areas:
+      "desc"
+      "value"
+      "method"
+      "date"
+      "button";
+    gap: 14px;
+  }
+  .form-grid input,
+  .form-grid select {
+    font-size: 1rem;
+    padding: 14px;
+  }
+  #addBtn {
+    width: 100%;
+    height: 48px;
+    font-size: 1rem;
+    margin-top: 8px;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+  }
+
   .container{padding:14px}
   /* form single column */
   .form-grid{grid-template-columns:1fr;grid-template-areas:
@@ -71,6 +98,11 @@ details.invoice[open] summary::before{transform:rotate(90deg)}
 .invoice{background:var(--panel-alt);padding:6px;border-radius:var(--radius);margin-bottom:4px}
 small{color:var(--text-muted);font-size:.75rem}
 </style>
+
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
+<link rel="manifest" href="site.webmanifest">
+
 </head>
 <body>
 <div class="wrapper">
