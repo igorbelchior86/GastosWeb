@@ -221,9 +221,8 @@ async function addTx() {
     return;
   }
 
-  // Online case: grava direto em tempo‑real e garante sincronização
-  await save('tx', transactions);   // escreve no Firebase imediatamente
-  await flushQueue();               // esvazia alguma pendência remanescente
+  // Online case: grava apenas a nova transação no nó /tx/<id>
+  await set(ref(firebaseDb, `${PATH}/tx/${tx.id}`), tx);  // grava individual
 
   // Clear form and UI
   desc.value = '';
