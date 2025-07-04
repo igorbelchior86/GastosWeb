@@ -5,6 +5,7 @@
   <title>Gastos+</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
@@ -17,12 +18,11 @@
       <span class="logo-text">Gastos+</span>
     </div>
     <span id="offlineIndicator" class="offline-icon" hidden>📴</span>
-    <button id="syncNowBtn" class="icon-btn" hidden title="Sincronizar agora">⟳</button>
-    <!-- Botão de cartão deve vir por último -->
+    <button id="syncNowBtn" class="icon-btn" title="Sincronizar agora">⟳</button>
     <button id="openCardModal" class="floating-card-button" title="Gerenciar cartões">💳</button>
   </header>
 
-  <div class="wrapper">
+  <div class="wrapper app-hidden">
 
     <!-- Saldo inicial -->
     <div class="start-container">
@@ -97,7 +97,6 @@
   <script>
     const openTxBtn = document.getElementById('openTxModal');
     const txModal = document.getElementById('txModal');
-    const closeTxModal = document.getElementById('closeTxModal');
 
     function toggleTxModal() {
       const isOpen = !txModal.classList.contains('hidden');
@@ -106,7 +105,6 @@
     }
 
     openTxBtn.onclick = toggleTxModal;
-    closeTxModal.onclick = toggleTxModal;
     txModal.onclick = e => { if (e.target === txModal) toggleTxModal(); };
   </script>
 </body>

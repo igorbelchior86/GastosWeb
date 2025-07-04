@@ -1,4 +1,4 @@
-const CACHE = 'v2';   // bump para nova versão
+const CACHE = 'v3';   // bump para nova versão
 const ASSETS = [
   './',
   './index.html',
@@ -31,6 +31,10 @@ self.addEventListener('activate', event => {
 // Intercepta requisições
 self.addEventListener('fetch', event => {
   event.respondWith((async () => {
+    if (event.request.method !== 'GET') {
+      // não cachear POST/PUT
+      return fetch(event.request);
+    }
     const cached = await caches.match(event.request);
     if (cached) return cached;
     try {

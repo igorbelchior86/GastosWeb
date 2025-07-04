@@ -1,4 +1,7 @@
+/* Oculta conteúdo enquanto carrega Firebase */
+.app-hidden { visibility: hidden; }
 .start-container {
+  display: none;               /* evita flash antes do carregamento */
   background-color: #fff;
   border: 2px solid black;
   border-radius: 16px;
@@ -92,10 +95,20 @@ body {
   z-index: 1000;
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
   padding: 24px 16px;
+  padding-right: 120px;   /* espaço para botão 💳 */
   height: 34px;
   display: flex;
   justify-content: flex-end;
   align-items: center;
+}
+
+/* animação de rotação para ⟳ */
+.icon-btn.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 .container {
@@ -813,4 +826,55 @@ details.day[data-has="true"] {
   font-size: 0.75rem;
   color: #666;
   margin-top: 32px;
+}
+  .logo-test-tag {
+    font-family: 'Caveat', cursive;
+    font-size: 1rem;
+    margin-left: 4px;
+  }
+/* Botão de sincronizar (⟳) */
+#syncNowBtn {
+  position: fixed;
+  top: 21px;    /* aligns vertically within the header */
+  transform: none;
+  right: 84px;         /* espaço antes do botão de cartões */
+  width: 40px;
+  height: 40px;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  z-index: 1100;
+}
+
+/* Ícone offline (📴) */
+#offlineIndicator {
+  position: fixed;
+  top: 21px;    /* aligns vertically within the header */
+  transform: none;
+  right: 132px;        /* 84px (sync btn) + 40px (sync width) + 8px gap */
+  font-size: 1.3rem;
+  z-index: 1100;
+}
+/* Remove margem que empurrava o ícone para a direita */
+.offline-icon {
+  margin-right: 0;
+}
+/* realce piscante para operação adicionada */
+.flash-highlight {
+  animation: flash 1s ease-in-out;
+}
+@keyframes flash {
+  from { background-color: rgba(255, 255, 0, 0.6); }
+  to   { background-color: transparent; }
+}
+/* Toast types */
+.toast.error {
+  background: #F56565; /* red */
+}
+.toast.success {
+  background: #48BB78; /* green */
 }

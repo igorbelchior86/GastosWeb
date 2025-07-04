@@ -3,28 +3,37 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebas
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
+let PATH;
+
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
-const USE_MOCK = false;               // produção
+const USE_MOCK = false;               // usar banco real para testes
 const APP_VERSION = '1.0.0';
 let save, load;
 let firebaseDb;
 
 if (!USE_MOCK) {
-const firebaseConfig={apiKey:"AIzaSyATGZtBlnSPnFtVgTqJ_E0xmBgzLTmMkI0",authDomain:"gastosweb-e7356.firebaseapp.com",databaseURL:"https://gastosweb-e7356-default-rtdb.firebaseio.com",projectId:"gastosweb-e7356",storageBucket:"gastosweb-e7356.firebasestorage.app",messagingSenderId:"519966772782",appId:"1:519966772782:web:9ec19e944e23dbe9e899bf"};
-const app=initializeApp(firebaseConfig);const db=getDatabase(app);firebaseDb = db;const PATH='orcamento365_9b8e04c5';
-const auth = getAuth(app);
-await signInAnonymously(auth);   // garante auth.uid antes dos gets/sets
-save=(k,v)=>set(ref(db,`${PATH}/${k}`),v);load=async(k,d)=>{const s=await get(ref(db,`${PATH}/${k}`));return s.exists()?s.val():d;};
+  const firebaseConfig={apiKey:"AIzaSyATGZtBlnSPnFtVgTqJ_E0xmBgzLTmMkI0",authDomain:"gastosweb-e7356.firebaseapp.com",databaseURL:"https://gastosweb-e7356-default-rtdb.firebaseio.com",projectId:"gastosweb-e7356",storageBucket:"gastosweb-e7356.firebasestorage.app",messagingSenderId:"519966772782",appId:"1:519966772782:web:9ec19e944e23dbe9e899bf"};
+  const app=initializeApp(firebaseConfig);const db=getDatabase(app);firebaseDb = db;
+  PATH = 'orcamento365_9b8e04c5';
+  const auth = getAuth(app);
+  await signInAnonymously(auth);   // garante auth.uid antes dos gets/sets
+  save=(k,v)=>set(ref(db,`${PATH}/${k}`),v);load=async(k,d)=>{const s=await get(ref(db,`${PATH}/${k}`));return s.exists()?s.val():d;};
 }
 else {
-  const PATH = 'mock_365'; // isolated namespace in localStorage
+  PATH = 'mock_365'; // namespace no localStorage
   save = (k, v) => localStorage.setItem(`${PATH}_${k}`, JSON.stringify(v));
   load = async (k, d) =>
     JSON.parse(localStorage.getItem(`${PATH}_${k}`)) ?? d;
 }
 
-let transactions=[],cards=[],startBalance=null;
+// Cache local (LocalStorage) p/ boot instantâneo
+const cacheGet  = (k, d) => JSON.parse(localStorage.getItem(`cache_${k}`)) ?? d;
+const cacheSet  = (k, v) => localStorage.setItem(`cache_${k}`, JSON.stringify(v));
+
+let transactions  = cacheGet('tx', []);
+let cards         = cacheGet('cards', [{name:'Dinheiro',close:0,due:0}]);
+let startBalance  = cacheGet('startBal', null);
 const $=id=>document.getElementById(id);
 const tbody=document.querySelector('#dailyTable tbody');
 
@@ -50,12 +59,13 @@ const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setSt
 const startContainer = document.querySelector('.start-container');
 const dividerSaldo = document.getElementById('dividerSaldo');
 
-const showToast = msg => {
+const showToast = (msg, type = 'error') => {
   const t = document.getElementById('toast');
   if (!t) return;
   t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
+  t.classList.remove('success', 'error');
+  t.classList.add('show', type);
+  setTimeout(() => t.classList.remove('show', type), 3000);
 };
 
 const togglePlanned = id => {
@@ -100,6 +110,7 @@ function renderCardList() {
 const makeLine = t => {
   const d = document.createElement('div');
   d.className = 'op-line';
+  d.dataset.txId = t.id;
 
   const topRow = document.createElement('div');
   topRow.className = 'op-main';
@@ -158,7 +169,7 @@ const makeLine = t => {
   return d;
 };
 
-function addCard(){const n=cardName.value.trim(),cl=+cardClose.value,du=+cardDue.value;if(!n||cl<1||cl>31||du<1||du>31||cl>=du||cards.some(c=>c.name===n)){alert('Dados inválidos');return;}cards.push({name:n,close:cl,due:du});save('cards',cards);refreshMethods();renderCardList();cardName.value='';cardClose.value='';cardDue.value='';}
+function addCard(){const n=cardName.value.trim(),cl=+cardClose.value,du=+cardDue.value;if(!n||cl<1||cl>31||du<1||du>31||cl>=du||cards.some(c=>c.name===n)){alert('Dados inválidos');return;}cards.push({name:n,close:cl,due:du});cacheSet('cards', cards);save('cards',cards);refreshMethods();renderCardList();cardName.value='';cardClose.value='';cardDue.value='';}
 
 async function addTx() {
   if (startBalance === null) {
@@ -184,15 +195,32 @@ async function addTx() {
     ts: new Date().toISOString(),
     modifiedAt: new Date().toISOString()
   };
+  // Save locally and queue (or send) to server
   transactions.push(tx);
-  const savedOffline = !navigator.onLine;
-  showToast(savedOffline ? 'Gravado offline' : 'Gravado');
+  cacheSet('tx', transactions);
+
+  // Offline case: queue and inform user
+  if (!navigator.onLine) {
+    await queueTx(tx);
+    updatePendingBadge();
+    renderTable();
+    showToast('Offline: transação salva na fila', 'error');
+    return;
+  }
+
+  // Online case: send immediately
   await queueTx(tx);
+
+  // Clear form and UI
   desc.value = '';
   val.value = '';
   date.value = todayISO();
   updatePendingBadge();
   renderTable();
+
+  // Close the modal
+  toggleTxModal();
+  showToast('Tudo certo!', 'success');
 }
 
 const delTx=id=>{if(!confirm('Apagar?'))return;transactions=transactions.filter(t=>t.id!==id);save('tx',transactions);renderTable();};
@@ -422,23 +450,48 @@ function initStart() {
   // mantém o botão habilitado; a função addTx impede lançamentos
   addBtn.classList.toggle('disabled', showStart);
 }
-setStartBtn.onclick=()=>{const v=parseFloat(startInput.value);if(isNaN(v)){alert('Valor inválido');return;}startBalance=v;save('startBal',v);initStart();renderTable();};
-resetBtn.onclick=()=>{if(!confirm('Resetar tudo?'))return;transactions=[];cards=[{name:'Dinheiro',close:0,due:0}];startBalance=null;save('tx',transactions);save('cards',cards);save('startBal',null);refreshMethods();renderCardList();initStart();renderTable();};
+setStartBtn.onclick=()=>{const v=parseFloat(startInput.value);if(isNaN(v)){alert('Valor inválido');return;}startBalance=v;cacheSet('startBal', v);save('startBal',v);initStart();renderTable();};
+resetBtn.onclick=()=>{if(!confirm('Resetar tudo?'))return;transactions=[];cards=[{name:'Dinheiro',close:0,due:0}];startBalance=null;cacheSet('tx', []);cacheSet('cards', [{name:'Dinheiro',close:0,due:0}]);cacheSet('startBal', null);save('tx',transactions);save('cards',cards);save('startBal',null);refreshMethods();renderCardList();initStart();renderTable();};
 addCardBtn.onclick=addCard;addBtn.onclick=addTx;
 openCardBtn.onclick = () => cardModal.classList.remove('hidden');
 closeCardModal.onclick = () => cardModal.classList.add('hidden');
 cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('hidden'); };
 
-(async()=>{
-  transactions=await load('tx',[]);
-  cards=await load('cards',[{name:'Dinheiro',close:0,due:0}]);
-  if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
-  startBalance=await load('startBal',null);
+ (async () => {
+  date.value = todayISO();
+  // Renderiza imediatamente com dados em cache
   refreshMethods();
   renderCardList();
   initStart();
-  date.value=todayISO();
   renderTable();
+  // exibe conteúdo após carregar dados localmente
+  document.querySelector('.wrapper').classList.remove('app-hidden');
+
+  const [liveTx, liveCards, liveBal] = await Promise.all([
+    load('tx', []),
+    load('cards', cards),
+    load('startBal', startBalance)
+  ]);
+
+  // Converte objeto → array se necessário
+  const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
+
+  if (JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
+    transactions = fixedTx;
+    cacheSet('tx', transactions);
+    renderTable();
+  }
+  if (JSON.stringify(liveCards) !== JSON.stringify(cards)) {
+    cards = liveCards;
+    if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
+    cacheSet('cards', cards);
+    refreshMethods(); renderCardList(); renderTable();
+  }
+  if (liveBal !== startBalance) {
+    startBalance = liveBal;
+    cacheSet('startBal', startBalance);
+    initStart(); renderTable();
+  }
   // exibe versão
   const verEl = document.getElementById('version');
   if (verEl) verEl.textContent = `v${APP_VERSION}`;
@@ -446,16 +499,11 @@ cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('
   if (navigator.onLine) flushQueue();
 })();
 
-// Service Worker registration
-if ('serviceWorker' in navigator) {
+// Service Worker registration and sync event (disabled in mock mode)
+if (!USE_MOCK && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
-}
-// Listen for SW sync event and flush queue via Firebase client
-if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', event => {
-    if (event.data?.type === 'sync-tx') {
-      flushQueue();
-    }
+    if (event.data?.type === 'sync-tx') flushQueue();
   });
 }
 // Online/offline indicator
@@ -477,11 +525,20 @@ async function queueTx(tx) {
   await db.put('tx', tx);
   updatePendingBadge();
   if ('serviceWorker' in navigator) {
-    const reg = await navigator.serviceWorker.ready;
-    reg.sync.register('sync-tx');
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.sync.register('sync-tx');
+    } catch (e) {
+      console.warn('[Sync]', e);   // tolera problemas com SW
+    }
   }
 }
 async function flushQueue() {
+  if (USE_MOCK) return;  // skip real DB in mock mode
+  const syncBtn = document.getElementById('syncNowBtn');
+  syncBtn.classList.add('spin');
+  const spinStart = Date.now();
+
   const db = await getDb();
   const all = await db.getAll('tx');
   for (const tx of all) {
@@ -496,6 +553,15 @@ async function flushQueue() {
       console.error('[SYNC]', e);
     }
   }
+
+  // garante pelo menos 1s de animação
+  const elapsed = Date.now() - spinStart;
+  const minSpin = 1000;
+  if (elapsed < minSpin) {
+    await new Promise(res => setTimeout(res, minSpin - elapsed));
+  }
+
+  syncBtn.classList.remove('spin');
   updatePendingBadge();
 }
 
@@ -505,13 +571,8 @@ function updatePendingBadge() {
       const syncBtn = document.getElementById('syncNowBtn');
       const offIc   = document.getElementById('offlineIndicator');
       const count = all.length;
-      if (count > 0) {
-        syncBtn.hidden = !navigator.onLine;
-        offIc.textContent = `📴 ${count}`;
-      } else {
-        syncBtn.hidden = true;
-        offIc.textContent = '📴';
-      }
+      syncBtn.hidden = false;                  // sempre visível
+      offIc.textContent = count ? `📴 ${count}` : '📴';
     }));
 }
 // dispara badge no arranque e após cada sync
