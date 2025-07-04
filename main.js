@@ -65,7 +65,7 @@ else {
 const cacheGet  = (k, d) => JSON.parse(localStorage.getItem(`cache_${k}`)) ?? d;
 const cacheSet  = (k, v) => localStorage.setItem(`cache_${k}`, JSON.stringify(v));
 
-let transactions  = cacheGet('tx', []);
+let transactions = [];
 let cards         = cacheGet('cards', [{name:'Dinheiro',close:0,due:0}]);
 let startBalance  = cacheGet('startBal', null);
 const $=id=>document.getElementById(id);
@@ -231,7 +231,6 @@ async function addTx() {
   };
   // Save locally and queue (or send) to server
   transactions.push(tx);
-  cacheSet('tx', transactions);
 
   // Offline case: queue and inform user
   if (!navigator.onLine) {
@@ -512,7 +511,6 @@ cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('
 
   if (JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
     transactions = fixedTx;
-    cacheSet('tx', transactions);
     renderTable();
   }
   if (JSON.stringify(liveCards) !== JSON.stringify(cards)) {
@@ -611,16 +609,3 @@ function updatePendingBadge() {
 }
 // dispara badge no arranque e após cada sync
 updatePendingBadge();
-
-// Botão de sincronização manual
-const syncBtn = document.getElementById('syncNowBtn');
-syncBtn.onclick = async () => {
-  await flushQueue();            // envia fila
-  // força reload dos dados mais recentes
-  load('tx', []).then(data => {
-    const arr = Array.isArray(data) ? data : Object.values(data || {});
-    transactions = arr;
-    cacheSet('tx', transactions);
-    renderTable();
-  });
-};
