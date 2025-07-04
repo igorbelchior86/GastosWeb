@@ -1,7 +1,7 @@
 import { openDB } from 'https://unpkg.com/idb?module';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
-import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, onChildAdded, onChildChanged, onChildRemoved } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
 let PATH;
 
@@ -30,6 +30,30 @@ if (!USE_MOCK) {
       cacheSet('tx', transactions);
       renderTable();
     }
+  });
+  // 🔄 Incremental child listeners para sincronia em tempo real
+  onChildAdded(txRefRealtime, snap => {
+    const tx = snap.val();
+    if (!transactions.some(t => t.id === tx.id)) {
+      transactions.push(tx);
+      cacheSet('tx', transactions);
+      renderTable();
+    }
+  });
+  onChildChanged(txRefRealtime, snap => {
+    const updated = snap.val();
+    const idx = transactions.findIndex(t => t.id === updated.id);
+    if (idx !== -1) {
+      transactions[idx] = updated;
+      cacheSet('tx', transactions);
+      renderTable();
+    }
+  });
+  onChildRemoved(txRefRealtime, snap => {
+    const removed = snap.val();
+    transactions = transactions.filter(t => t.id !== removed.id);
+    cacheSet('tx', transactions);
+    renderTable();
   });
   save=(k,v)=>set(ref(db,`${PATH}/${k}`),v);load=async(k,d)=>{const s=await get(ref(db,`${PATH}/${k}`));return s.exists()?s.val():d;};
 }
