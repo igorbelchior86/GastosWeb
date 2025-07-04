@@ -1,7 +1,7 @@
 import { openDB } from 'https://unpkg.com/idb?module';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
-import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
+import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
 let PATH;
 
@@ -18,6 +18,19 @@ if (!USE_MOCK) {
   PATH = 'orcamento365_9b8e04c5';
   const auth = getAuth(app);
   await signInAnonymously(auth);   // garante auth.uid antes dos gets/sets
+  // 🔄 Realtime listener para sincronia imediata entre dispositivos
+  const txRefRealtime = ref(db, `${PATH}/tx`);
+  onValue(txRefRealtime, snap => {
+    if (!snap.exists()) return;
+    const data = snap.val();
+    const arr = Array.isArray(data) ? data : Object.values(data || {});
+    // Evita rerender excessivo se nada mudou
+    if (JSON.stringify(arr) !== JSON.stringify(transactions)) {
+      transactions = arr;
+      cacheSet('tx', transactions);
+      renderTable();
+    }
+  });
   save=(k,v)=>set(ref(db,`${PATH}/${k}`),v);load=async(k,d)=>{const s=await get(ref(db,`${PATH}/${k}`));return s.exists()?s.val():d;};
 }
 else {
@@ -581,4 +594,13 @@ updatePendingBadge();
 
 // Botão de sincronização manual
 const syncBtn = document.getElementById('syncNowBtn');
-syncBtn.onclick = () => flushQueue();
+syncBtn.onclick = async () => {
+  await flushQueue();            // envia fila
+  // força reload dos dados mais recentes
+  load('tx', []).then(data => {
+    const arr = Array.isArray(data) ? data : Object.values(data || {});
+    transactions = arr;
+    cacheSet('tx', transactions);
+    renderTable();
+  });
+};
