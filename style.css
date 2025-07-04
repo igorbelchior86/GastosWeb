@@ -1,0 +1,816 @@
+.start-container {
+  background-color: #fff;
+  border: 2px solid black;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.start-container h2 {
+  font-size: 1.2rem;
+  font-weight: bold;
+  margin-bottom: 12px;
+}
+
+#startInput {
+  min-width: 0;
+  width: 100%;
+  padding: 10px;
+  border: 2px solid black;
+  border-radius: 16px;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.start-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  width: 100%;
+}
+
+#setStartBtn {
+  background: #4CAF50;
+  color: white;
+  font-weight: bold;
+  font-size: 1rem;
+  height: 48px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+}
+.timestamp {
+  display: block;
+  font-size: 0.75em;
+  color: #6b7280;
+  margin: 2px 0 0 12px;
+}
+.op-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.op-item .op-content {
+  flex: 1;
+}
+.op-item .actions {
+  margin-left: 8px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+:root {
+  --bg: #f2f4f7;
+  --panel: #fff;
+  --border: #d1d5db;
+  --radius: 8px;
+}
+
+body {
+  background: var(--bg);
+  font-family: 'Inter', sans-serif;
+  padding: 20px;
+  margin: 0;
+  display: block;
+}
+
+.wrapper {
+  width: 100%;
+  padding-left: env(safe-area-inset-left, 6px);
+  padding-right: env(safe-area-inset-right, 6px);
+  max-width: 100%;
+  margin-top: 100px;
+}
+
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background: white;
+  z-index: 1000;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  padding: 24px 16px;
+  height: 34px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.container {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+h2 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+}
+
+.form-grid input,
+.form-grid select {
+  padding: 10px;
+  border: 2px solid black;
+  border-radius: 16px;
+  font-size: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#addBtn,
+#addCardBtn {
+  background: #4CAF50;
+  color: white;
+  font-weight: bold;
+  font-size: 1rem;
+  height: 48px;
+  width: 100%;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.card-dates {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.card-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 10px;
+}
+
+.card-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 8px;
+  padding: 8px 0;
+}
+
+.card-list li .card-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.card-line .card-name {
+  font-weight: bold;
+  font-size: 1rem;
+}
+.card-line .card-dates {
+  font-size: 0.875rem;
+  color: #444;
+}
+
+.card-list li .card-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-list li .card-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-list li .card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.card-list li .card-actions button {
+  width: 40px;
+  height: 32px;
+  font-size: 1rem;
+  border-radius: 12px;
+  border: 2px solid black;
+  background: white;
+  cursor: pointer;
+  flex: 1;
+}
+
+.floating-card-button {
+  position: fixed;
+  top: 16px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: #007AFF;
+  color: white;
+  font-size: 24px;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  z-index: 1100;
+}
+
+/* Modal bottom sheet */
+/* Modal bottom sheet */
+.bottom-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  z-index: 1000;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.backdrop-blur {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.bottom-modal:not(.hidden) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bottom-modal-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 18px;
+  box-sizing: border-box;
+  width: calc(100% - 8px);
+  max-width: 480px;
+  height: auto;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  margin-bottom: 90px;
+  border-radius: 28px;
+}
+
+.bottom-modal:not(.hidden) .bottom-modal-box {
+  transform: translateY(0);
+}
+
+.modal-drag {
+  width: 40px;
+  height: 4px;
+  background: #ccc;
+  border-radius: 2px;
+  margin: 0 auto 12px auto;
+}
+
+.modal-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Campos do modal "Novo Cartão" */
+.bottom-modal-box input,
+.bottom-modal-box select {
+  font-size: 1rem;
+  border-radius: 16px;
+  padding: 10px;
+  border: 2px solid black;
+  margin-bottom: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bottom-modal-box #addCardBtn {
+  background: #4CAF50;
+  color: white;
+  font-weight: bold;
+  font-size: 1rem;
+  height: 48px;
+  width: 100%;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.bottom-modal-box #closeCardModal {
+  background: white;
+  color: black;
+  font-weight: bold;
+  font-size: 1rem;
+  height: 48px;
+  width: 100%;
+  border: 2px solid black;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.bottom-modal-box .card-dates {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* Forçar aparência nativa consistente de select e input[type="date"] no Safari */
+select,
+input[type="date"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-color: #fff;
+  border: 2px solid black;
+  border-radius: 16px;
+  padding: 10px;
+  font-size: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* Table layout and cell styling */
+.table-wrapper table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.table-wrapper th,
+.table-wrapper td {
+  border: 1px solid var(--border);
+  padding: 8px;
+  text-align: left;
+}
+
+/* Accordion styles */
+#accordion details.month {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 6px;
+}
+
+#accordion details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  padding: 0 8px;
+}
+#accordion summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 8px 0;
+  list-style: none;
+}
+#accordion summary::-webkit-details-marker {
+  display: none;
+}
+#accordion .month-summary::before {
+  content: "▶";
+  display: inline-block;
+  margin-right: 8px;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+}
+#accordion details[open] .month-summary::before {
+  transform: rotate(90deg);
+}
+#accordion .day-summary {
+  display: flex;
+  align-items: center;
+  padding: 10px 0;
+  text-align: left;
+  width: 100%;
+}
+
+/* Balance badge pushed to right */
+#accordion .day-summary > span:last-child {
+  margin-left: auto;
+}
+#accordion .operations {
+  padding-left: 16px;
+  margin-bottom: 8px;
+}
+.op-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+.op-item .actions {
+  margin-left: 8px;
+}
+.op-item .actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  margin-left: 4px;
+}
+.operations {
+  position: relative;
+}
+.op-item {
+  position: relative;
+  padding-left: 8px;
+}
+.op-item + .op-item::before,
+/* Dias com lançamentos: linha lateral mais forte */
+details.day[data-has="true"] + details.day[data-has="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: #9ca3af; /* cinza ligeiramente mais claro que timestamp */
+}
+/* Day header expand indicator */
+#accordion details details summary.day-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 0px;
+  transition: transform 0.2s ease;
+}
+/* Rotate indicator when day is expanded */
+#accordion details details[open] > summary.day-summary::before {
+  transform: rotate(90deg);
+}
+
+/* Hide legacy table; accordion becomes the primary view */
+.table-wrapper table {
+  display: none;
+}
+
+#accordion summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+
+
+/* .month-label styling for accordion month summaries */
+.month-label {
+  font-weight: bold;
+  font-size: 1.1rem;
+}
+.month-arrow {
+  display: inline-block;
+  width: 1.5em;
+  text-align: center;
+  transition: transform 0.2s ease;
+}
+
+details.month[open] > summary .month-arrow {
+  transform: rotate(90deg);
+}
+
+/* Indicador colapsável para dias */
+.day-summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 0.2s ease;
+}
+
+/* Gira o indicador quando o dia está expandido */
+details.day[open] > summary.day-summary::before {
+  transform: rotate(90deg);
+}
+
+.op-line {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.op-txt {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.op-line .timestamp {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-top: 2px;
+  margin-left: 4px;
+}
+.op-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.op-left {
+  font-weight: 500;
+}
+
+.op-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Toast (erro) */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #c53030;          /* vermelho para erro */
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 9999;
+}
+.toast.show {
+  opacity: 1;
+}
+
+/* Aparência de "desabilitado" sem realmente desabilitar */
+#addBtn.disabled {
+  opacity: 0.5;
+}
+
+/* mini‑cabeçalhos para Planejados / Gastos do dia */
+.subheader {
+  font-weight: 600;
+  margin: 6px 0 2px 0;
+  font-size: 0.9rem;
+}
+
+/* checkbox alinhado */
+.plan-check {
+  margin-right: 6px;
+}
+
+hr.divider {
+  border: none;
+  height: 1px;
+  background-color: #3e3e40;
+  margin: 12px 0;
+}
+
+/* Opcional: margem inferior reduzida para menos espaçamento vertical */
+summary.month-divider {
+  display: flex;
+  align-items: center;
+  font-weight: bold;
+  font-size: 1rem;
+  color: #3e3e40;
+  gap: 8px;
+  margin: 16px 0 4px;
+}
+
+summary.month-divider hr {
+  flex-grow: 1;
+  height: 1px;
+  border: none;
+  background: #ccc;
+  margin: 0;
+}
+
+summary.month-divider::before {
+  content: "▶️";
+  display: inline-block;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+  margin-right: 6px;
+}
+
+details.month[open] > summary.month-divider::before {
+  transform: rotate(90deg);
+}
+
+summary.month-divider hr {
+  flex-grow: 1;
+  height: 1px;
+  border: none;
+  background: #ccc;
+  margin: 0;
+}
+/* Garantia de bloqueio de zoom no iOS */
+input,
+select,
+textarea {
+  font-size: 16px !important;
+}
+
+/* Previne zoom por overflow lateral no Safari */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.month-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #444;
+  padding: 0 16px;
+  margin-bottom: 4px;
+  box-sizing: border-box;
+}
+
+details.day {
+  border: none !important;
+  border-left: 1px solid #ccc !important;
+  border-radius: 0 !important;
+  padding-left: 8px !important;
+  margin: 12px 0 !important;
+  background: transparent !important;
+}
+details.day.today summary.day-summary {
+  display: flex !important;
+  width: calc(100% - 24px) !important;
+  margin: 4px 12px 4px 0 !important;
+  padding: 8px 12px !important;
+  background-color: #b5b5b5cc !important;
+  border-radius: 6px !important;
+}
+
+details.day.negative summary.day-summary {
+  display: flex !important;
+  width: calc(100% - 24px) !important;
+  margin: 4px 12px 4px 0 !important;
+  padding: 8px 12px !important;
+  background-color: #ff8484 !important;
+  border-radius: 6px !important;
+}
+
+/* Dias padrão (não .today e não .negative): reduz largura e alinha com highlights */
+details.day:not(.today):not(.negative) summary.day-summary {
+  display: flex !important;
+  width: calc(100% - 24px) !important;
+  margin: 4px 12px 4px 0 !important;
+  padding: 8px 12px !important;
+}
+
+/* 1. Fonte e cor mais suaves para os dias */
+summary.day-summary {
+  font-weight: 500 !important;
+  color: #333 !important;
+}
+
+/* 3. Indicador de dia (seta) menor e mais suave */
+summary.day-summary::before {
+  font-size: 0.9em !important;
+  color: #666 !important;
+}
+
+/* Tabs Planejados / Executados */
+.day-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.day-tabs .tab {
+  background: transparent;
+  border: none;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #666;
+}
+.day-tabs .tab.active {
+  color: #000;
+  border-bottom: 2px solid #000;
+}
+
+/* Conteúdos das abas */
+.tab-content {
+  padding-left: 8px;
+}
+
+.planned-section, .executed-cash {
+  padding: 8px 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  margin: 8px 0 4px;
+}
+.planned-header, .executed-header {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.planned-list, .executed-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.planned-list li, .executed-list li {
+  padding: 4px 0;
+}
+.invoice {
+  margin: 8px 0;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+.invoice > summary {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.invoice .executed-list {
+  padding: 4px 12px;
+}
+
+/* Alinha o header da fatura */
+.invoice > summary {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.invoice-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.invoice-total {
+  font-weight: 500;
+  white-space: nowrap;
+}
+/* Evita quebra de linha no valor monetário */
+.value {
+  white-space: nowrap;
+}
+
+.floating-add-button {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 64px;
+  height: 64px;
+  font-size: 32px;
+  border-radius: 50%;
+  background-color: #00CFFF;
+  color: white;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  z-index: 1100;
+  transition: transform 0.3s ease;
+}
+.logo-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.logo-text {
+  font-weight: bold;
+  font-size: 1.8rem;
+  color: #333;
+}
+/* Deixa a linha lateral em negrito quando há lançamentos no dia */
+details.day[data-has="true"] {
+  border-left: 3px solid #000 !important;
+}
+
+.offline-icon {
+  margin-right: 12px;
+  font-size: 1.2rem;
+  color: #e74c3c;
+}
+.offline-icon[hidden] {
+  display: none;
+}
+/* Botão de sincronizar agora */
+.icon-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: #007AFF;
+  cursor: pointer;
+  margin-right: 12px;
+}
+/* Versão do app no rodapé */
+.app-footer {
+  text-align: center;
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 32px;
+}
