@@ -1,12 +1,12 @@
 const CACHE = 'v2';   // bump para nova versão
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/main.js',
-  '/icons/icon-192x192.png',
-  '/icons/icon-180x180.png',
-  '/site.webmanifest'
+  './',
+  './index.html',
+  './style.css',
+  './main.js',
+  './icons/icon-192x192.png',
+  './icons/icon-180x180.png',
+  './site.webmanifest'
 ];
 
 // Instalação e pré-cache
