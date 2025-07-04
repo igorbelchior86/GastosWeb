@@ -208,8 +208,9 @@ async function addTx() {
     return;
   }
 
-  // Online case: send immediately
-  await queueTx(tx);
+  // Online case: grava direto em tempo‑real e garante sincronização
+  await save('tx', transactions);   // escreve no Firebase imediatamente
+  await flushQueue();               // esvazia alguma pendência remanescente
 
   // Clear form and UI
   desc.value = '';
