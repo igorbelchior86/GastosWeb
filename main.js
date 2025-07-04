@@ -448,7 +448,7 @@ cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('
 
 // Service Worker registration
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js');
+  navigator.serviceWorker.register('sw.js');
 }
 // Listen for SW sync event and flush queue via Firebase client
 if ('serviceWorker' in navigator) {

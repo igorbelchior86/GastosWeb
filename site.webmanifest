@@ -7,8 +7,8 @@
     { "src": "icons/icon-512x512.png",  "sizes": "512x512",  "type": "image/png" },
     { "src": "icons/icon-144x144.png",  "sizes": "144x144",  "type": "image/png" }
   ],
-  "start_url": "/index.html?source=pwa",
-  "scope": "/",
+  "start_url": "/GastosWeb/index.html?source=pwa",
+  "scope": "/GastosWeb/",
   "display": "standalone",
   "background_color": "#f2f4f7",
   "theme_color": "#ffffff"
