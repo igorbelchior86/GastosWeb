@@ -23,13 +23,10 @@ if (!USE_MOCK) {
   onValue(txRefRealtime, snap => {
     if (!snap.exists()) return;
     const data = snap.val();
-    const arr = Array.isArray(data) ? data : Object.values(data || {});
-    // Evita rerender excessivo se nada mudou
-    if (JSON.stringify(arr) !== JSON.stringify(transactions)) {
-      transactions = arr;
-      cacheSet('tx', transactions);
-      renderTable();
-    }
+    const arr = Array.isArray(data) ? data : Object.values(data);
+    transactions = arr;
+    cacheSet('tx', transactions);
+    renderTable();
   });
   // 🔄 Incremental child listeners para sincronia em tempo real
   onChildAdded(txRefRealtime, snap => {
