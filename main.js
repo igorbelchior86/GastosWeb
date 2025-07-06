@@ -569,9 +569,6 @@ async function queueTx(tx) {
 }
 async function flushQueue() {
   if (USE_MOCK) return;  // skip real DB in mock mode
-  const syncBtn = document.getElementById('syncNowBtn');
-  syncBtn.classList.add('spin');
-  const spinStart = Date.now();
 
   const db = await getDb();
   const all = await db.getAll('tx');
@@ -587,25 +584,14 @@ async function flushQueue() {
       console.error('[SYNC]', e);
     }
   }
-
-  // garante pelo menos 1s de animação
-  const elapsed = Date.now() - spinStart;
-  const minSpin = 1000;
-  if (elapsed < minSpin) {
-    await new Promise(res => setTimeout(res, minSpin - elapsed));
-  }
-
-  syncBtn.classList.remove('spin');
   updatePendingBadge();
 }
 
 function updatePendingBadge() {
   getDb().then(db => db.getAll('tx')
     .then(all => {
-      const syncBtn = document.getElementById('syncNowBtn');
-      const offIc   = document.getElementById('offlineIndicator');
+      const offIc = document.getElementById('offlineIndicator');
       const count = all.length;
-      syncBtn.hidden = false;                  // sempre visível
       offIc.textContent = count ? `📴 ${count}` : '📴';
     }));
 }
