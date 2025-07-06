@@ -188,17 +188,19 @@ const makeLine = t => {
   topRow.appendChild(right);
   d.appendChild(topRow);
 
-  // Only show timestamp for planned transactions
-  if (t.planned) {
-    const ts = document.createElement('div');
-    ts.className = 'timestamp';
-    const timeStr = new Date(t.ts).toLocaleTimeString('pt-BR', { hour12: false });
-    const methodLabel = t.method === 'Dinheiro'
-      ? 'Dinheiro'
-      : `Cartão ${t.method}`;
-    ts.textContent = `${timeStr} - ${methodLabel}`;
-    d.appendChild(ts);
-  }
+  // Timestamp e método de pagamento
+  const ts = document.createElement('div');
+  ts.className = 'timestamp';
+  // Usa data de criação para programadas e data de operação para executadas
+  const dateObj = t.planned
+    ? new Date(t.ts)
+    : new Date(t.opDate);
+  const dateStr = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  const methodLabel = t.method === 'Dinheiro'
+    ? 'Dinheiro'
+    : `Cartão ${t.method}`;
+  ts.textContent = `${dateStr} - ${methodLabel}`;
+  d.appendChild(ts);
 
   return d;
 };
