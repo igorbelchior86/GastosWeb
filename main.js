@@ -343,7 +343,7 @@ function renderAccordion() {
       dDet.className = 'day';
       dDet.dataset.key = `d-${iso}`;    // identifica o dia YYYY‑MM‑DD
       dDet.open = openKeys.includes(dDet.dataset.key);
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayISO();
       if (iso === today) dDet.classList.add('today');
       const dSum = document.createElement('summary');
       dSum.className = 'day-summary';
