@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=5">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -18,6 +18,7 @@
       <span class="logo-text">Gastos+</span>
     </div>
     <span id="offlineIndicator" class="offline-icon" hidden>📴</span>
+    <button id="openPlannedBtn" class="floating-planned-button" title="Planejados">📅</button>
     <button id="openCardModal" class="floating-card-button" title="Gerenciar cartões">💳</button>
   </header>
 
@@ -28,7 +29,7 @@
       <h2>Saldo inicial</h2>
       <div id="startGroup" class="start-box">
         <div class="start-controls">
-          <input id="startInput" type="number">
+          <input id="startInput" name="startInput" type="number">
           <button id="setStartBtn">OK</button>
         </div>
       </div>
@@ -56,18 +57,18 @@
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
       <h2>Novo Cartão</h2>
+      <button id="closeCardModal" class="modal-close-btn" aria-label="Fechar">✕</button>
 
-      <input id="cardName" placeholder="Nome">
+      <input id="cardName" name="cardName" placeholder="Nome">
       <div class="card-dates">
-        <input id="cardClose" type="number" min="1" max="31" placeholder="Fechamento">
-        <input id="cardDue" type="number" min="1" max="31" placeholder="Vencimento">
+        <input id="cardClose" name="cardClose" type="number" min="1" max="31" placeholder="Fechamento">
+        <input id="cardDue" name="cardDue" type="number" min="1" max="31" placeholder="Vencimento">
       </div>
       <button id="addCardBtn">Adicionar</button>
       <small>Fechamento define a fatura.</small>
 
       <ul id="cardList" class="card-list"></ul>
 
-      <button id="closeCardModal">Fechar</button>
     </div>
   </div>
 
@@ -76,19 +77,32 @@
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
       <h2>Lançar operação</h2>
+      <button id="closeTxModal" class="modal-close-btn" aria-label="Fechar">✕</button>
       <div class="form-grid">
-        <input id="desc" placeholder="Descrição">
-        <input id="value" type="number" placeholder="Valor (- despesa)">
-        <select id="method"></select>
-        <input id="opDate" type="date">
+        <input id="desc" name="desc" placeholder="Descrição">
+        <input id="value" name="value" type="number" placeholder="Valor (- despesa)">
+        <select id="method" name="method"></select>
+        <input id="opDate" name="opDate" type="date">
         <button id="addBtn">Adicionar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Planejados -->
+  <div id="plannedModal" class="bottom-modal backdrop-blur hidden">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
+      <h2>Planejados</h2>
+      <button id="closePlannedModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="modal-content">
+        <div id="plannedList" class="planned-list"></div>
       </div>
     </div>
   </div>
 
   <button id="openTxModal" class="floating-add-button" title="Nova operação">＋</button>
 
-  <script type="module" src="main.js"></script>
+  <script type="module" src="main.js?v=5"></script>
 
   <!-- Toast de erro -->
   <div id="toast" class="toast"></div>
@@ -96,16 +110,35 @@
   <script>
     const openTxBtn = document.getElementById('openTxModal');
     const txModal = document.getElementById('txModal');
+    const wrapperEl = document.querySelector('.wrapper');
+    const closeTxModal = document.getElementById('closeTxModal');
 
     function toggleTxModal() {
-      const isOpen = !txModal.classList.contains('hidden');
+      const isOpening = txModal.classList.contains('hidden');
+      if (isOpening) {
+        document.body.style.overflow = 'hidden';
+        wrapperEl.style.overflow = 'hidden';
+      } else {
+        document.body.style.overflow = '';
+        wrapperEl.style.overflow = '';
+      }
       txModal.classList.toggle('hidden');
-      openTxBtn.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(45deg)';
+      openTxBtn.style.transform = isOpening ? 'rotate(45deg)' : 'rotate(0deg)';
     }
 
     openTxBtn.onclick = toggleTxModal;
+    // Close via close-icon button
+    closeTxModal.onclick = toggleTxModal;
     txModal.onclick = e => { if (e.target === txModal) toggleTxModal(); };
+    // Block background touch scroll when txModal open
+    document.addEventListener('touchmove', e => {
+      if (!txModal.classList.contains('hidden')) e.preventDefault();
+    }, { passive: false });
+    // Block background wheel scroll when txModal open
+    document.addEventListener('wheel', e => {
+      if (!txModal.classList.contains('hidden')) e.preventDefault();
+    }, { passive: false });
   </script>
+  <footer class="app-footer"><small id="version"></small></footer>
 </body>
-<footer class="app-footer"><small id="version"></small></footer>
 </html>

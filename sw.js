@@ -1,4 +1,4 @@
-const CACHE = 'v3';   // bump para nova versão
+const CACHE = 'v5';   // bump para nova versão
 const ASSETS = [
   './',
   './index.html',
