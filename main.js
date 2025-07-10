@@ -25,7 +25,7 @@ let PATH;
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;               // usar banco real para testes
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 let save, load;
 let firebaseDb;
 
