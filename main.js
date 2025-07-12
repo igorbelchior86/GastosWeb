@@ -1183,7 +1183,15 @@ cardModal.onclick = e => {
   const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
 
   if (hasLiveTx && JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
-    transactions = fixedTx;
+    // Normalize loaded transactions to ensure recurrence, installments and parentId defaults
+    const migratedTx = fixedTx.map(t => ({
+      ...t,
+      recurrence:   t.recurrence   ?? '',
+      installments: t.installments ?? 1,
+      parentId:     t.parentId     ?? null,
+      planned:      t.planned      ?? (t.opDate > todayISO())
+    }));
+    transactions = migratedTx;
     cacheSet('tx', transactions);
     renderTable();
   }
