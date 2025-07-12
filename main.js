@@ -57,7 +57,7 @@ if (!USE_MOCK) {
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
   firebaseDb = db;
-  PATH = 'orcamento365';
+  PATH = 'orcamento365_9b8e04c5';
   const auth = getAuth(app);
   await signInAnonymously(auth);   // garante auth.uid antes dos gets/sets
   save = (k, v) => set(ref(db, `${PATH}/${k}`), v);
