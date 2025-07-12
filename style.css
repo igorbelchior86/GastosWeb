@@ -1076,3 +1076,10 @@ details.day[data-has="true"] {
 .invoice .op-ts {
   background: #fafafa !important;
 }
+
+/* Icon for recurring transactions */
+.recurring-icon {
+  margin-left: 4px;
+  font-size: 0.9em;
+  color: #6b7280;
+}

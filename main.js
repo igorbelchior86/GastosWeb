@@ -1,3 +1,23 @@
+// Recorrência: Exclusão e Edição de recorrência
+let pendingDeleteTxId = null;
+let pendingDeleteTxIso = null;
+let pendingEditTxId = null;
+let pendingEditTxIso = null;
+let pendingEditMode = null;
+// Modal Excluir Recorrência - refs
+const deleteRecurrenceModal = document.getElementById('deleteRecurrenceModal');
+const closeDeleteRecurrenceModal = document.getElementById('closeDeleteRecurrenceModal');
+const deleteSingleBtn = document.getElementById('deleteSingleBtn');
+const deleteFutureBtn = document.getElementById('deleteFutureBtn');
+const deleteAllBtn = document.getElementById('deleteAllBtn');
+const cancelDeleteRecurrence = document.getElementById('cancelDeleteRecurrence');
+// Modal Editar Recorrência - refs
+const editRecurrenceModal = document.getElementById('editRecurrenceModal');
+const closeEditRecurrenceModal = document.getElementById('closeEditRecurrenceModal');
+const editSingleBtn = document.getElementById('editSingleBtn');
+const editFutureBtn = document.getElementById('editFutureBtn');
+const editAllBtn = document.getElementById('editAllBtn');
+const cancelEditRecurrence = document.getElementById('cancelEditRecurrence');
 // Elements for Planejados modal
 const openPlannedBtn = document.getElementById('openPlannedBtn');
 const plannedModal   = document.getElementById('plannedModal');
@@ -5,10 +25,11 @@ const closePlannedModal = document.getElementById('closePlannedModal');
 const plannedList    = document.getElementById('plannedList');
 import { openDB } from 'https://unpkg.com/idb?module';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
+
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
-// Configurações de Firebase para produção e teste
+// --- Firebase configuração de PRODUÇÃO (inline) ---
 const firebaseConfig = {
   apiKey: "AIzaSyATGZtBlnSPnFtVgTqJ_E0xmBgzLTmMkI0",
   authDomain: "gastosweb-e7356.firebaseapp.com",
@@ -19,13 +40,16 @@ const firebaseConfig = {
   appId: "1:519966772782:web:9ec19e944e23dbe9e899bf",
   measurementId: "G-JZYYGSJKTZ"
 };
+// --------------------------------------------------
+
+// Configuração Firebase importada do arquivo de produção
 
 let PATH;
 
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;               // usar banco real para testes
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 let save, load;
 let firebaseDb;
 
@@ -33,7 +57,7 @@ if (!USE_MOCK) {
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
   firebaseDb = db;
-  PATH = 'orcamento365_9b8e04c5';
+  PATH = 'orcamento365';
   const auth = getAuth(app);
   await signInAnonymously(auth);   // garante auth.uid antes dos gets/sets
   save = (k, v) => set(ref(db, `${PATH}/${k}`), v);
@@ -53,6 +77,14 @@ const cacheGet  = (k, d) => JSON.parse(localStorage.getItem(`cache_${k}`)) ?? d;
 const cacheSet  = (k, v) => localStorage.setItem(`cache_${k}`, JSON.stringify(v));
 
 let transactions  = cacheGet('tx', []);
+// ---- Migration: normalize legacy transactions ----
+transactions = transactions.map(t => ({
+  ...t,
+  recurrence: t.recurrence ?? '',
+  installments: t.installments ?? 1,
+  parentId: t.parentId ?? null
+}));
+cacheSet('tx', transactions);
 let cards         = cacheGet('cards', [{name:'Dinheiro',close:0,due:0}]);
 let startBalance  = cacheGet('startBal', null);
 const $=id=>document.getElementById(id);
@@ -113,10 +145,88 @@ const todayISO = () => {
 
 const post=(iso,m)=>{if(m==='Dinheiro')return iso;const c=cards.find(x=>x.name===m);if(!c)return iso;const [y,mo,d]=iso.split('-').map(Number);let mm=mo,yy=y;if(d>c.close){mm++;if(mm===13){mm=1;yy++;}}return yy+'-'+String(mm).padStart(2,'0')+'-'+String(c.due).padStart(2,'0');};
 
+const addYearsIso  = (iso,n) => {
+  const d=new Date(iso);d.setFullYear(d.getFullYear()+n);
+  return d.toISOString().slice(0,10);
+};
+
+
+// ---- Recurrence rule helpers ----
+function isSameDayOfMonth(baseIso, testIso, monthInterval) {
+  const [by, bm, bd] = baseIso.split('-').map(Number);
+  const [ty, tm, td] = testIso.split('-').map(Number);
+  if (td !== bd) return false;
+  const monthsDiff = (ty - by) * 12 + (tm - bm);
+  return monthsDiff % monthInterval === 0;
+}
+
+function occursOn(tx, iso) {
+  // Exclude single exceptions
+  if (tx.exceptions && tx.exceptions.includes(iso)) return false;
+  // Exclude dates on or after recurrence end
+  if (tx.recurrenceEnd && iso >= tx.recurrenceEnd) return false;
+  if (!tx.recurrence) return false;
+  if (iso < tx.opDate) return false;
+  const diffDays = Math.floor((new Date(iso) - new Date(tx.opDate)) / 864e5);
+  switch (tx.recurrence) {
+    case 'D':  return true;
+    case 'W':  return diffDays % 7  === 0;
+    case 'BW': return diffDays % 14 === 0;
+    case 'M':  return isSameDayOfMonth(tx.opDate, iso, 1);
+    case 'Q':  return isSameDayOfMonth(tx.opDate, iso, 3);
+    case 'S':  return isSameDayOfMonth(tx.opDate, iso, 6);
+    case 'Y': {
+      const bd = new Date(tx.opDate);
+      const td = new Date(iso);
+      return bd.getDate() === td.getDate() && bd.getMonth() === td.getMonth();
+    }
+    default:   return false;
+  }
+}
+
 const desc=$('desc'),val=$('value'),met=$('method'),date=$('opDate'),addBtn=$('addBtn');
+
+// Recorrência e Parcelas
+const recurrence = $('recurrence');
+const parcelasBlock = $('parcelasBlock');
+const installments = $('installments');
+
+// --- Parcelamento desativado temporariamente ---
+parcelasBlock.classList.add('hidden');
+installments.value = '1';
+installments.disabled = true;
+
+// Populate installments select with options 1–24 if empty
+if (installments && installments.children.length === 0) {
+  for (let i = 1; i <= 24; i++) {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `${i}x`;
+    installments.appendChild(opt);
+  }
+}
+/*
+// Exibe parcelamento somente para cartão
+met.onchange = () => {
+  const isCash = met.value.toLowerCase() === 'dinheiro';
+  parcelasBlock.classList.toggle('hidden', isCash);
+  if (isCash) installments.value = '1';
+};
+*/
+// Se selecionar recorrência, zera parcelas
+recurrence.onchange = () => {
+  if (recurrence.value !== '') installments.value = '1';
+};
+/*
+// Se escolher parcelas >1, desabilita recorrência
+installments.onchange = () => {
+  if (parseInt(installments.value) > 1) recurrence.value = '';
+};
+*/
 let isEditing = null;
 const cardName=$('cardName'),cardClose=$('cardClose'),cardDue=$('cardDue'),addCardBtn=$('addCardBtn'),cardList=$('cardList');
 const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setStartBtn'),resetBtn=$('resetData');
+resetBtn.style.display = 'none';
 const startContainer = document.querySelector('.start-container');
 const dividerSaldo = document.getElementById('dividerSaldo');
 
@@ -129,10 +239,33 @@ const showToast = (msg, type = 'error') => {
   setTimeout(() => t.classList.remove('show', type), 3000);
 };
 
-const togglePlanned = id => {
-  const t = transactions.find(x => x.id === id);
-  if (!t) return;
-  t.planned = !t.planned;
+const togglePlanned = (id, iso) => {
+  const master = transactions.find(x => x.id === id);
+  if (!master) return;
+  if (master.recurrence) {
+    master.exceptions = master.exceptions || [];
+    if (!master.exceptions.includes(iso)) {
+      master.exceptions.push(iso);
+      // Create a standalone executed transaction for this occurrence
+      const execTx = {
+        id: Date.now(),
+        parentId: master.id,
+        desc: master.desc,
+        val: master.val,
+        method: master.method,
+        opDate: iso,
+        postDate: iso,
+        recurrence: '',
+        installments: 1,
+        planned: false,
+        ts: new Date().toISOString(),
+        modifiedAt: new Date().toISOString()
+      };
+      transactions.push(execTx);
+    }
+  } else {
+    master.planned = !master.planned;
+  }
   save('tx', transactions);
   renderTable();
 };
@@ -249,6 +382,11 @@ function renderCardList() {
     window.cardsSwipeInit = true;
   }
 }
+// Helper: returns true if this record is a detached (single‑edited) occurrence
+function isDetachedOccurrence(tx) {
+  return !tx.recurrence && !!tx.parentId;
+}
+
 const makeLine = t => {
   // Create swipe wrapper
   const wrap = document.createElement('div');
@@ -262,14 +400,47 @@ const makeLine = t => {
   const editBtn = document.createElement('button');
   editBtn.className = 'icon edit';
   editBtn.textContent = '✏️';
-  editBtn.onclick = () => editTx(t.id);
+  editBtn.onclick = () => {
+    if (t.recurrence) {
+      /* ocorrência dinâmica ou regra‑mestre — mostra opções */
+      pendingEditTxId  = t.id;
+      pendingEditTxIso = t.postDate;
+      editRecurrenceModal.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      wrapperEl.style.overflow     = 'hidden';
+      return;
+    }
+
+    if (isDetachedOccurrence(t)) {
+      /* Já foi editada como “Somente esta”: trata como operação única */
+      pendingEditMode = null;
+      editTx(t.id);
+      return;
+    }
+
+    /* Operação realmente única (sem parentId) */
+    editTx(t.id);
+  };
   actions.appendChild(editBtn);
 
   // Delete button
   const delBtn = document.createElement('button');
   delBtn.className = 'icon danger delete';
   delBtn.textContent = '🗑';
-  delBtn.onclick = () => delTx(t.id);
+  delBtn.onclick = () => {
+    if (t.recurrence) {
+      // show bottom sheet only for recurring operations
+      delTx(t.id, t.postDate);
+    } else {
+      // simple confirm for one‑time operations (including detached occurrences)
+      if (confirm('Deseja excluir esta operação?')) {
+        transactions = transactions.filter(x => x.id !== t.id);
+        save('tx', transactions);
+        renderTable();
+        showToast('Operação excluída!', 'success');
+      }
+    }
+  };
   actions.appendChild(delBtn);
 
   // Original operation line
@@ -282,17 +453,28 @@ const makeLine = t => {
   topRow.className = 'op-main';
   const left = document.createElement('div');
   left.className = 'op-left';
+
+  // (Moved) mark recurring transactions with an icon AFTER description
+
   if (t.planned) {
     const chk = document.createElement('input');
     chk.type = 'checkbox';
     chk.className = 'plan-check';
     chk.name = 'planned';
-    chk.onchange = () => togglePlanned(t.id);
+    chk.onchange = () => togglePlanned(t.id, t.postDate);
     left.appendChild(chk);
   }
   const descNode = document.createElement('span');
   descNode.textContent = t.desc;
   left.appendChild(descNode);
+  // mark recurring transactions (master or detached occurrence) with an icon
+  if (t.recurrence || t.parentId) {
+    const recIcon = document.createElement('span');
+    recIcon.className = 'recurring-icon';
+    recIcon.textContent = '🔄';
+    recIcon.title = 'Recorrência';
+    left.appendChild(recIcon);
+  }
   const right = document.createElement('div');
   right.className = 'op-right';
   const value = document.createElement('span');
@@ -362,59 +544,170 @@ async function addTx() {
   // Modo edição?
   if (isEditing !== null) {
     const t = transactions.find(x => x.id === isEditing);
-    t.desc       = desc.value.trim();
-    t.val        = parseFloat(val.value);
-    t.method     = met.value;
-    t.opDate     = date.value;
-    t.postDate   = post(t.opDate, t.method);
-    t.modifiedAt = new Date().toISOString();
-    isEditing = null;
+    const newDesc    = desc.value.trim();
+    const newVal     = parseFloat(val.value);
+    const newMethod  = met.value;
+    const newOpDate  = date.value;
+    const newPostDate = post(newOpDate, newMethod);
+
+    switch (pendingEditMode) {
+      case 'single':
+        // Exception for this occurrence
+        t.exceptions = t.exceptions || [];
+        if (!t.exceptions.includes(pendingEditTxIso)) {
+          t.exceptions.push(pendingEditTxIso);
+        }
+        // Create standalone edited transaction
+        transactions.push({
+          id: Date.now(),
+          parentId: t.id,
+          desc: newDesc,
+          val: newVal,
+          method: newMethod,
+          opDate: newOpDate,
+          postDate: newPostDate,
+          recurrence: '',
+          installments: 1,
+          planned: newOpDate > todayISO(),
+          ts: new Date().toISOString(),
+          modifiedAt: new Date().toISOString()
+        });
+        break;
+      case 'future':
+        // End original series at this occurrence
+        t.recurrenceEnd = pendingEditTxIso;
+        // Create new series starting from this occurrence
+        transactions.push({
+          id: Date.now(),
+          parentId: null,
+          desc: newDesc,
+          val: newVal,
+          method: newMethod,
+          opDate: pendingEditTxIso,
+          postDate: newPostDate,
+          recurrence: t.recurrence,
+          installments: 1,
+          planned: pendingEditTxIso > todayISO(),
+          ts: new Date().toISOString(),
+          modifiedAt: new Date().toISOString()
+        });
+        break;
+      case 'all': {
+        {
+          /* —— EDITAR TODAS ——  
+             Apenas altera a REGRA‑MESTRE, preservando todas as ocorrências
+             passadas.  Se o registro clicado for uma ocorrência gerada,
+             subimos para o pai; caso contrário usamos o próprio. */
+
+          const master = t.parentId
+            ? transactions.find(tx => tx.id === t.parentId)
+            : t;
+
+          if (master) {
+            master.desc         = newDesc;
+            master.val          = newVal;
+            master.method       = newMethod;
+            // Mantemos opDate original; só recalculamos postDate conforme novo método
+            master.postDate     = post(master.opDate, newMethod);
+            master.recurrence   = recurrence.value;
+            master.installments = parseInt(installments.value, 10) || 1;
+            master.modifiedAt   = new Date().toISOString();
+          }
+        }
+        break;
+      }
+      default:
+        // Fallback: modify just this entry
+        t.desc       = newDesc;
+        t.val        = newVal;
+        t.method     = newMethod;
+        t.opDate     = newOpDate;
+        t.postDate   = newPostDate;
+        t.modifiedAt = new Date().toISOString();
+    }
+
+    // Reset editing state
+    pendingEditMode    = null;
+    pendingEditTxId    = null;
+    pendingEditTxIso   = null;
+    isEditing          = null;
     addBtn.textContent = 'Adicionar';
     txModalTitle.textContent = 'Lançar operação';
+
     save('tx', transactions);
     renderTable();
     toggleTxModal();
     showToast('Alterações salvas!', 'success');
     return;
   }
-  // Modo adicionar (original)
+
+  // Modo adicionar
   if (startBalance === null) {
     showToast('Defina o saldo inicial primeiro (pode ser 0).');
     return;
   }
-  const d = desc.value.trim(),
-        v = parseFloat(val.value),
-        m = met.value,
-        iso = date.value;
+
+  const d   = desc.value.trim();
+  const v   = parseFloat(val.value);
+  const m   = met.value;
+  const iso = date.value;
+
   if (!d || isNaN(v) || !iso) {
     alert('Complete os campos');
     return;
   }
-  const tx = {
+
+  // Lê opções de recorrência e parcelas
+  const recur = recurrence.value;
+  const inst  = parseInt(installments.value, 10) || 1;
+
+  const baseTx = {
     id: Date.now(),
+    parentId: null,
     desc: d,
     val: v,
     method: m,
     opDate: iso,
     postDate: post(iso, m),
+    recurrence: recur,
+    installments: inst,
     planned: iso > todayISO(),
     ts: new Date().toISOString(),
     modifiedAt: new Date().toISOString()
   };
-  transactions.push(tx);
+
+  // Gera lote de transações conforme tipo
+  let batch = [];
+  if (inst > 1) {
+    batch = generateInstallments(baseTx);
+  } else if (recur) {
+    batch = [baseTx];   // salva só a regra de recorrência
+  } else {
+    batch = [baseTx];
+  }
+
+  // Adiciona e salva
+  transactions.push(...batch);
   cacheSet('tx', transactions);
+
   if (!navigator.onLine) {
-    await queueTx(tx);
+    for (const t of batch) {
+      await queueTx(t);
+    }
     updatePendingBadge();
     renderTable();
     showToast('Offline: transação salva na fila', 'error');
     return;
   }
-  await queueTx(tx);
-  await flushQueue();                    // envia imediatamente para o Firebase
+
+  for (const t of batch) {
+    await queueTx(t);
+  }
+  await flushQueue();
+
   // Limpa formulário
   desc.value = '';
-  val.value = '';
+  val.value  = '';
   date.value = todayISO();
   updatePendingBadge();
   renderTable();
@@ -422,7 +715,164 @@ async function addTx() {
   showToast('Tudo certo!', 'success');
 }
 
-const delTx=id=>{if(!confirm('Apagar?'))return;transactions=transactions.filter(t=>t.id!==id);save('tx',transactions);renderTable();};
+// Função auxiliar para gerar parcelas
+function generateInstallments(baseTx) {
+  const batch = [];
+  const n = baseTx.installments || 1;
+  const parentId = baseTx.id;
+  const val = baseTx.val;
+  const m = baseTx.method;
+  const opDate = baseTx.opDate;
+  const postDate0 = post(opDate, m);
+  const planned0 = opDate > todayISO();
+  for (let i = 0; i < n; i++) {
+    // Calcula data da parcela i
+    let opDateI;
+    if (m === 'Dinheiro') {
+      // Parcelas em dinheiro: cada parcela em meses seguintes
+      const d = new Date(opDate);
+      d.setMonth(d.getMonth() + i);
+      opDateI = d.toISOString().slice(0, 10);
+    } else {
+      // Parcelas em cartão: cada parcela na próxima fatura
+      const d = new Date(opDate);
+      d.setMonth(d.getMonth() + i);
+      // Ajusta dia para o fechamento do cartão se necessário
+      opDateI = d.toISOString().slice(0, 10);
+    }
+    batch.push({
+      ...baseTx,
+      id: parentId + i,
+      parentId,
+      val: val,
+      opDate: opDateI,
+      postDate: post(opDateI, m),
+      planned: opDateI > todayISO(),
+      ts: new Date().toISOString(),
+      modifiedAt: new Date().toISOString(),
+      recurrence: '',
+      installments: n
+    });
+  }
+  return batch;
+}
+
+// Função auxiliar para gerar recorrências
+function generateOccurrences(baseTx) {
+  const recur = baseTx.recurrence;
+  if (!recur) return [];
+  const occurrences = [];
+  const parentId = baseTx.id;
+  // Limita a 12 ocorrências (exemplo: 1 ano) para evitar explosão
+  let n = 0, max = 12;
+  let d = new Date(baseTx.opDate);
+  for (let i = 1; i < max; i++) {
+    // Avança data conforme recorrência
+    switch(recur) {
+      case 'D': d.setDate(d.getDate() + 1); break;
+      case 'W': d.setDate(d.getDate() + 7); break;
+      case 'BW': d.setDate(d.getDate() + 14); break;
+      case 'M': d.setMonth(d.getMonth() + 1); break;
+      case 'Q': d.setMonth(d.getMonth() + 3); break;
+      case 'S': d.setMonth(d.getMonth() + 6); break;
+      case 'Y': d.setFullYear(d.getFullYear() + 1); break;
+      default: break;
+    }
+    const nextIso = d.toISOString().slice(0, 10);
+    occurrences.push({
+      ...baseTx,
+      id: parentId + i,
+      parentId,
+      opDate: nextIso,
+      postDate: post(nextIso, baseTx.method),
+      planned: nextIso > todayISO(),
+      ts: new Date().toISOString(),
+      modifiedAt: new Date().toISOString(),
+      recurrence: '',
+      installments: 1
+    });
+  }
+  return occurrences;
+}
+
+// Delete a transaction (with options for recurring rules)
+function delTx(id, iso) {
+  const t = transactions.find(x => x.id === id);
+  if (!t) return;
+  pendingDeleteTxId = id;
+  pendingDeleteTxIso = iso;
+  // open the half-sheet
+  deleteRecurrenceModal.classList.remove('hidden');
+  if (document.body) document.body.style.overflow = 'hidden';
+  if (wrapperEl) wrapperEl.style.overflow = 'hidden';
+}
+
+function closeDeleteModal() {
+  deleteRecurrenceModal.classList.add('hidden');
+  if (document.body) document.body.style.overflow = '';
+  if (wrapperEl) wrapperEl.style.overflow = '';
+  pendingDeleteTxId = null;
+  pendingDeleteTxIso = null;
+}
+
+// Modal handlers
+closeDeleteRecurrenceModal.onclick = closeDeleteModal;
+cancelDeleteRecurrence.onclick = closeDeleteModal;
+deleteRecurrenceModal.onclick = e => { if (e.target === deleteRecurrenceModal) closeDeleteModal(); };
+
+deleteSingleBtn.onclick = () => {
+  const tx = transactions.find(t => t.id === pendingDeleteTxId);
+  if (!tx) { closeDeleteModal(); return; }
+  tx.exceptions = tx.exceptions || [];
+  tx.exceptions.push(pendingDeleteTxIso);
+  save('tx', transactions);
+  renderTable();
+  closeDeleteModal();
+  showToast('Ocorrência excluída!', 'success');
+};
+deleteFutureBtn.onclick = () => {
+  const tx = transactions.find(t => t.id === pendingDeleteTxId);
+  if (!tx) { closeDeleteModal(); return; }
+  tx.recurrenceEnd = pendingDeleteTxIso;
+  save('tx', transactions);
+  renderTable();
+  closeDeleteModal();
+  showToast('Esta e futuras excluídas!', 'success');
+};
+deleteAllBtn.onclick = () => {
+  // Remove both master rule and any occurrences with parentId
+  transactions = transactions.filter(t => t.id !== pendingDeleteTxId && t.parentId !== pendingDeleteTxId);
+  save('tx', transactions);
+  renderTable();
+  closeDeleteModal();
+  showToast('Todas as recorrências excluídas!', 'success');
+};
+
+// Modal Editar Recorrência handlers
+function closeEditModal() {
+  editRecurrenceModal.classList.add('hidden');
+  if (document.body) document.body.style.overflow = '';
+  if (wrapperEl) wrapperEl.style.overflow = '';
+}
+closeEditRecurrenceModal.onclick = closeEditModal;
+cancelEditRecurrence.onclick = closeEditModal;
+editRecurrenceModal.onclick = e => { if (e.target === editRecurrenceModal) closeEditModal(); };
+
+editSingleBtn.onclick = () => {
+  pendingEditMode = 'single';
+  closeEditModal();
+  editTx(pendingEditTxId);
+};
+editFutureBtn.onclick = () => {
+  pendingEditMode = 'future';
+  closeEditModal();
+  editTx(pendingEditTxId);
+};
+editAllBtn.onclick = () => {
+  pendingEditMode = 'all';
+  closeEditModal();
+  editTx(pendingEditTxId);
+};
 const editTx = id => {
   const t = transactions.find(x => x.id === id);
   if (!t) return;
@@ -430,7 +880,16 @@ const editTx = id => {
   desc.value   = t.desc;
   val.value    = t.val;
   met.value    = t.method;
-  date.value   = t.opDate;
+  // garante que o bloco Parcelas apareça para métodos de cartão
+  met.dispatchEvent(new Event('change'));
+  // Preenche recorrência e parcelas e data especial, se em pendingEditMode
+  if (pendingEditMode && pendingEditTxIso) {
+    date.value = pendingEditTxIso;
+  } else {
+    date.value = t.opDate;
+  }
+  recurrence.value = t.recurrence;
+  installments.value = t.installments;
   isEditing    = id;
   addBtn.textContent = 'Salvar';
   txModalTitle.textContent = 'Editar operação';
@@ -484,7 +943,21 @@ function renderAccordion() {
   const curMonth = new Date().getMonth();   // 0‑based
 
   // Helper to get all transactions of a specific ISO date
-  const txByDate = iso => transactions.filter(t => t.postDate === iso);
+  const txByDate = iso => {
+    const today = todayISO();
+    // direct transactions (non-recurring, non-installment)
+    const dayList = transactions.filter(t =>
+      t.postDate === iso && !t.recurrence && t.installments === 1
+    );
+    // add dynamically generated occurrences with correct planned flag
+    transactions.filter(t => t.recurrence).forEach(master => {
+      if (occursOn(master, iso)) {
+        const isPlanned = iso > today;
+        dayList.push({ ...master, postDate: iso, planned: isPlanned });
+      }
+    });
+    return dayList;
+  };
 
   let runningBalance = startBalance || 0;          // saldo acumulado
   for (let mIdx = 0; mIdx < 12; mIdx++) {
@@ -670,19 +1143,19 @@ setStartBtn.onclick=()=>{const v=parseFloat(startInput.value);if(isNaN(v)){alert
 resetBtn.onclick=()=>{if(!confirm('Resetar tudo?'))return;transactions=[];cards=[{name:'Dinheiro',close:0,due:0}];startBalance=null;cacheSet('tx', []);cacheSet('cards', [{name:'Dinheiro',close:0,due:0}]);cacheSet('startBal', null);save('tx',transactions);save('cards',cards);save('startBal',null);refreshMethods();renderCardList();initStart();renderTable();};
 addCardBtn.onclick=addCard;addBtn.onclick=addTx;
 openCardBtn.onclick = () => {
-  document.body.style.overflow = 'hidden';   // bloqueia scroll de fundo
-  wrapperEl.style.overflow = 'hidden';      // bloqueia scroll no container principal
+  if (document.body) document.body.style.overflow = 'hidden';   // bloqueia scroll de fundo
+  if (wrapperEl) wrapperEl.style.overflow = 'hidden';      // bloqueia scroll no container principal
   cardModal.classList.remove('hidden');
 };
 closeCardModal.onclick = () => {
-  document.body.style.overflow = '';
-  wrapperEl.style.overflow = '';
+  if (document.body) document.body.style.overflow = '';
+  if (wrapperEl) wrapperEl.style.overflow = '';
   cardModal.classList.add('hidden');
 };
 cardModal.onclick = e => {
   if (e.target === cardModal) {
-    document.body.style.overflow = '';
-    wrapperEl.style.overflow = '';
+    if (document.body) document.body.style.overflow = '';
+    if (wrapperEl) wrapperEl.style.overflow = '';
     cardModal.classList.add('hidden');
   }
 };
@@ -703,15 +1176,18 @@ cardModal.onclick = e => {
     load('startBal', startBalance)
   ]);
 
+  const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
+  const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
+
   // Converte objeto → array se necessário
   const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
 
-  if (JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
+  if (hasLiveTx && JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
     transactions = fixedTx;
     cacheSet('tx', transactions);
     renderTable();
   }
-  if (JSON.stringify(liveCards) !== JSON.stringify(cards)) {
+  if (hasLiveCards && JSON.stringify(liveCards) !== JSON.stringify(cards)) {
     cards = liveCards;
     if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
     cacheSet('cards', cards);
@@ -741,11 +1217,11 @@ function togglePlannedModal() {
   const isOpening = plannedModal.classList.contains('hidden');
   if (isOpening) {
     renderPlannedModal();
-    document.body.style.overflow = 'hidden';
-    wrapperEl.style.overflow = 'hidden';
+    if (document.body) document.body.style.overflow = 'hidden';
+    if (wrapperEl) wrapperEl.style.overflow = 'hidden';
   } else {
-    document.body.style.overflow = '';
-    wrapperEl.style.overflow = '';
+    if (document.body) document.body.style.overflow = '';
+    if (wrapperEl) wrapperEl.style.overflow = '';
   }
   plannedModal.classList.toggle('hidden');
 }
@@ -762,47 +1238,88 @@ plannedModal.addEventListener('wheel', e => {
 
 function renderPlannedModal() {
   plannedList.innerHTML = '';
-  // agrupa planejados por opDate
   const grouped = {};
-  transactions.filter(t => t.planned).forEach(t => {
-    (grouped[t.opDate] = grouped[t.opDate] || []).push(t);
-  });
-  Object.keys(grouped).sort().forEach(iso => {
-    const [y, mo, da] = iso.split('-').map(Number);
-    const yy = y % 100;
-    const header = document.createElement('div');
-    header.className = 'subheader';
-    header.textContent = `${String(da).padStart(2,'0')}/${String(mo).padStart(2,'0')}/${String(yy).padStart(2,'0')}`;
-    plannedList.appendChild(header);
-    grouped[iso].forEach(t => {
-      const item = document.createElement('div');
-      item.className = 'planned-item';
-      // row with checkbox, description, and value
-      const row = document.createElement('div');
-      row.className = 'planned-row';
-      const chk = document.createElement('input');
-      chk.type = 'checkbox';
-      chk.name = 'plannedModal';     // accessibility/autofill
-      chk.checked = false;
-      chk.onchange = () => { togglePlanned(t.id); renderPlannedModal(); renderTable(); };
-      row.appendChild(chk);
-      const desc = document.createElement('span');
-      desc.className = 'desc';
-      desc.textContent = t.desc;
-      row.appendChild(desc);
-      const val = document.createElement('span');
-      val.className = 'value';
-      val.textContent = currency(t.val);
-      row.appendChild(val);
-      item.appendChild(row);
-      // method below, indented
-      const methodDiv = document.createElement('div');
-      methodDiv.className = 'method';
-      methodDiv.textContent = t.method;
-      item.appendChild(methodDiv);
-      plannedList.appendChild(item);
+  const today = new Date();
+  const todayIso = todayISO();
+
+  // Look ahead for the next year (365 days)
+  for (let i = 1; i <= 365; i++) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(today.getDate() + i);
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth() + 1).padStart(2, '0');
+    const dd   = String(d.getDate()).padStart(2, '0');
+    const iso  = `${yyyy}-${mm}-${dd}`;
+    const dayItems = [];
+
+    // 1. one-off planned transactions
+    transactions
+      .filter(t => !t.recurrence && t.planned && t.opDate === iso)
+      .forEach(t => dayItems.push(t));
+
+    // 2. dynamic recurring occurrences
+    transactions
+      .filter(t => t.recurrence)
+      .forEach(master => {
+        if (occursOn(master, iso)) {
+          dayItems.push({ ...master, opDate: iso, postDate: iso, planned: true });
+        }
+      });
+
+    if (dayItems.length) {
+      grouped[iso] = dayItems;
+    }
+  }
+
+  Object.keys(grouped)
+    .sort()
+    .forEach(iso => {
+      const [y, mo, da] = iso.split('-').map(Number);
+      const header = document.createElement('div');
+      header.className = 'subheader';
+      header.textContent = `${String(da).padStart(2, '0')}/${String(mo).padStart(2, '0')}/${String(y % 100).padStart(2, '0')}`;
+      plannedList.appendChild(header);
+
+      grouped[iso].forEach(t => {
+        const item = document.createElement('div');
+        item.className = 'planned-item';
+        const row = document.createElement('div');
+        row.className = 'planned-row';
+
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.name = 'plannedModal';
+        chk.checked = false;
+        chk.onchange = () => { togglePlanned(t.id, t.opDate); renderPlannedModal(); renderTable(); };
+        row.appendChild(chk);
+
+        const descEl = document.createElement('span');
+        descEl.className = 'desc';
+        descEl.textContent = t.desc;
+        if (t.recurrence) {
+          const recIcon = document.createElement('span');
+          recIcon.className = 'recurring-icon';
+          recIcon.textContent = '🔄';
+          recIcon.title = 'Recorrência';
+          descEl.appendChild(recIcon);
+        }
+        row.appendChild(descEl);
+
+        const valEl = document.createElement('span');
+        valEl.className = 'value';
+        valEl.textContent = currency(t.val);
+        row.appendChild(valEl);
+        item.appendChild(row);
+
+        const methodDiv = document.createElement('div');
+        methodDiv.className = 'method';
+        methodDiv.textContent = t.method;
+        item.appendChild(methodDiv);
+
+        plannedList.appendChild(item);
+      });
     });
-  });
 }
 // Online/offline indicator
 const offlineIndicator = document.getElementById('offlineIndicator');
@@ -842,6 +1359,10 @@ async function flushQueue() {
       const txRef = ref(firebaseDb, `${PATH}/tx/${tx.id}`);
       const snap  = await get(txRef);
       if (!snap.exists() || snap.val().modifiedAt <= tx.modifiedAt) {
+        // Ensure no undefined fields before syncing
+        tx.recurrence   = tx.recurrence   ?? '';
+        tx.installments = tx.installments ?? 1;
+        tx.parentId     = tx.parentId     ?? null;
         await set(txRef, tx);
       }
       await db.delete('tx', tx.id);

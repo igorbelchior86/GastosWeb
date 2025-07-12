@@ -47,7 +47,7 @@
         </table>
       </div>
       <div id="accordion"></div>
-      <button id="resetData" class="danger" hidden style="margin-top:12px">Limpar TODOS</button>
+      <button id="resetData" class="danger" style="margin-top:12px" hidden>Limpar TODOS</button>
     </div>
     <hr class="divider">
   </div>
@@ -82,6 +82,24 @@
         <input id="desc" name="desc" placeholder="Descrição">
         <input id="value" name="value" type="number" placeholder="Valor (- despesa)">
         <select id="method" name="method"></select>
+        <!-- Recorrência -->
+        <select id="recurrence" name="recurrence">
+          <option value="">Nenhuma (única)</option>
+          <option value="D">Diário</option>
+          <option value="W">Semanal</option>
+          <option value="BW">Bi-Semanal</option>
+          <option value="M">Mensal</option>
+          <option value="Q">A cada 3 meses</option>
+          <option value="S">A cada 6 meses</option>
+          <option value="Y">Anual</option>
+        </select>
+
+        <!-- Parcelas (visível somente se método ≠ Dinheiro) -->
+        <div id="parcelasBlock" class="hidden">
+          <select id="installments" name="installments">
+            <!-- options 1‑24 serão criadas via JS -->
+          </select>
+        </div>
         <input id="opDate" name="opDate" type="date">
         <button id="addBtn">Adicionar</button>
       </div>
@@ -100,9 +118,77 @@
     </div>
   </div>
 
+  <!-- Modal Excluir Recorrência -->
+  <div id="deleteRecurrenceModal" class="bottom-modal backdrop-blur hidden">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
+      <h2>Excluir recorrência</h2>
+      <button id="closeDeleteRecurrenceModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="form-grid">
+        <button id="deleteSingleBtn" class="action-btn">Somente esta</button>
+        <button id="deleteFutureBtn" class="action-btn">Esta e futuras</button>
+        <button id="deleteAllBtn" class="action-btn">Todas</button>
+        <button id="cancelDeleteRecurrence" class="action-btn cancel-btn">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Editar Recorrência -->
+  <div id="editRecurrenceModal" class="bottom-modal backdrop-blur hidden">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
+      <h2>Editar recorrência</h2>
+      <button id="closeEditRecurrenceModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="form-grid">
+        <button id="editSingleBtn" class="action-btn">Editar somente esta</button>
+        <button id="editFutureBtn" class="action-btn">Editar esta e futuras</button>
+        <button id="editAllBtn" class="action-btn">Editar todas</button>
+        <button id="cancelEditRecurrence" class="action-btn cancel-btn">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <button id="openTxModal" class="floating-add-button" title="Nova operação">＋</button>
 
   <script type="module" src="main.js?v=5"></script>
+  <style>
+/* Action buttons for recurrence modal */
+.action-btn {
+  padding: 14px 0;
+  width: 100%;
+  border-radius: 18px;
+  font-size: 1rem;
+  font-weight: bold;
+  border: none;
+  background: #ededed;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.action-btn:not(.cancel-btn):hover {
+  background: #e0e0e0;
+}
+.cancel-btn {
+  background: #f5f5f5;
+  color: #888;
+}
+/* Parcelas: colapsa/expande suavemente */
+#parcelasBlock {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+#parcelasBlock.hidden {
+  display: none;
+  max-height: 0;
+}
+#parcelasBlock:not(.hidden) {
+  max-height: 120px;   /* altura suficiente para o select */
+}
+#parcelasBlock select {
+  margin-top: 4px;
+}
+  </style>
 
   <!-- Toast de erro -->
   <div id="toast" class="toast"></div>
@@ -116,11 +202,11 @@
     function toggleTxModal() {
       const isOpening = txModal.classList.contains('hidden');
       if (isOpening) {
-        document.body.style.overflow = 'hidden';
-        wrapperEl.style.overflow = 'hidden';
+        if (document.body) document.body.style.overflow = 'hidden';
+        if (wrapperEl) wrapperEl.style.overflow = 'hidden';
       } else {
-        document.body.style.overflow = '';
-        wrapperEl.style.overflow = '';
+        if (document.body) document.body.style.overflow = '';
+        if (wrapperEl) wrapperEl.style.overflow = '';
       }
       txModal.classList.toggle('hidden');
       openTxBtn.style.transform = isOpening ? 'rotate(45deg)' : 'rotate(0deg)';
