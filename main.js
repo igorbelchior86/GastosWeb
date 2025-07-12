@@ -79,6 +79,24 @@ if (!USE_MOCK) {
     cacheSet('tx', transactions);
     renderTable();
   });
+  // realtime listener for start balance
+  onValue(ref(db, `${PATH}/startBal`), snapshot => {
+    startBalance = snapshot.exists() ? snapshot.val() : null;
+    cacheSet('startBal', startBalance);
+    renderTable();
+  });
+  // realtime listener for cards
+  onValue(ref(db, `${PATH}/cards`), snapshot => {
+    const data = snapshot.exists() ? snapshot.val() : [];
+    cards = Array.isArray(data) ? data : Object.values(data);
+    if (!cards.some(c => c.name === 'Dinheiro')) {
+      cards.unshift({ name: 'Dinheiro', close: 0, due: 0 });
+    }
+    cacheSet('cards', cards);
+    refreshMethods();
+    renderCardList();
+    renderTable();
+  });
 } else {
   PATH = 'mock_365'; // namespace no localStorage
   save = (k, v) => localStorage.setItem(`${PATH}_${k}`, JSON.stringify(v));
