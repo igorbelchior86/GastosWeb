@@ -1043,13 +1043,16 @@ function renderAccordion() {
         dDet.appendChild(plannedSection);
       }
 
-      // Fatura (executados no cartão)
+      // Fatura de cartão: apenas no dia de vencimento, com executados e planejados
       Object.entries(cardGroups).forEach(([card, list]) => {
-        // only generate invoices for executed (non-planned) card transactions
-        const invExec = list.filter(t => !t.planned);
-        if (invExec.length === 0) return;
+        const cardCfg = cards.find(c => c.name === card);
+        if (!cardCfg || d !== cardCfg.due) return;
 
-        const invTotal = invExec.reduce((s, t) => s + t.val, 0);
+        const invExec    = list.filter(t => !t.planned);
+        const invPlanned = list.filter(t => t.planned);
+        const invTotal   = invExec.reduce((s, t) => s + t.val, 0)
+                         + invPlanned.reduce((s, t) => s + t.val, 0);
+
         const invDet = document.createElement('details');
         invDet.className = 'invoice';
 
@@ -1060,14 +1063,27 @@ function renderAccordion() {
         `;
         invDet.appendChild(invSum);
 
-        const execList = document.createElement('ul');
-        execList.className = 'executed-list';
-        invExec.forEach(t => {
-          const li = document.createElement('li');
-          li.appendChild(makeLine(t));
-          execList.appendChild(li);
-        });
-        invDet.appendChild(execList);
+        if (invExec.length) {
+          const execList = document.createElement('ul');
+          execList.className = 'executed-list';
+          invExec.forEach(t => {
+            const li = document.createElement('li');
+            li.appendChild(makeLine(t));
+            execList.appendChild(li);
+          });
+          invDet.appendChild(execList);
+        }
+
+        if (invPlanned.length) {
+          const planList = document.createElement('ul');
+          planList.className = 'planned-list';
+          invPlanned.forEach(t => {
+            const li = document.createElement('li');
+            li.appendChild(makeLine(t));
+            planList.appendChild(li);
+          });
+          invDet.appendChild(planList);
+        }
 
         dDet.appendChild(invDet);
       });
