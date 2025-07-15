@@ -945,42 +945,50 @@ function renderAccordion() {
   // Helper to get all transactions of a specific ISO date
   const txByDate = iso => {
     const today = todayISO();
-
-    // 1. operações já gravadas cujo postDate coincide com o dia‑alvo
+    // direct transactions (non-recurring, non-installment)
     const dayList = transactions.filter(t =>
       t.postDate === iso && !t.recurrence && t.installments === 1
     );
-
-    // 2. recorrências dinâmicas — só incluímos se o VENCIMENTO cair no dia‑alvo
+    // 2. recorrências dinâmicas
     transactions.filter(t => t.recurrence).forEach(master => {
-      // percorre até 31 dias antes do vencimento para achar a ocorrência original
+      const isCash = master.method.toLowerCase() === 'dinheiro';
+
+      if (isCash) {
+        // Dinheiro: exibe a ocorrência no dia em que acontece (opDate === iso)
+        if (occursOn(master, iso)) {
+          const isPlanned = iso > today;
+          dayList.push({
+            ...master,
+            opDate: iso,
+            postDate: iso,
+            planned: isPlanned
+          });
+        }
+        return;   // próxima regra
+      }
+
+      // Cartão: só exibe se o VENCIMENTO (postDate) cair no dia‑alvo
       for (let offset = 0; offset <= 31; offset++) {
         const candDateObj = new Date(iso);
         candDateObj.setDate(candDateObj.getDate() - offset);
-        // corrige para fuso local antes de toISOString()
         candDateObj.setMinutes(candDateObj.getMinutes() - candDateObj.getTimezoneOffset());
         const candIso = candDateObj.toISOString().slice(0, 10);
 
         if (!occursOn(master, candIso)) continue;
 
-        // calcula o dia de vencimento da ocorrência
         const dueIso = post(candIso, master.method);
-
-        // se o vencimento não for hoje, segue para o próximo offset
         if (dueIso !== iso) continue;
 
-        // chegou aqui = ocorrência pertence a esta data (vencimento)
         const isPlanned = iso > today;
         dayList.push({
           ...master,
-          opDate: candIso,         // dia em que foi lançada
-          postDate: iso,           // dia de vencimento (hoje)
+          opDate: candIso,   // data do lançamento original
+          postDate: iso,     // data de vencimento (hoje)
           planned: isPlanned
         });
-        break;   // não precisamos de outros offsets
+        break;  // não precisa continuar offsets
       }
     });
-
     return dayList;
   };
 
@@ -1099,8 +1107,16 @@ function renderAccordion() {
           invDet.appendChild(execList);
         }
 
-        // Removido: não mostrar planejados dentro da fatura.
-        // O total da fatura ainda soma executados + planejados.
+        if (invPlanned.length) {
+          const planList = document.createElement('ul');
+          planList.className = 'planned-list';
+          invPlanned.forEach(t => {
+            const li = document.createElement('li');
+            li.appendChild(makeLine(t));
+            planList.appendChild(li);
+          });
+          invDet.appendChild(planList);
+        }
 
         dDet.appendChild(invDet);
       });
