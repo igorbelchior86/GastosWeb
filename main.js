@@ -1045,26 +1045,30 @@ function renderAccordion() {
 
       // Fatura (executados no cartão)
       Object.entries(cardGroups).forEach(([card, list]) => {
+        // only generate invoices for executed (non-planned) card transactions
+        const invExec = list.filter(t => !t.planned);
+        if (invExec.length === 0) return;
+
+        const invTotal = invExec.reduce((s, t) => s + t.val, 0);
         const invDet = document.createElement('details');
         invDet.className = 'invoice';
+
         const invSum = document.createElement('summary');
-        const invTotal = list.reduce((s,t)=>s + t.val,0);
         invSum.innerHTML = `
           <span class="invoice-label">💳 Fatura - ${card}</span>
           <span class="invoice-total">${currency(invTotal)}</span>
         `;
         invDet.appendChild(invSum);
-        const invExec    = list.filter(t => !t.planned);
-        if (invExec.length) {
-          const execList = document.createElement('ul');
-          execList.className = 'executed-list';
-          invExec.forEach(t => {
-            const li = document.createElement('li');
-            li.appendChild(makeLine(t));
-            execList.appendChild(li);
-          });
-          invDet.appendChild(execList);
-        }
+
+        const execList = document.createElement('ul');
+        execList.className = 'executed-list';
+        invExec.forEach(t => {
+          const li = document.createElement('li');
+          li.appendChild(makeLine(t));
+          execList.appendChild(li);
+        });
+        invDet.appendChild(execList);
+
         dDet.appendChild(invDet);
       });
 
