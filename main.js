@@ -945,17 +945,42 @@ function renderAccordion() {
   // Helper to get all transactions of a specific ISO date
   const txByDate = iso => {
     const today = todayISO();
-    // direct transactions (non-recurring, non-installment)
+
+    // 1. operações já gravadas cujo postDate coincide com o dia‑alvo
     const dayList = transactions.filter(t =>
       t.postDate === iso && !t.recurrence && t.installments === 1
     );
-    // add dynamically generated occurrences with correct planned flag
+
+    // 2. recorrências dinâmicas — só incluímos se o VENCIMENTO cair no dia‑alvo
     transactions.filter(t => t.recurrence).forEach(master => {
-      if (occursOn(master, iso)) {
+      // percorre até 31 dias antes do vencimento para achar a ocorrência original
+      for (let offset = 0; offset <= 31; offset++) {
+        const candDateObj = new Date(iso);
+        candDateObj.setDate(candDateObj.getDate() - offset);
+        // corrige para fuso local antes de toISOString()
+        candDateObj.setMinutes(candDateObj.getMinutes() - candDateObj.getTimezoneOffset());
+        const candIso = candDateObj.toISOString().slice(0, 10);
+
+        if (!occursOn(master, candIso)) continue;
+
+        // calcula o dia de vencimento da ocorrência
+        const dueIso = post(candIso, master.method);
+
+        // se o vencimento não for hoje, segue para o próximo offset
+        if (dueIso !== iso) continue;
+
+        // chegou aqui = ocorrência pertence a esta data (vencimento)
         const isPlanned = iso > today;
-        dayList.push({ ...master, postDate: iso, planned: isPlanned });
+        dayList.push({
+          ...master,
+          opDate: candIso,         // dia em que foi lançada
+          postDate: iso,           // dia de vencimento (hoje)
+          planned: isPlanned
+        });
+        break;   // não precisamos de outros offsets
       }
     });
+
     return dayList;
   };
 
@@ -1074,16 +1099,8 @@ function renderAccordion() {
           invDet.appendChild(execList);
         }
 
-        if (invPlanned.length) {
-          const planList = document.createElement('ul');
-          planList.className = 'planned-list';
-          invPlanned.forEach(t => {
-            const li = document.createElement('li');
-            li.appendChild(makeLine(t));
-            planList.appendChild(li);
-          });
-          invDet.appendChild(planList);
-        }
+        // Removido: não mostrar planejados dentro da fatura.
+        // O total da fatura ainda soma executados + planejados.
 
         dDet.appendChild(invDet);
       });
