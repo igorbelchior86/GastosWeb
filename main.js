@@ -27,7 +27,7 @@ import { openDB } from 'https://unpkg.com/idb?module';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
 
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
-import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
+import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
 // --- Firebase configuração de PRODUÇÃO (inline) ---
 const firebaseConfig = {
@@ -65,38 +65,6 @@ if (!USE_MOCK) {
     const s = await get(ref(db, `${PATH}/${k}`));
     return s.exists() ? s.val() : d;
   };
-  // realtime listener for transactions
-  onValue(ref(db, `${PATH}/tx`), snapshot => {
-    const data = snapshot.exists() ? snapshot.val() : [];
-    const txArray = Array.isArray(data) ? data : Object.values(data);
-    transactions = txArray.map(t => ({
-      ...t,
-      recurrence:   t.recurrence   ?? '',
-      installments: t.installments ?? 1,
-      parentId:     t.parentId     ?? null,
-      planned:      t.planned      ?? (t.opDate > todayISO())
-    }));
-    cacheSet('tx', transactions);
-    renderTable();
-  });
-  // realtime listener for start balance
-  onValue(ref(db, `${PATH}/startBal`), snapshot => {
-    startBalance = snapshot.exists() ? snapshot.val() : null;
-    cacheSet('startBal', startBalance);
-    renderTable();
-  });
-  // realtime listener for cards
-  onValue(ref(db, `${PATH}/cards`), snapshot => {
-    const data = snapshot.exists() ? snapshot.val() : [];
-    cards = Array.isArray(data) ? data : Object.values(data);
-    if (!cards.some(c => c.name === 'Dinheiro')) {
-      cards.unshift({ name: 'Dinheiro', close: 0, due: 0 });
-    }
-    cacheSet('cards', cards);
-    refreshMethods();
-    renderCardList();
-    renderTable();
-  });
 } else {
   PATH = 'mock_365'; // namespace no localStorage
   save = (k, v) => localStorage.setItem(`${PATH}_${k}`, JSON.stringify(v));
@@ -1202,43 +1170,41 @@ cardModal.onclick = e => {
   // exibe conteúdo após carregar dados localmente
   document.querySelector('.wrapper').classList.remove('app-hidden');
 
-  if (USE_MOCK) {
-    const [liveTx, liveCards, liveBal] = await Promise.all([
-      load('tx', []),
-      load('cards', cards),
-      load('startBal', startBalance)
-    ]);
+  const [liveTx, liveCards, liveBal] = await Promise.all([
+    load('tx', []),
+    load('cards', cards),
+    load('startBal', startBalance)
+  ]);
 
-    const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
-    const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
+  const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
+  const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
 
-    // Converte objeto → array se necessário
-    const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
+  // Converte objeto → array se necessário
+  const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
 
-    if (hasLiveTx && JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
-      // Normalize loaded transactions to ensure recurrence, installments and parentId defaults
-      const migratedTx = fixedTx.map(t => ({
-        ...t,
-        recurrence:   t.recurrence   ?? '',
-        installments: t.installments ?? 1,
-        parentId:     t.parentId     ?? null,
-        planned:      t.planned      ?? (t.opDate > todayISO())
-      }));
-      transactions = migratedTx;
-      cacheSet('tx', transactions);
-      renderTable();
-    }
-    if (hasLiveCards && JSON.stringify(liveCards) !== JSON.stringify(cards)) {
-      cards = liveCards;
-      if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
-      cacheSet('cards', cards);
-      refreshMethods(); renderCardList(); renderTable();
-    }
-    if (liveBal !== startBalance) {
-      startBalance = liveBal;
-      cacheSet('startBal', startBalance);
-      initStart(); renderTable();
-    }
+  if (hasLiveTx && JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
+    // Normalize loaded transactions to ensure recurrence, installments and parentId defaults
+    const migratedTx = fixedTx.map(t => ({
+      ...t,
+      recurrence:   t.recurrence   ?? '',
+      installments: t.installments ?? 1,
+      parentId:     t.parentId     ?? null,
+      planned:      t.planned      ?? (t.opDate > todayISO())
+    }));
+    transactions = migratedTx;
+    cacheSet('tx', transactions);
+    renderTable();
+  }
+  if (hasLiveCards && JSON.stringify(liveCards) !== JSON.stringify(cards)) {
+    cards = liveCards;
+    if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
+    cacheSet('cards', cards);
+    refreshMethods(); renderCardList(); renderTable();
+  }
+  if (liveBal !== startBalance) {
+    startBalance = liveBal;
+    cacheSet('startBal', startBalance);
+    initStart(); renderTable();
   }
   // exibe versão
   const verEl = document.getElementById('version');
