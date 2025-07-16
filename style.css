@@ -561,7 +561,6 @@ details.day:not([data-has="true"]) > summary.day-summary::before {
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: #c53030;          /* vermelho para erro */
   color: #fff;
   padding: 12px 18px;
   border-radius: 8px;

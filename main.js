@@ -49,7 +49,7 @@ let PATH;
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;               // usar banco real para testes
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 let save, load;
 let firebaseDb;
 
@@ -80,6 +80,8 @@ let transactions  = cacheGet('tx', []);
 // ---- Migration: normalize legacy transactions ----
 transactions = transactions.map(t => ({
   ...t,
+  // Padroniza “Dinheiro” com D maiúsculo
+  method: (t.method && t.method.toLowerCase() === 'dinheiro') ? 'Dinheiro' : t.method,
   recurrence: t.recurrence ?? '',
   installments: t.installments ?? 1,
   parentId: t.parentId ?? null
@@ -143,7 +145,32 @@ const todayISO = () => {
   return d.toISOString().slice(0, 10);
 };
 
-const post=(iso,m)=>{if(m==='Dinheiro')return iso;const c=cards.find(x=>x.name===m);if(!c)return iso;const [y,mo,d]=iso.split('-').map(Number);let mm=mo,yy=y;if(d>c.close){mm++;if(mm===13){mm=1;yy++;}}return yy+'-'+String(mm).padStart(2,'0')+'-'+String(c.due).padStart(2,'0');};
+// Função para calcular o postDate de cartões corretamente (nova lógica)
+const post = (iso, m) => {
+  if (m === 'Dinheiro') return iso;
+  const c = cards.find(x => x.name === m);
+  if (!c) return iso;
+  // Usa dayjs para facilitar manipulação de datas
+  // Se não houver dayjs, implementa lógica equivalente
+  const [y, mo, d] = iso.split('-').map(Number);
+  const closingDay = c.close;
+  const dueDay = c.due;
+  const txDay = d;
+  let invoiceMonth = mo - 1; // JS Date/Month é 0-based
+  let invoiceYear = y;
+  if (txDay > closingDay) {
+    // entra na fatura do mês seguinte
+    if (invoiceMonth === 11) {
+      invoiceMonth = 0;
+      invoiceYear += 1;
+    } else {
+      invoiceMonth += 1;
+    }
+  }
+  // Monta data de vencimento da fatura (YYYY-MM-DD)
+  const pad = n => String(n).padStart(2, '0');
+  return `${invoiceYear}-${pad(invoiceMonth + 1)}-${pad(dueDay)}`;
+};
 
 const addYearsIso  = (iso,n) => {
   const d=new Date(iso);d.setFullYear(d.getFullYear()+n);
@@ -195,48 +222,46 @@ const installments = $('installments');
 parcelasBlock.classList.add('hidden');
 installments.value = '1';
 installments.disabled = true;
-
-// Populate installments select with options 1–24 if empty
-if (installments && installments.children.length === 0) {
-  for (let i = 1; i <= 24; i++) {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = `${i}x`;
-    installments.appendChild(opt);
-  }
-}
-/*
-// Exibe parcelamento somente para cartão
-met.onchange = () => {
-  const isCash = met.value.toLowerCase() === 'dinheiro';
-  parcelasBlock.classList.toggle('hidden', isCash);
-  if (isCash) installments.value = '1';
-};
-*/
+// Não popula opções de parcelas e não exibe nem ativa nada relacionado a parcelas.
 // Se selecionar recorrência, zera parcelas
 recurrence.onchange = () => {
   if (recurrence.value !== '') installments.value = '1';
 };
-/*
-// Se escolher parcelas >1, desabilita recorrência
-installments.onchange = () => {
-  if (parseInt(installments.value) > 1) recurrence.value = '';
-};
-*/
 let isEditing = null;
 const cardName=$('cardName'),cardClose=$('cardClose'),cardDue=$('cardDue'),addCardBtn=$('addCardBtn'),cardList=$('cardList');
 const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setStartBtn'),resetBtn=$('resetData');
-resetBtn.style.display = 'none';
+const resetAllBtn = document.getElementById('reset');
+// Exibe o botão "Limpar tudo"
+if (resetAllBtn) {
+  resetAllBtn.style.display = "none";
+}
 const startContainer = document.querySelector('.start-container');
 const dividerSaldo = document.getElementById('dividerSaldo');
 
 const showToast = (msg, type = 'error') => {
   const t = document.getElementById('toast');
   if (!t) return;
+
+  // Set the message
   t.textContent = msg;
+
+  // Remove any previous type classes
   t.classList.remove('success', 'error');
-  t.classList.add('show', type);
-  setTimeout(() => t.classList.remove('show', type), 3000);
+
+  // Add the new type (defines background color)
+  t.classList.add(type);
+
+  // ⚡️ Force a reflow so consecutive toasts restart the animation cleanly
+  void t.offsetWidth;
+
+  // Show the toast (opacity transition handled via CSS)
+  t.classList.add('show');
+
+  // Hide after 3 s: first fade out, then drop the color class to avoid flicker
+  setTimeout(() => {
+    t.classList.remove('show');          // starts fade‑out (0.3 s)
+    setTimeout(() => t.classList.remove(type), 300);
+  }, 3000);
 };
 
 const togglePlanned = (id, iso) => {
@@ -549,6 +574,8 @@ async function addTx() {
     const newMethod  = met.value;
     const newOpDate  = date.value;
     const newPostDate = post(newOpDate, newMethod);
+    const newRecurrence  = recurrence.value;
+    const newInstallments = parseInt(installments.value, 10) || 1;
 
     switch (pendingEditMode) {
       case 'single':
@@ -585,8 +612,8 @@ async function addTx() {
           method: newMethod,
           opDate: pendingEditTxIso,
           postDate: newPostDate,
-          recurrence: t.recurrence,
-          installments: 1,
+          recurrence: newRecurrence,
+          installments: newInstallments,
           planned: pendingEditTxIso > todayISO(),
           ts: new Date().toISOString(),
           modifiedAt: new Date().toISOString()
@@ -623,6 +650,10 @@ async function addTx() {
         t.method     = newMethod;
         t.opDate     = newOpDate;
         t.postDate   = newPostDate;
+        t.recurrence   = newRecurrence;
+        t.installments = newInstallments;
+        // Ajusta flag planned caso a data da operação ainda não tenha ocorrido
+        t.planned      = t.opDate > todayISO();
         t.modifiedAt = new Date().toISOString();
     }
 
@@ -657,9 +688,10 @@ async function addTx() {
     return;
   }
 
-  // Lê opções de recorrência e parcelas
+  // Lê opções de recorrência
   const recur = recurrence.value;
-  const inst  = parseInt(installments.value, 10) || 1;
+  // Parcelamento desativado: sempre 1
+  const inst = 1;
 
   const baseTx = {
     id: Date.now(),
@@ -670,17 +702,15 @@ async function addTx() {
     opDate: iso,
     postDate: post(iso, m),
     recurrence: recur,
-    installments: inst,
-    planned: iso > todayISO(),
+    installments: 1,
+    planned: iso > todayISO(),          // planejado se a data da COMPRA ainda não chegou
     ts: new Date().toISOString(),
     modifiedAt: new Date().toISOString()
   };
 
   // Gera lote de transações conforme tipo
   let batch = [];
-  if (inst > 1) {
-    batch = generateInstallments(baseTx);
-  } else if (recur) {
+  if (recur) {
     batch = [baseTx];   // salva só a regra de recorrência
   } else {
     batch = [baseTx];
@@ -715,48 +745,6 @@ async function addTx() {
   showToast('Tudo certo!', 'success');
 }
 
-// Função auxiliar para gerar parcelas
-function generateInstallments(baseTx) {
-  const batch = [];
-  const n = baseTx.installments || 1;
-  const parentId = baseTx.id;
-  const val = baseTx.val;
-  const m = baseTx.method;
-  const opDate = baseTx.opDate;
-  const postDate0 = post(opDate, m);
-  const planned0 = opDate > todayISO();
-  for (let i = 0; i < n; i++) {
-    // Calcula data da parcela i
-    let opDateI;
-    if (m === 'Dinheiro') {
-      // Parcelas em dinheiro: cada parcela em meses seguintes
-      const d = new Date(opDate);
-      d.setMonth(d.getMonth() + i);
-      opDateI = d.toISOString().slice(0, 10);
-    } else {
-      // Parcelas em cartão: cada parcela na próxima fatura
-      const d = new Date(opDate);
-      d.setMonth(d.getMonth() + i);
-      // Ajusta dia para o fechamento do cartão se necessário
-      opDateI = d.toISOString().slice(0, 10);
-    }
-    batch.push({
-      ...baseTx,
-      id: parentId + i,
-      parentId,
-      val: val,
-      opDate: opDateI,
-      postDate: post(opDateI, m),
-      planned: opDateI > todayISO(),
-      ts: new Date().toISOString(),
-      modifiedAt: new Date().toISOString(),
-      recurrence: '',
-      installments: n
-    });
-  }
-  return batch;
-}
-
 // Função auxiliar para gerar recorrências
 function generateOccurrences(baseTx) {
   const recur = baseTx.recurrence;
@@ -764,7 +752,7 @@ function generateOccurrences(baseTx) {
   const occurrences = [];
   const parentId = baseTx.id;
   // Limita a 12 ocorrências (exemplo: 1 ano) para evitar explosão
-  let n = 0, max = 12;
+  let max = 12;
   let d = new Date(baseTx.opDate);
   for (let i = 1; i < max; i++) {
     // Avança data conforme recorrência
@@ -779,13 +767,15 @@ function generateOccurrences(baseTx) {
       default: break;
     }
     const nextIso = d.toISOString().slice(0, 10);
+    // Calcula postDate com a regra de cartão
+    let postDate = post(nextIso, baseTx.method);
     occurrences.push({
       ...baseTx,
       id: parentId + i,
       parentId,
       opDate: nextIso,
-      postDate: post(nextIso, baseTx.method),
-      planned: nextIso > todayISO(),
+      postDate: postDate,
+      planned: postDate > todayISO(),
       ts: new Date().toISOString(),
       modifiedAt: new Date().toISOString(),
       recurrence: '',
@@ -793,6 +783,18 @@ function generateOccurrences(baseTx) {
     });
   }
   return occurrences;
+}
+// Função utilitária para buscar cartão por id (caso não exista)
+function getCardById(id) {
+  if (!id) return null;
+  // Tenta encontrar cartão pelo campo id, ou pelo nome (fallback)
+  return cards.find(c => c.id === id || c.name === id) || null;
+}
+
+// Função utilitária para formatar data ISO (YYYY-MM-DD)
+function formatDateISO(date) {
+  if (!(date instanceof Date)) return '';
+  return date.toISOString().slice(0,10);
 }
 
 // Delete a transaction (with options for recurring rules)
@@ -896,24 +898,61 @@ const editTx = id => {
   toggleTxModal();
 };
 
-function renderTable(){
-  tbody.innerHTML='';
-  const y=new Date().getFullYear();const cur=new Date().getMonth();let saldo=startBalance||0;
-  for(let m=0;m<12;m++){
-    const hdr=document.createElement('tr');hdr.className='month-header';hdr.dataset.m=m;if(m<cur)hdr.classList.add('closed');
-    const td=document.createElement('td');td.colSpan=4;td.textContent=meses[m];hdr.appendChild(td);
-    hdr.onclick=()=>{const hide=hdr.classList.toggle('closed');document.querySelectorAll(`tr[data-mon='${m}']`).forEach(r=>r.style.display=hide?'none':'table-row');};
+function renderTable() {
+  tbody.innerHTML = '';
+  const y = new Date().getFullYear();
+  const cur = new Date().getMonth();
+  let saldo = startBalance || 0;
+  for (let m = 0; m < 12; m++) {
+    const hdr = document.createElement('tr');
+    hdr.className = 'month-header';
+    hdr.dataset.m = m;
+    if (m < cur) hdr.classList.add('closed');
+    const td = document.createElement('td');
+    td.colSpan = 4;
+    td.textContent = meses[m];
+    hdr.appendChild(td);
+    hdr.onclick = () => {
+      const hide = hdr.classList.toggle('closed');
+      document.querySelectorAll(`tr[data-mon='${m}']`).forEach(r => r.style.display = hide ? 'none' : 'table-row');
+    };
     tbody.appendChild(hdr);
-    for(let d=1;d<=31;d++){
-      const date=new Date(y,m,d);if(date.getMonth()!==m)break;
-      const iso=date.toISOString().slice(0,10);const dayTx=transactions.filter(t=>t.postDate===iso);const sum=dayTx.reduce((s,t)=>s+t.val,0);saldo+=sum;
-      const row=document.createElement('tr');row.dataset.mon=m;row.style.display=m<cur?'none':'table-row';
-      row.innerHTML=`<td>${fmt(date)}</td><td></td><td></td><td${saldo<0?' class="saldo-neg"':''}>${currency(saldo)}</td>`;
-      const tdD=row.children[1],tdG=row.children[2];
-      if(sum!==0){tdG.textContent=currency(sum);tdG.className=sum<0?'negative':'positive';}
-      dayTx.filter(t=>t.method==='Dinheiro').forEach(t=>tdD.appendChild(makeLine(t)));
-      const grp={};dayTx.filter(t=>t.method!=='Dinheiro').forEach(t=>(grp[t.method]=grp[t.method]||[]).push(t));
-      Object.keys(grp).forEach(card=>{const det=document.createElement('details');det.className='invoice';const sm=document.createElement('summary');sm.textContent='Fatura '+card;det.appendChild(sm);grp[card].forEach(t=>{det.appendChild(makeLine(t));const ts=document.createElement('div');ts.className='op-ts';ts.textContent=t.ts.slice(5,16).replace('T',' ');det.appendChild(ts);});tdD.appendChild(det);});
+    for (let d = 1; d <= 31; d++) {
+      const date = new Date(y, m, d);
+      if (date.getMonth() !== m) break;
+      const iso = date.toISOString().slice(0, 10);
+      // Só considera transações cujo postDate é este dia
+      const dayTx = transactions.filter(t => t.postDate === iso);
+      const sum = dayTx.reduce((s, t) => s + t.val, 0);
+      saldo += sum;
+      const row = document.createElement('tr');
+      row.dataset.mon = m;
+      row.style.display = m < cur ? 'none' : 'table-row';
+      row.innerHTML = `<td>${fmt(date)}</td><td></td><td></td><td${saldo < 0 ? ' class="saldo-neg"' : ''}>${currency(saldo)}</td>`;
+      const tdD = row.children[1], tdG = row.children[2];
+      if (sum !== 0) { tdG.textContent = currency(sum); tdG.className = sum < 0 ? 'negative' : 'positive'; }
+      // Só mostra Dinheiro normalmente
+      dayTx.filter(t => t.method === 'Dinheiro').forEach(t => tdD.appendChild(makeLine(t)));
+      // Agrupa cartões pelo método
+      const grp = {};
+      dayTx
+        .filter(t => t.method !== 'Dinheiro' && !t.planned)
+        .forEach(t => (grp[t.method] = grp[t.method] || []).push(t));
+      Object.keys(grp).forEach(card => {
+        const det = document.createElement('details');
+        det.className = 'invoice';
+        const sm = document.createElement('summary');
+        sm.textContent = 'Fatura ' + card;
+        det.appendChild(sm);
+        grp[card].forEach(t => {
+          det.appendChild(makeLine(t));
+          const ts = document.createElement('div');
+          ts.className = 'op-ts';
+          ts.textContent = t.ts.slice(5, 16).replace('T', ' ');
+          det.appendChild(ts);
+        });
+        tdD.appendChild(det);
+      });
       tbody.appendChild(row);
     }
   }
@@ -942,53 +981,117 @@ function renderAccordion() {
   const currency = v => v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   const curMonth = new Date().getMonth();   // 0‑based
 
+  // Helper para criar o header da fatura do cartão
+  function createCardInvoiceHeader(cardName, cardTotalAmount) {
+    const invSum = document.createElement('summary');
+    // Ajuste de formatação: se valor negativo, exibe como R$ -valor
+    let formattedTotal;
+    if (cardTotalAmount < 0) {
+      formattedTotal = `R$ -${Math.abs(cardTotalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    } else {
+      formattedTotal = `R$ ${cardTotalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    }
+    invSum.innerHTML = `
+      <span class="invoice-label">💳 Fatura - ${cardName}</span>
+      <span class="invoice-total">${formattedTotal}</span>
+    `;
+    return invSum;
+  }
+
+  // Helper para calcular a data de vencimento (YYYY-MM-DD) do cartão para determinado mês/ano
+  function getCardDueDateKey(card, year, month) {
+    // card.due: dia do vencimento
+    // month: 0-based
+    // year: full year
+    const pad = n => String(n).padStart(2, '0');
+    return `${year}-${pad(month + 1)}-${pad(card.due)}`;
+  }
+
+  // Helper para obter todas as transações de um cartão para o mês/ano da data
+  function getAllTransactionsOnCard(cardName, year, month) {
+    const txs = [];
+    const targetMonth = month;           // 0‑based
+    const targetYear  = year;
+
+    // Define a 60‑day window that comfortably spans:
+    // • todo o mês alvo
+    // • o intervalo entre o fechamento do cartão do mês anterior
+    //   e a data de vencimento da fatura do mês alvo.
+    const windowStart = new Date(targetYear, targetMonth - 1, 1); // 1.º dia do mês anterior
+    const windowEnd   = new Date(targetYear, targetMonth + 1, 0); // último dia do mês seguinte
+
+    // Percorre todas as transações já persistidas
+    transactions.forEach(tx => {
+      if (tx.method !== cardName) return;
+
+      // 1. Operações únicas --------------------------------------------
+      if (!tx.recurrence) {
+        const pd = new Date(tx.postDate);
+        if (pd.getFullYear() === targetYear && pd.getMonth() === targetMonth) {
+          txs.push(tx);
+        }
+        return;          // done
+      }
+
+      // 2. Operações recorrentes ---------------------------------------
+      // Gera ocorrências apenas dentro da janela de 60 dias para performance.
+      for (let d = new Date(windowStart); d <= windowEnd; d.setDate(d.getDate() + 1)) {
+        const iso = d.toISOString().slice(0, 10);
+        if (!occursOn(tx, iso)) continue;
+
+        const pd  = post(iso, cardName);
+        const pdDate = new Date(pd);
+        if (pdDate.getFullYear() === targetYear && pdDate.getMonth() === targetMonth) {
+          txs.push({
+            ...tx,
+            opDate: iso,           // dia real da compra
+            postDate: pd,          // dia de vencimento da fatura
+            planned: iso > todayISO()
+          });
+        }
+      }
+    });
+
+    // Exibe na fatura apenas transações que já foram executadas
+    return txs.filter(t => !t.planned);
+  }
+
   // Helper to get all transactions of a specific ISO date
   const txByDate = iso => {
     const today = todayISO();
+    const todayIso = todayISO();
     // direct transactions (non-recurring, non-installment)
-    const dayList = transactions.filter(t =>
+    let dayList = transactions.filter(t =>
       t.postDate === iso && !t.recurrence && t.installments === 1
     );
-    // 2. recorrências dinâmicas
-    transactions.filter(t => t.recurrence).forEach(master => {
-      const isCash = master.method.toLowerCase() === 'dinheiro';
+    // 2. ocorrências dinâmicas (inclui cartão)
+    transactions
+      .filter(t => t.recurrence)
+      .forEach(master => {
+        // analisa até 40 dias antes para pegar vencimentos que caem hoje
+        const scanStart = new Date(iso);
+        scanStart.setDate(scanStart.getDate() - 40);
 
-      if (isCash) {
-        // Dinheiro: exibe a ocorrência no dia em que acontece (opDate === iso)
-        if (occursOn(master, iso)) {
-          const isPlanned = iso > today;
+        for (let d = new Date(scanStart);
+             d <= new Date(iso);
+             d.setDate(d.getDate() + 1)) {
+
+          const occIso = d.toISOString().slice(0, 10);
+          if (!occursOn(master, occIso)) continue;
+
+          const pd = post(occIso, master.method);
+          if (pd !== iso) continue; // só se vencimento cai hoje
+
           dayList.push({
             ...master,
-            opDate: iso,
-            postDate: iso,
-            planned: isPlanned
+            opDate: occIso,
+            postDate: pd,
+            planned: occIso > todayIso          // planejado se a data da COMPRA ainda não chegou
           });
         }
-        return;   // próxima regra
-      }
-
-      // Cartão: só exibe se o VENCIMENTO (postDate) cair no dia‑alvo
-      for (let offset = 0; offset <= 31; offset++) {
-        const candDateObj = new Date(iso);
-        candDateObj.setDate(candDateObj.getDate() - offset);
-        candDateObj.setMinutes(candDateObj.getMinutes() - candDateObj.getTimezoneOffset());
-        const candIso = candDateObj.toISOString().slice(0, 10);
-
-        if (!occursOn(master, candIso)) continue;
-
-        const dueIso = post(candIso, master.method);
-        if (dueIso !== iso) continue;
-
-        const isPlanned = iso > today;
-        dayList.push({
-          ...master,
-          opDate: candIso,   // data do lançamento original
-          postDate: iso,     // data de vencimento (hoje)
-          planned: isPlanned
-        });
-        break;  // não precisa continuar offsets
-      }
-    });
+      });
+    // Para cartão, só exibe se postDate === iso (já garantido acima)
+    // Dinheiro: exibe normalmente
     return dayList;
   };
 
@@ -1048,12 +1151,6 @@ function renderAccordion() {
       if (runningBalance < 0) dDet.classList.add('negative');
       dDet.appendChild(dSum);
 
-      // Group card operations by method (case-insensitive for 'Dinheiro')
-      const cashOps = dayTx.filter(t => t.method.toLowerCase() === 'dinheiro');
-      const cardGroups = {};
-      dayTx.filter(t => t.method.toLowerCase() !== 'dinheiro')
-           .forEach(t => (cardGroups[t.method] = cardGroups[t.method] || []).push(t));
-
       // Seção de planejados (apenas se houver planejados)
       const plannedOps = dayTx.filter(t => t.planned);
       if (plannedOps.length) {
@@ -1076,49 +1173,48 @@ function renderAccordion() {
         dDet.appendChild(plannedSection);
       }
 
-      // Fatura de cartão: apenas no dia de vencimento, com executados e planejados
-      Object.entries(cardGroups).forEach(([card, list]) => {
-        const cardCfg = cards.find(c => c.name === card);
-        if (!cardCfg || d !== cardCfg.due) return;
+      // NOVA LÓGICA: Exibe header da fatura no dia de vencimento da fatura
+      // Para cada cartão (exceto Dinheiro), verifica se este dia é o vencimento
+      cards.filter(card => card.name !== 'Dinheiro').forEach(card => {
+        const cardDueDateKey = getCardDueDateKey(card, dateObj.getFullYear(), dateObj.getMonth());
+        const dayKey = iso;
+        if (dayKey === cardDueDateKey) {
+          // ── Executados já lançados nesta fatura ───────────────────────
+          const cardExecuted = getAllTransactionsOnCard(
+            card.name,
+            dateObj.getFullYear(),
+            dateObj.getMonth()
+          );
+          const cardExecutedAmount = cardExecuted.reduce((s, t) => s + t.val, 0);
 
-        const invExec    = list.filter(t => !t.planned);
-        const invPlanned = list.filter(t => t.planned);
-        const invTotal   = invExec.reduce((s, t) => s + t.val, 0)
-                         + invPlanned.reduce((s, t) => s + t.val, 0);
+          // ── Planejados que vencerão nesta mesma fatura ────────────────
+          const cardPlannedAmount = plannedOps
+            .filter(t => t.method === card.name)
+            .reduce((s, t) => s + t.val, 0);
 
-        const invDet = document.createElement('details');
-        invDet.className = 'invoice';
-
-        const invSum = document.createElement('summary');
-        invSum.innerHTML = `
-          <span class="invoice-label">💳 Fatura - ${card}</span>
-          <span class="invoice-total">${currency(invTotal)}</span>
-        `;
-        invDet.appendChild(invSum);
-
-        if (invExec.length) {
-          const execList = document.createElement('ul');
-          execList.className = 'executed-list';
-          invExec.forEach(t => {
-            const li = document.createElement('li');
-            li.appendChild(makeLine(t));
-            execList.appendChild(li);
-          });
-          invDet.appendChild(execList);
+          // Total da fatura = executados + planejados
+          const cardTotalAmount = cardExecutedAmount + cardPlannedAmount;
+          // Lógica: sempre mostra, com ou sem transações
+          const showCardHeader = true;
+          if (showCardHeader) {
+            // Cria bloco de fatura
+            const invDet = document.createElement('details');
+            invDet.className = 'invoice';
+            invDet.appendChild(createCardInvoiceHeader(card.name, cardTotalAmount));
+            // Lista transações do cartão na fatura deste mês
+            if (cardExecuted.length > 0) {
+              const execList = document.createElement('ul');
+              execList.className = 'executed-list';
+              cardExecuted.forEach(t => {
+                const li = document.createElement('li');
+                li.appendChild(makeLine(t));
+                execList.appendChild(li);
+              });
+              invDet.appendChild(execList);
+            }
+            dDet.appendChild(invDet);
+          }
         }
-
-        if (invPlanned.length) {
-          const planList = document.createElement('ul');
-          planList.className = 'planned-list';
-          invPlanned.forEach(t => {
-            const li = document.createElement('li');
-            li.appendChild(makeLine(t));
-            planList.appendChild(li);
-          });
-          invDet.appendChild(planList);
-        }
-
-        dDet.appendChild(invDet);
       });
 
       // Seção de executados em dinheiro (apenas se houver)
@@ -1194,6 +1290,30 @@ function initStart() {
 }
 setStartBtn.onclick=()=>{const v=parseFloat(startInput.value);if(isNaN(v)){alert('Valor inválido');return;}startBalance=v;cacheSet('startBal', v);save('startBal',v);initStart();renderTable();};
 resetBtn.onclick=()=>{if(!confirm('Resetar tudo?'))return;transactions=[];cards=[{name:'Dinheiro',close:0,due:0}];startBalance=null;cacheSet('tx', []);cacheSet('cards', [{name:'Dinheiro',close:0,due:0}]);cacheSet('startBal', null);save('tx',transactions);save('cards',cards);save('startBal',null);refreshMethods();renderCardList();initStart();renderTable();};
+if (resetAllBtn) {
+  resetAllBtn.onclick = () => {
+    if (confirm("Tem certeza que deseja apagar tudo? Essa ação não pode ser desfeita.")) {
+      // Remove todos os dados do banco
+      if (typeof remove === "function" && typeof ref === "function" && firebaseDb && PATH) {
+        remove(ref(firebaseDb, PATH));
+      }
+      // Limpa localmente também
+      transactions = [];
+      cards = [{name:'Dinheiro',close:0,due:0}];
+      startBalance = null;
+      cacheSet('tx', []);
+      cacheSet('cards', [{name:'Dinheiro',close:0,due:0}]);
+      cacheSet('startBal', null);
+      save('tx',transactions);
+      save('cards',cards);
+      save('startBal',null);
+      refreshMethods();
+      renderCardList();
+      initStart();
+      renderTable();
+    }
+  };
+}
 addCardBtn.onclick=addCard;addBtn.onclick=addTx;
 openCardBtn.onclick = () => {
   if (document.body) document.body.style.overflow = 'hidden';   // bloqueia scroll de fundo
@@ -1236,15 +1356,7 @@ cardModal.onclick = e => {
   const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
 
   if (hasLiveTx && JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
-    // Normalize loaded transactions to ensure recurrence, installments and parentId defaults
-    const migratedTx = fixedTx.map(t => ({
-      ...t,
-      recurrence:   t.recurrence   ?? '',
-      installments: t.installments ?? 1,
-      parentId:     t.parentId     ?? null,
-      planned:      t.planned      ?? (t.opDate > todayISO())
-    }));
-    transactions = migratedTx;
+    transactions = fixedTx;
     cacheSet('tx', transactions);
     renderTable();
   }
@@ -1324,7 +1436,23 @@ function renderPlannedModal() {
       .filter(t => t.recurrence)
       .forEach(master => {
         if (occursOn(master, iso)) {
-          dayItems.push({ ...master, opDate: iso, postDate: iso, planned: true });
+          // Se for lançamento de cartão, calcula postDate corretamente
+          let postDate = iso;
+          if (master.paymentMethod && master.paymentMethod.card) {
+            const card = getCardById(master.paymentMethod.card);
+            if (card) {
+              const baseDate = new Date(iso);
+              const closingDay = parseInt(card.closingDate ?? card.close);
+              const dueDay = parseInt(card.dueDate ?? card.due);
+              const year = baseDate.getFullYear();
+              const month = baseDate.getMonth();
+              const closeDate = new Date(year, month, closingDay);
+              const dueDate = new Date(year, month, dueDay);
+              if (baseDate > closeDate) dueDate.setMonth(dueDate.getMonth() + 1);
+              postDate = formatDateISO(dueDate);
+            }
+          }
+          dayItems.push({ ...master, opDate: iso, postDate: postDate, planned: true });
         }
       });
 
