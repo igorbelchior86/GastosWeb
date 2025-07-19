@@ -13,6 +13,11 @@
   padding: 8px 12px;       /* add horizontal padding for left align */
   border-bottom: 1px solid var(--border);
 }
+
+.planned-item.overdue {
+  background:#ffecec;
+  border-left:3px solid #e74c3c;
+}
 .planned-item .value {
   margin-left: auto;
   white-space: nowrap;
@@ -946,7 +951,7 @@ details.day[data-has="true"] {
   padding: 0;
 }
 .planned-item {
-  padding: 8px 0;
+  padding: 8px 12px;      /* adds left & right breathing room so the red border isn't flush with the checkbox */
   border-bottom: 1px solid var(--border);
 }
 

@@ -29,52 +29,90 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebas
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
-// --- Firebase configuração de PRODUÇÃO (inline) ---
-const firebaseConfig = {
-  apiKey: "AIzaSyATGZtBlnSPnFtVgTqJ_E0xmBgzLTmMkI0",
-  authDomain: "gastosweb-e7356.firebaseapp.com",
-  databaseURL: "https://gastosweb-e7356-default-rtdb.firebaseio.com",
-  projectId: "gastosweb-e7356",
-  storageBucket: "gastosweb-e7356.firebasestorage.app",
-  messagingSenderId: "519966772782",
-  appId: "1:519966772782:web:9ec19e944e23dbe9e899bf",
-  measurementId: "G-JZYYGSJKTZ"
-};
-// --------------------------------------------------
-
-// Configuração Firebase importada do arquivo de produção
+// Configuração do Firebase de TESTE (arquivo separado)
+import { firebaseConfig as firebaseConfigTest } from './firebase.test.config.js';
+import { firebaseConfig as firebaseConfigProd } from './firebase.prod.config.js';
 
 let PATH;
 
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;               // usar banco real para testes
-const APP_VERSION = '1.3.0';
+// Se true, conecta ao projeto Firebase de TESTE
+const USE_TEST = false;   // mude para false para voltar ao PROD
+const APP_VERSION = '1.3.2';
 let save, load;
 let firebaseDb;
 
 if (!USE_MOCK) {
-  const app = initializeApp(firebaseConfig);
-  const db = getDatabase(app);
+  // Seleciona config conforme ambiente
+  const cfg  = USE_TEST ? firebaseConfigTest : firebaseConfigProd;
+  const app  = initializeApp(cfg);
+  const db   = getDatabase(app);
   firebaseDb = db;
+
+  // Mesmo caminho de DB para ambos os ambientes
   PATH = 'orcamento365_9b8e04c5';
+
   const auth = getAuth(app);
-  await signInAnonymously(auth);   // garante auth.uid antes dos gets/sets
+  await signInAnonymously(auth);
+
   save = (k, v) => set(ref(db, `${PATH}/${k}`), v);
   load = async (k, d) => {
     const s = await get(ref(db, `${PATH}/${k}`));
     return s.exists() ? s.val() : d;
   };
 } else {
-  PATH = 'mock_365'; // namespace no localStorage
+  // Modo MOCK (LocalStorage)
+  PATH = 'mock_365';
   save = (k, v) => localStorage.setItem(`${PATH}_${k}`, JSON.stringify(v));
   load = async (k, d) =>
     JSON.parse(localStorage.getItem(`${PATH}_${k}`)) ?? d;
 }
 
+
 // Cache local (LocalStorage) p/ boot instantâneo
 const cacheGet  = (k, d) => JSON.parse(localStorage.getItem(`cache_${k}`)) ?? d;
 const cacheSet  = (k, v) => localStorage.setItem(`cache_${k}`, JSON.stringify(v));
+
+// ---------------- Offline queue helpers ----------------
+// Badge on the ⟳ sync button shows how many items are waiting
+function updatePendingBadge() {
+  const syncBtn = document.getElementById('syncNowBtn');
+  if (!syncBtn) return;
+  const q = cacheGet('txQueue', []);
+  syncBtn.textContent = q.length ? `⟳ (${q.length})` : '⟳';
+}
+
+// Adds one transaction to the local pending queue (LocalStorage)
+async function queueTx(tx) {
+  const q = cacheGet('txQueue', []);
+  q.push(tx);
+  cacheSet('txQueue', q);
+  updatePendingBadge();
+}
+
+// Flushes the pending queue to Firebase and clears it locally.
+// Merges with the live `transactions` list and saves.
+async function flushQueue() {
+  const q = cacheGet('txQueue', []);
+  if (!q.length) return;
+
+  cacheSet('txQueue', []);
+
+  try {
+    await save('tx', transactions);
+    showToast('Fila sincronizada!', 'success');
+  } catch (err) {
+    console.error('flushQueue failed:', err);
+    // Re‑queue on error to retry later
+    cacheSet('txQueue', q);
+    return;
+  }
+  updatePendingBadge();
+  renderTable();
+}
+
 
 let transactions  = cacheGet('tx', []);
 // ---- Migration: normalize legacy transactions ----
@@ -289,6 +327,17 @@ const togglePlanned = (id, iso) => {
       transactions.push(execTx);
     }
   } else {
+    // If un-planning an expired transaction, adjust based on method
+    if (master.planned) {
+      const today = todayISO();
+      if (master.method === 'Dinheiro') {
+        // cash payments move to today
+        master.opDate = today;
+        master.postDate = today;
+      }
+      // update timestamp of payment to today
+      master.ts = new Date().toISOString();
+    }
     master.planned = !master.planned;
   }
   save('tx', transactions);
@@ -569,6 +618,16 @@ async function addTx() {
   // Modo edição?
   if (isEditing !== null) {
     const t = transactions.find(x => x.id === isEditing);
+    if (!t) {
+      console.error('Transaction not found for editing:', isEditing);
+      // reset edit state
+      pendingEditMode = null;
+      isEditing = null;
+      addBtn.textContent = 'Adicionar';
+      txModalTitle.textContent = 'Lançar operação';
+      toggleTxModal();
+      return;
+    }
     const newDesc    = desc.value.trim();
     const newVal     = parseFloat(val.value);
     const newMethod  = met.value;
@@ -703,7 +762,7 @@ async function addTx() {
     postDate: post(iso, m),
     recurrence: recur,
     installments: 1,
-    planned: iso > todayISO(),          // planejado se a data da COMPRA ainda não chegou
+    planned: iso > todayISO(),          // planned if the transaction date is in the future
     ts: new Date().toISOString(),
     modifiedAt: new Date().toISOString()
   };
@@ -1386,205 +1445,140 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
   });
 }
 // Planejados modal handlers
-function togglePlannedModal() {
-  const isOpening = plannedModal.classList.contains('hidden');
-  if (isOpening) {
-    renderPlannedModal();
-    if (document.body) document.body.style.overflow = 'hidden';
-    if (wrapperEl) wrapperEl.style.overflow = 'hidden';
-  } else {
-    if (document.body) document.body.style.overflow = '';
-    if (wrapperEl) wrapperEl.style.overflow = '';
-  }
-  plannedModal.classList.toggle('hidden');
-}
-openPlannedBtn.onclick = togglePlannedModal;
-closePlannedModal.onclick = togglePlannedModal;
-plannedModal.onclick = e => { if (e.target === plannedModal) togglePlannedModal(); };
-// Block scroll behind modal but allow scrolling inside it
-plannedModal.addEventListener('touchmove', e => {
-  if (e.target === plannedModal) e.preventDefault();
-}, { passive: false });
-plannedModal.addEventListener('wheel', e => {
-  if (e.target === plannedModal) e.preventDefault();
-}, { passive: false });
-
 function renderPlannedModal() {
+  // Lista completa, sem filtrar datas vencidas; marca .overdue quando opDate < hoje
+  if (!plannedList) return;
   plannedList.innerHTML = '';
-  const grouped = {};
-  const today = new Date();
-  const todayIso = todayISO();
 
-  // Look ahead for the next year (365 days)
-  for (let i = 1; i <= 365; i++) {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(today.getDate() + i);
-    const yyyy = d.getFullYear();
-    const mm   = String(d.getMonth() + 1).padStart(2, '0');
-    const dd   = String(d.getDate()).padStart(2, '0');
-    const iso  = `${yyyy}-${mm}-${dd}`;
-    const dayItems = [];
+  const today = todayISO();
 
-    // 1. one-off planned transactions
-    transactions
-      .filter(t => !t.recurrence && t.planned && t.opDate === iso)
-      .forEach(t => dayItems.push(t));
+  // ---------- Coleta de ocorrências planejadas ----------
+  let occur = [];
 
-    // 2. dynamic recurring occurrences
-    transactions
-      .filter(t => t.recurrence)
-      .forEach(master => {
-        if (occursOn(master, iso)) {
-          // Se for lançamento de cartão, calcula postDate corretamente
-          let postDate = iso;
-          if (master.paymentMethod && master.paymentMethod.card) {
-            const card = getCardById(master.paymentMethod.card);
-            if (card) {
-              const baseDate = new Date(iso);
-              const closingDay = parseInt(card.closingDate ?? card.close);
-              const dueDay = parseInt(card.dueDate ?? card.due);
-              const year = baseDate.getFullYear();
-              const month = baseDate.getMonth();
-              const closeDate = new Date(year, month, closingDay);
-              const dueDate = new Date(year, month, dueDay);
-              if (baseDate > closeDate) dueDate.setMonth(dueDate.getMonth() + 1);
-              postDate = formatDateISO(dueDate);
-            }
-          }
-          dayItems.push({ ...master, opDate: iso, postDate: postDate, planned: true });
-        }
-      });
-
-    if (dayItems.length) {
-      grouped[iso] = dayItems;
-    }
-  }
-
-  Object.keys(grouped)
-    .sort()
-    .forEach(iso => {
-      const [y, mo, da] = iso.split('-').map(Number);
-      const header = document.createElement('div');
-      header.className = 'subheader';
-      header.textContent = `${String(da).padStart(2, '0')}/${String(mo).padStart(2, '0')}/${String(y % 100).padStart(2, '0')}`;
-      plannedList.appendChild(header);
-
-      grouped[iso].forEach(t => {
-        const item = document.createElement('div');
-        item.className = 'planned-item';
-        const row = document.createElement('div');
-        row.className = 'planned-row';
-
-        const chk = document.createElement('input');
-        chk.type = 'checkbox';
-        chk.name = 'plannedModal';
-        chk.checked = false;
-        chk.onchange = () => { togglePlanned(t.id, t.opDate); renderPlannedModal(); renderTable(); };
-        row.appendChild(chk);
-
-        const descEl = document.createElement('span');
-        descEl.className = 'desc';
-        descEl.textContent = t.desc;
-        if (t.recurrence) {
-          const recIcon = document.createElement('span');
-          recIcon.className = 'recurring-icon';
-          recIcon.textContent = '🔄';
-          recIcon.title = 'Recorrência';
-          descEl.appendChild(recIcon);
-        }
-        row.appendChild(descEl);
-
-        const valEl = document.createElement('span');
-        valEl.className = 'value';
-        valEl.textContent = currency(t.val);
-        row.appendChild(valEl);
-        item.appendChild(row);
-
-        const methodDiv = document.createElement('div');
-        methodDiv.className = 'method';
-        methodDiv.textContent = t.method;
-        item.appendChild(methodDiv);
-
-        plannedList.appendChild(item);
-      });
-    });
+  transactions.forEach(tx => {
+    // 1) Operações únicas com planned=true
+  if (!tx.recurrence && tx.planned) {
+    // Se já existe operação equivalente (mesma data, descrição e valor) executada,
+    // não exibe no Planejados.
+  const isDone = transactions.some(o =>
+    o.id !== tx.id &&
+    !o.planned &&            // executada
+    !o.recurrence &&         // simples, não-recorrente
+    o.opDate === tx.opDate &&
+    o.desc === tx.desc &&
+    o.val  === tx.val
+  );
+  if (!isDone) occur.push(tx);
+  return;
 }
-// Online/offline indicator
-const offlineIndicator = document.getElementById('offlineIndicator');
-window.addEventListener('online',  () => offlineIndicator.hidden = true);
-window.addEventListener('offline', () => offlineIndicator.hidden = false);
-offlineIndicator.hidden = navigator.onLine;
 
-// IndexedDB queue for offline transactions
-async function getDb() {
-  return openDB('gastos-offline', 1, {
-    upgrade(db) {
-      db.createObjectStore('tx', { keyPath: 'id' });
+    // 2) Operações recorrentes – gera até 90 d à frente
+    if (tx.recurrence) {
+      const end = new Date();
+      end.setDate(end.getDate() + 90);
+
+      const scanStart = new Date(tx.opDate);
+      for (let d = new Date(scanStart); d <= end; d.setDate(d.getDate() + 1)) {
+        const iso = d.toISOString().slice(0, 10);
+
+        if (!occursOn(tx, iso)) continue;
+        if (tx.exceptions && tx.exceptions.includes(iso)) continue;
+        if (tx.recurrenceEnd && iso >= tx.recurrenceEnd) continue;
+
+        // Já editado/executado?
+        const detached = transactions.some(t => t.parentId === tx.id && t.opDate === iso);
+        if (detached) continue;
+
+        occur.push({
+          ...tx,
+          opDate: iso,
+          postDate: post(iso, tx.method),
+          planned: true
+        });
+      }
     }
   });
-}
-async function queueTx(tx) {
-  const db = await getDb();
-  await db.put('tx', tx);
-  updatePendingBadge();
-  if ('serviceWorker' in navigator) {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      await reg.sync.register('sync-tx');
-    } catch (e) {
-      console.warn('[Sync]', e);   // tolera problemas com SW
+
+  // --- Remove ocorrências que já foram executadas --------------------
+occur = occur.filter(o =>
+  !transactions.some(t =>
+    !t.planned &&                 // operação já executada
+    t.opDate === o.opDate &&
+    t.desc   === o.desc &&
+    t.val    === o.val &&
+    t.method === o.method
+  )
+);
+
+  // Ordena por data da compra
+  occur.sort((a, b) => a.opDate.localeCompare(b.opDate));
+
+  // ---------- Renderização ----------
+  let currentDate = '';
+  occur.forEach(t => {
+    if (t.opDate !== currentDate) {
+      currentDate = t.opDate;
+      const sub = document.createElement('div');
+      sub.className = 'subheader';
+      const dObj = new Date(currentDate + 'T00:00');
+      let dateLabel = dObj.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+      dateLabel = dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1);   // capitaliza dia da semana
+      sub.textContent = dateLabel;
+      plannedList.appendChild(sub);
     }
-  }
-}
-async function flushQueue() {
-  if (USE_MOCK) return;  // skip real DB in mock mode
-  const spinStart = Date.now();     // placeholder for min‑spin
 
-  const db = await getDb();
-  const all = await db.getAll('tx');
-  for (const tx of all) {
-    try {
-      const txRef = ref(firebaseDb, `${PATH}/tx/${tx.id}`);
-      const snap  = await get(txRef);
-      if (!snap.exists() || snap.val().modifiedAt <= tx.modifiedAt) {
-        // Ensure no undefined fields before syncing
-        tx.recurrence   = tx.recurrence   ?? '';
-        tx.installments = tx.installments ?? 1;
-        tx.parentId     = tx.parentId     ?? null;
-        await set(txRef, tx);
-      }
-      await db.delete('tx', tx.id);
-    } catch(e) {
-      console.error('[SYNC]', e);
+    const item = document.createElement('div');
+    item.className = 'planned-item';
+    if (t.opDate < today) item.classList.add('overdue');
+
+    const row = document.createElement('div');
+    row.className = 'planned-row';
+
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.onchange = () => togglePlanned(t.id, t.opDate);
+    row.appendChild(chk);
+
+    const descSpan = document.createElement('span');
+    descSpan.className = 'desc';
+    descSpan.textContent = t.desc;
+    row.appendChild(descSpan);
+
+    const valSpan = document.createElement('span');
+    valSpan.className = 'value';
+    valSpan.textContent = `R$ ${(t.val < 0 ? '-' : '')}${Math.abs(t.val).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    row.appendChild(valSpan);
+
+    item.appendChild(row);
+
+    const methodDiv = document.createElement('div');
+    methodDiv.className = 'method';
+    methodDiv.textContent = t.method === 'Dinheiro' ? 'Dinheiro' : `Cartão ${t.method}`;
+    item.appendChild(methodDiv);
+
+    plannedList.appendChild(item);
+  });
+}
+
+// Ensure Planejados modal open/close handlers exist exactly once
+if (!window.plannedHandlersInit) {
+  openPlannedBtn.onclick = () => {
+    document.body.style.overflow = 'hidden';
+    if (wrapperEl) wrapperEl.style.overflow = 'hidden';
+    plannedModal.classList.remove('hidden');
+    renderPlannedModal();         // Atualiza sempre ao abrir
+  };
+  closePlannedModal.onclick = () => {
+    document.body.style.overflow = '';
+    if (wrapperEl) wrapperEl.style.overflow = '';
+    plannedModal.classList.add('hidden');
+  };
+  plannedModal.onclick = e => {
+    if (e.target === plannedModal) {
+      document.body.style.overflow = '';
+      if (wrapperEl) wrapperEl.style.overflow = '';
+      plannedModal.classList.add('hidden');
     }
-  }
-
-  // garante pelo menos 1s de animação
-  const elapsed = Date.now() - spinStart;
-  const minSpin = 1000;
-  if (elapsed < minSpin) {
-    await new Promise(res => setTimeout(res, minSpin - elapsed));
-  }
-
-  updatePendingBadge();
+  };
+  window.plannedHandlersInit = true;
 }
-
-function updatePendingBadge() {
-  getDb().then(db => db.getAll('tx')
-    .then(all => {
-      const offIc   = document.getElementById('offlineIndicator');
-      const count = all.length;
-      offIc.textContent = count ? `📴 ${count}` : '📴';
-    }));
-}
-// dispara badge no arranque e após cada sync
-updatePendingBadge();
-
-
-// Prevent background scrolling on wheel when card modal is open
-document.addEventListener('wheel', e => {
-  if (!cardModal.classList.contains('hidden')) {
-    e.preventDefault();
-  }
-}, { passive: false });
