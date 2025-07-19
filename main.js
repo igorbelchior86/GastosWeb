@@ -30,23 +30,20 @@ import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/1
 import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
 // Configuração do Firebase de TESTE (arquivo separado)
-import { firebaseConfig as firebaseConfigTest } from './firebase.test.config.js';
-import { firebaseConfig as firebaseConfigProd } from './firebase.prod.config.js';
+import { firebaseConfig } from './firebase.prod.config.js';
 
 let PATH;
 
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;               // usar banco real para testes
-// Se true, conecta ao projeto Firebase de TESTE
-const USE_TEST = false;   // mude para false para voltar ao PROD
 const APP_VERSION = '1.3.2';
 let save, load;
 let firebaseDb;
 
 if (!USE_MOCK) {
   // Seleciona config conforme ambiente
-  const cfg  = USE_TEST ? firebaseConfigTest : firebaseConfigProd;
+  const cfg = firebaseConfig;
   const app  = initializeApp(cfg);
   const db   = getDatabase(app);
   firebaseDb = db;
