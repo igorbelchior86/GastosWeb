@@ -23,6 +23,169 @@ const openPlannedBtn = document.getElementById('openPlannedBtn');
 const plannedModal   = document.getElementById('plannedModal');
 const closePlannedModal = document.getElementById('closePlannedModal');
 const plannedList    = document.getElementById('plannedList');
+
+// Header segmented control → delega para os botões originais
+const headerSeg = document.querySelector('.header-seg');
+if (headerSeg) {
+  headerSeg.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-option');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === 'planned' && openPlannedBtn) {
+      headerSeg.dataset.selected = 'planned';
+      openPlannedBtn.click();
+    } else if (action === 'cards') {
+      const openCardBtn = document.getElementById('openCardModal');
+      if (openCardBtn) {
+        headerSeg.dataset.selected = 'cards';
+        openCardBtn.click();
+      }
+    }
+  });
+}
+
+// --- Ensure Planned modal values are anchored to the right, regardless of DOM structure
+function fixPlannedAlignment() {
+  if (!plannedList) return;
+  // Only act if the Planned modal is visible
+  if (plannedModal && plannedModal.classList.contains('hidden')) return;
+
+  plannedList.querySelectorAll('li').forEach(li => {
+    // Ensure wrappers occupy full width
+    li.style.position = 'relative';
+    li.style.width = '100%';
+
+    const wrap = li.querySelector('.swipe-wrapper');
+    if (wrap) {
+      wrap.style.position = 'relative';
+      wrap.style.width = '100%';
+      wrap.style.maxWidth = '100%';
+    }
+
+    const line = li.querySelector('.op-line, .card-line') || li.firstElementChild;
+    if (line) {
+      line.style.position = 'relative';
+      line.style.width = '100%';
+      line.style.maxWidth = '100%';
+      line.style.boxSizing = 'border-box';
+    }
+
+    const row = li.querySelector('.op-main') || li.querySelector('.planned-row') || (line || li).firstElementChild;
+    if (row) {
+      row.style.position = 'relative';
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '12px';
+      row.style.flexWrap = 'nowrap';
+      // Reserve space for the fixed value on the right
+      row.style.paddingRight = '96px';
+      row.style.boxSizing = 'border-box';
+      row.style.width = '100%';
+      row.style.maxWidth = '100%';
+    }
+
+    // Locate value element
+    let valueEl = li.querySelector('.op-right .value') || li.querySelector('.value');
+    if (!valueEl) return;
+
+    // Ensure an anchor container for absolute positioning
+    let anchor = valueEl.closest('.op-right');
+    if (!anchor) {
+      anchor = document.createElement('div');
+      anchor.className = 'op-right';
+      valueEl.parentNode.insertBefore(anchor, valueEl);
+      anchor.appendChild(valueEl);
+    }
+    anchor.style.position = 'absolute';
+    anchor.style.right = '12px';
+    anchor.style.top = '50%';
+    anchor.style.transform = 'translateY(-50%)';
+    anchor.style.display = 'flex';
+    anchor.style.alignItems = 'center';
+    anchor.style.justifyContent = 'flex-end';
+    anchor.style.minWidth = '84px';
+
+    valueEl.style.textAlign = 'right';
+    valueEl.style.display = 'inline-block';
+
+    // Move payment method element under the description inside .op-left
+    const methodEl = li.querySelector('.op-right > :not(.value)');
+    const opLeft   = li.querySelector('.op-left');
+    if (methodEl && opLeft && !opLeft.contains(methodEl)) {
+      methodEl.classList.add('method');
+      opLeft.appendChild(methodEl);   // agora fica exatamente alinhado com a descrição
+    }
+    // Compute exact indent where the description text actually starts
+    const descSpan = li.querySelector('.op-left span:not(.icon-repeat)');
+    const methodUnder = li.querySelector('.op-left .method');
+    if (descSpan) {
+      try {
+        const lineRect = line.getBoundingClientRect();
+        const descRect = descSpan.getBoundingClientRect();
+        const cs = getComputedStyle(descSpan);
+        const padL = parseFloat(cs.paddingLeft) || 0;
+        const marL = parseFloat(cs.marginLeft) || 0;
+        const borderL = parseFloat(cs.borderLeftWidth) || 0;
+        const indent = Math.max(0, Math.round((descRect.left - lineRect.left) + padL + marL + borderL));
+        // set CSS variable on the line (inherited by children)
+        line.style.setProperty('--plan-left-indent', indent + 'px');
+        // enforce on the method element as a fallback/safety
+        
+      } catch(_) {}
+    }
+  });
+}
+
+// --- Expand weekday labels to long form inside Planned modal ---
+const WDAY_LONG = {
+  'dom.': 'Domingo',
+  'seg.': 'Segunda-feira',
+  'ter.': 'Terça-feira',
+  'qua.': 'Quarta-feira',
+  'qui.': 'Quinta-feira',
+  'sex.': 'Sexta-feira',
+  'sáb.': 'Sábado',
+  'sab.': 'Sábado'
+};
+
+function expandPlannedDayLabels() {
+  if (!plannedModal) return;
+  // Look for common containers used as day headers inside the Planned modal
+  const nodes = plannedModal.querySelectorAll('.modal-content .subheader, .modal-content .planned-date, .modal-content h3, .modal-content div');
+  nodes.forEach(el => {
+    const raw = (el.textContent || '').trim();
+    // Match patterns like "Qua., 16/07" or "qui., 24/07"
+    const m = raw.match(/^([A-Za-zÀ-ÿ]{3,4}\.)\s*,?\s*(.*)$/);
+    if (!m) return;
+    const abbr = m[1].toLowerCase();
+    const rest = m[2] || '';
+    const full = WDAY_LONG[abbr];
+    if (full) {
+      el.textContent = rest ? `${full}, ${rest}` : full;
+    }
+  });
+}
+
+// Hooks: on open button click, after modal transition, and whenever list mutates
+if (openPlannedBtn) {
+  openPlannedBtn.addEventListener('click', () => setTimeout(() => { fixPlannedAlignment(); expandPlannedDayLabels(); }, 0));
+}
+
+const plannedBox = plannedModal ? plannedModal.querySelector('.bottom-modal-box') : null;
+if (plannedBox) {
+  plannedBox.addEventListener('transitionend', (e) => {
+    if (e.propertyName === 'transform') {
+      fixPlannedAlignment();
+      expandPlannedDayLabels();
+    }
+  });
+}
+
+if (plannedList) {
+  const mo = new MutationObserver(() => { fixPlannedAlignment(); expandPlannedDayLabels(); });
+  mo.observe(plannedList, { childList: true, subtree: true });
+}
+
 import { openDB } from 'https://unpkg.com/idb?module';
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
 
@@ -30,14 +193,78 @@ import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/1
 import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
 // Configuração do Firebase de TESTE (arquivo separado)
-import { firebaseConfig } from './firebase.prod.config.js';
+import { firebaseConfig } from './firebase.test.config.js';
+
+/**
+ * Initialize swipe-to-reveal actions on elements.
+ * @param {ParentNode} root       Root element to listen on (e.g., document or specific container).
+ * @param {string} wrapperSel     Selector for swipe wrapper (e.g., '.swipe-wrapper').
+ * @param {string} actionsSel     Selector for swipe actions (e.g., '.swipe-actions').
+ * @param {string} lineSel        Selector for the line to translate (e.g., '.op-line' or '.card-line').
+ * @param {boolean} onceFlag      Name of global flag to prevent multiple inits.
+ */
+function initSwipe(root, wrapperSel, actionsSel, lineSel, onceFlag) {
+  if (window[onceFlag]) return;
+  let startX = 0;
+  root.addEventListener('touchstart', e => {
+    const wrap = e.target.closest(wrapperSel);
+    if (!wrap) return;
+    startX = e.touches[0].clientX;
+    wrap.dataset.startX = startX;
+    const line = wrap.querySelector(lineSel);
+    const m = new WebKitCSSMatrix(getComputedStyle(line).transform);
+    wrap.dataset.offset = m.m41 || 0;
+  }, { passive: true });
+  root.addEventListener('touchmove', e => {
+    const wrap = e.target.closest(wrapperSel);
+    if (!wrap) return;
+    const start = parseFloat(wrap.dataset.startX || 0);
+    const offset = parseFloat(wrap.dataset.offset || 0);
+    const diff   = start - e.touches[0].clientX;
+    const line   = wrap.querySelector(lineSel);
+    const actions= wrap.querySelector(actionsSel);
+    const actW   = actions.offsetWidth;
+    line.style.transition = 'none';
+    let newTx = offset - diff;
+    newTx = Math.max(Math.min(newTx, 0), -actW);
+    line.style.transform = `translateX(${newTx}px)`;
+    actions.style.opacity = Math.abs(newTx) / actW;
+  }, { passive: true });
+  root.addEventListener('touchend', e => {
+    const wrap = e.target.closest(wrapperSel);
+    if (!wrap) return;
+    const start  = parseFloat(wrap.dataset.startX || 0);
+    const offset = parseFloat(wrap.dataset.offset || 0);
+    const diff   = start - e.changedTouches[0].clientX;
+    const line   = wrap.querySelector(lineSel);
+    const actions= wrap.querySelector(actionsSel);
+    const actW   = actions.offsetWidth;
+    let finalTx  = offset - diff;
+    const shouldOpen = Math.abs(finalTx) > actW / 2;
+    finalTx = shouldOpen ? -actW : 0;
+    line.style.transition = '';
+    line.style.transform  = `translateX(${finalTx}px)`;
+    actions.style.opacity = shouldOpen ? 1 : 0;
+    if (typeof navigator.vibrate === 'function') {
+      navigator.vibrate(30);
+    }
+    // collapse others
+    document.querySelectorAll(lineSel).forEach(l=>{
+      if(l!==line){l.style.transform='translateX(0)';}
+    });
+    document.querySelectorAll(actionsSel).forEach(a=>{
+      if(a!==actions){a.style.opacity=0;}
+    });
+  }, { passive: true });
+  window[onceFlag] = true;
+}
 
 let PATH;
 
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;               // usar banco real para testes
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.4.0';
 let save, load;
 let firebaseDb;
 
@@ -112,6 +339,15 @@ async function flushQueue() {
 
 
 let transactions  = cacheGet('tx', []);
+// Helper: sort transactions by opDate (YYYY-MM-DD) then by timestamp (ts) so UI is always chronological
+function sortTransactions() {
+  transactions.sort((a, b) => {
+    const d = a.opDate.localeCompare(b.opDate);
+    if (d !== 0) return d;
+    // Fallback: compare timestamps when same date
+    return (a.ts || '').localeCompare(b.ts || '');
+  });
+}
 // ---- Migration: normalize legacy transactions ----
 transactions = transactions.map(t => ({
   ...t,
@@ -122,12 +358,108 @@ transactions = transactions.map(t => ({
   parentId: t.parentId ?? null
 }));
 cacheSet('tx', transactions);
+sortTransactions();
 let cards         = cacheGet('cards', [{name:'Dinheiro',close:0,due:0}]);
 let startBalance  = cacheGet('startBal', null);
 const $=id=>document.getElementById(id);
 const tbody=document.querySelector('#dailyTable tbody');
 const wrapperEl = document.querySelector('.wrapper');
 const txModalTitle = document.querySelector('#txModal h2');
+
+// ---------------------------------------------------------------------------
+// Modal de Transação: código movido do index.html
+// ---------------------------------------------------------------------------
+const openTxBtn = document.getElementById('openTxModal');
+const txModal   = document.getElementById('txModal');
+const closeTxModal = document.getElementById('closeTxModal');
+
+/**
+ * Reset the fields and state of the transaction modal.
+ */
+function resetTxModal() {
+  // Clear text fields and date
+  const descInput = document.getElementById('desc');
+  const valueInput = document.getElementById('value');
+  const dateInput = document.getElementById('opDate');
+  if (descInput) descInput.value = '';
+  if (valueInput) valueInput.value = '';
+  if (dateInput) dateInput.value = todayISO();
+  // Reset expense/income toggles
+  document.querySelectorAll('.value-toggle button').forEach(btn => btn.classList.remove('active'));
+  // Reset method switch to Dinheiro
+  document.querySelectorAll('.switch-option').forEach(btn => btn.classList.remove('active'));
+  const defaultBtn = document.querySelector('.switch-option[data-method="Dinheiro"]');
+  if (defaultBtn) defaultBtn.classList.add('active');
+  const hiddenSelect = document.getElementById('method');
+  if (hiddenSelect) hiddenSelect.value = 'Dinheiro';
+  const methodSwitch = document.querySelector('.method-switch');
+  if (methodSwitch) methodSwitch.dataset.selected = 'Dinheiro';
+  // Clear card selector
+  const cardSelectorEl = document.getElementById('cardSelector');
+  if (cardSelectorEl) {
+    cardSelectorEl.innerHTML = '';
+    cardSelectorEl.hidden = true;
+  }
+  // Reset recurrence and installments
+  const recurrenceSelect = document.getElementById('recurrence');
+  if (recurrenceSelect) recurrenceSelect.value = '';
+  const parcelaBlock = document.getElementById('parcelasBlock');
+  if (parcelaBlock) parcelaBlock.classList.add('hidden');
+  const instSelect = document.getElementById('installments');
+  if (instSelect) instSelect.value = '1';
+  // Reset modal title and button
+  const modalHeader = document.querySelector('#txModal h2');
+  if (modalHeader) modalHeader.textContent = 'Lançar operação';
+  const addBtnEl = document.getElementById('addBtn');
+  if (addBtnEl) addBtnEl.textContent = 'Adicionar';
+}
+
+/**
+ * Toggle the visibility of the transaction modal.
+ */
+function toggleTxModal() {
+  const isOpening = txModal.classList.contains('hidden');
+  if (isOpening) {
+    resetTxModal();
+    // Prevent background scrolling when modal is open
+    if (document.body) document.body.style.overflow = 'hidden';
+    if (wrapperEl) wrapperEl.style.overflow = 'hidden';
+  } else {
+    // Restore scrolling
+    if (document.body) document.body.style.overflow = '';
+    if (wrapperEl) wrapperEl.style.overflow = '';
+  }
+  txModal.classList.toggle('hidden');
+  // Rotate the floating button to indicate state
+  if (openTxBtn) {
+    openTxBtn.style.transform = isOpening ? 'rotate(45deg)' : 'rotate(0deg)';
+  }
+  if (isOpening) {
+    const valInput = document.getElementById('value');
+    if (valInput) {
+      valInput.focus();
+      valInput.select();
+    }
+  }
+}
+
+// Attach event handlers if elements exist
+if (openTxBtn) openTxBtn.onclick = toggleTxModal;
+if (closeTxModal) closeTxModal.onclick = toggleTxModal;
+if (txModal) {
+  txModal.onclick = (e) => {
+    if (e.target === txModal) toggleTxModal();
+  };
+}
+// Block background scrolling via touch/wheel when tx modal is open
+document.addEventListener('touchmove', (e) => {
+  if (!txModal.classList.contains('hidden')) e.preventDefault();
+}, { passive: false });
+document.addEventListener('wheel', (e) => {
+  if (!txModal.classList.contains('hidden')) e.preventDefault();
+}, { passive: false });
+
+
 
 const currency=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -141,16 +473,16 @@ const fmt=d=>d.toLocaleDateString('pt-BR',mobile()?{day:'2-digit',month:'2-digit
 // ---------------------------------------------------------------------------
 const headerEl      = document.querySelector('.app-header');
 const HEADER_OFFSET = headerEl ? headerEl.getBoundingClientRect().height : 58;
-
+const STICKY_VISIBLE = 18;
 const stickyMonth     = document.createElement('div');
 stickyMonth.className = 'sticky-month';
-stickyMonth.style.top = HEADER_OFFSET + 'px';
+stickyMonth.style.top = (HEADER_OFFSET - STICKY_VISIBLE) + 'px';
 document.body.appendChild(stickyMonth);
 
 // Recalcula altura do header em rotação / resize
 window.addEventListener('resize', () => {
   const h = headerEl.getBoundingClientRect().height;
-  stickyMonth.style.top = h + 'px';
+  stickyMonth.style.top = (h - STICKY_VISIBLE) + 'px';
 });
 
 function updateStickyMonth() {
@@ -164,7 +496,9 @@ function updateStickyMonth() {
     }
   });
   if (label) {
-    stickyMonth.textContent = label;
+    // Exibe apenas o nome do mês (primeira palavra do label)
+    const mesApenas = label.split(/\s+/)[0];
+    stickyMonth.textContent = mesApenas;
     stickyMonth.classList.add('visible');
   } else {
     stickyMonth.classList.remove('visible');
@@ -179,6 +513,8 @@ const todayISO = () => {
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 10);
 };
+// expose todayISO to global for inline scripts
+window.todayISO = todayISO;
 
 // Função para calcular o postDate de cartões corretamente (nova lógica)
 const post = (iso, m) => {
@@ -247,6 +583,121 @@ function occursOn(tx, iso) {
 }
 
 const desc=$('desc'),val=$('value'),met=$('method'),date=$('opDate'),addBtn=$('addBtn');
+// Auto-format value input as BRL currency while typing
+val.type = 'text';  // ensure it's text for formatting
+val.addEventListener('input', () => {
+  // Remove all non-digit characters
+  const digits = val.value.replace(/\D/g, '');
+  // On first digit typed, automatically highlight the expense (red) toggle
+  if (digits.length === 1) {
+    document.querySelectorAll('.value-toggle button').forEach(b => b.classList.remove('active'));
+    document.querySelector('.value-toggle button[data-type="expense"]').classList.add('active');
+  }
+  if (!digits) {
+    val.value = '';
+    return;
+  }
+  // Parse as cents and format
+  const numberValue = parseInt(digits, 10) / 100;
+  // Check toggle for sign
+  const activeToggle = document.querySelector('.value-toggle button.active');
+  let formatted = numberValue.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+  if (activeToggle && activeToggle.dataset.type === 'expense') {
+    formatted = '-' + formatted.replace(/^-/, '');
+  } else {
+    formatted = formatted.replace(/^-/, '');
+  }
+  val.value = formatted;
+});
+
+const valueToggles = document.querySelectorAll('.value-toggle button');
+valueToggles.forEach(btn => {
+  btn.addEventListener('click', () => {
+    valueToggles.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Reformat current value preserving sign choice
+    const digits = val.value.replace(/\D/g, '');
+    if (!digits) {
+      val.value = '';
+      return;
+    }
+    const numberValue = parseInt(digits, 10) / 100;
+    let formatted = numberValue.toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+    if (btn.dataset.type === 'expense') {
+      formatted = '-' + formatted.replace(/^-/, '');
+    } else {
+      formatted = formatted.replace(/^-/, '');
+    }
+    val.value = formatted;
+  });
+});
+
+// pill-switch for Dinheiro vs Cartão
+const methodButtons = document.querySelectorAll('.switch-option');
+const hiddenSelect = document.getElementById('method');
+methodButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    methodButtons.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const selectedMethod = btn.dataset.method;
+    hiddenSelect.value = selectedMethod;
+    btn.closest('.method-switch').dataset.selected = selectedMethod;
+    const cardSelector = document.getElementById('cardSelector');
+    if (selectedMethod === 'Cartão') {
+      renderCardSelector();
+      cardSelector.hidden = false;
+    } else {
+      // clear any previously rendered cards and hide selector
+      cardSelector.innerHTML = '';
+      cardSelector.hidden = true;
+    }
+  });
+});
+// initialize hidden select to match default active
+const initialMethod = document.querySelector('.switch-option.active').dataset.method;
+hiddenSelect.value = initialMethod;
+document.querySelector('.method-switch').dataset.selected = initialMethod;
+// Also show/hide card selector on load
+const cardSelector = document.getElementById('cardSelector');
+if (initialMethod === 'Cartão') {
+  renderCardSelector();
+  cardSelector.hidden = false;
+} else {
+  cardSelector.hidden = true;
+}
+
+function renderCardSelector() {
+  const container = document.getElementById('cardSelector');
+  container.innerHTML = '';
+  // Only render cards that are not 'Dinheiro'
+  cards
+    .filter(c => c.name !== 'Dinheiro')
+    .forEach(c => {
+      const label = document.createElement('label');
+      label.style.flex = '1';
+      label.innerHTML = `
+        <input type="radio" name="cardChoice" value="${c.name}">
+        ${c.name}
+      `;
+      container.appendChild(label);
+    });
+  // auto-select first card
+  const first = container.querySelector('input[name="cardChoice"]');
+  if (first) {
+    first.checked = true;
+    hiddenSelect.value = first.value;
+  }
+  // listen for changes
+  container.querySelectorAll('input[name="cardChoice"]').forEach(radio => {
+    radio.addEventListener('change', () => hiddenSelect.value = radio.value);
+  });
+}
 
 // Recorrência e Parcelas
 const recurrence = $('recurrence');
@@ -266,9 +717,10 @@ let isEditing = null;
 const cardName=$('cardName'),cardClose=$('cardClose'),cardDue=$('cardDue'),addCardBtn=$('addCardBtn'),cardList=$('cardList');
 const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setStartBtn'),resetBtn=$('resetData');
 const resetAllBtn = document.getElementById('reset');
-// Exibe o botão "Limpar tudo"
+// Oculta o botão "Limpar tudo" (pedido do usuário)
 if (resetAllBtn) {
-  resetAllBtn.style.display = "none";
+  resetAllBtn.hidden = true;
+  resetAllBtn.style.display = 'none';
 }
 const startContainer = document.querySelector('.start-container');
 const dividerSaldo = document.getElementById('dividerSaldo');
@@ -279,6 +731,9 @@ const showToast = (msg, type = 'error') => {
 
   // Set the message
   t.textContent = msg;
+
+  // choose icon for CSS ::before
+  t.style.setProperty('--icon', type === 'error' ? '"✕"' : '"✓"');
 
   // Remove any previous type classes
   t.classList.remove('success', 'error');
@@ -295,12 +750,17 @@ const showToast = (msg, type = 'error') => {
   // Hide after 3 s: first fade out, then drop the color class to avoid flicker
   setTimeout(() => {
     t.classList.remove('show');          // starts fade‑out (0.3 s)
-    setTimeout(() => t.classList.remove(type), 300);
+    // setTimeout(() => t.classList.remove(type), 300);
   }, 3000);
 };
 
 const togglePlanned = (id, iso) => {
   const master = transactions.find(x => x.id === id);
+  // ← memoriza quais faturas estavam abertas
+  const openInvoices = Array.from(
+    document.querySelectorAll('details.invoice[open]')
+  ).map(el => el.dataset.pd);
+  let toastMsg = null;
   if (!master) return;
   if (master.recurrence) {
     master.exceptions = master.exceptions || [];
@@ -314,7 +774,7 @@ const togglePlanned = (id, iso) => {
         val: master.val,
         method: master.method,
         opDate: iso,
-        postDate: iso,
+        postDate: post(iso, master.method),
         recurrence: '',
         installments: 1,
         planned: false,
@@ -322,6 +782,11 @@ const togglePlanned = (id, iso) => {
         modifiedAt: new Date().toISOString()
       };
       transactions.push(execTx);
+      // Exibe toast quando a ocorrência recorrente vai para a fatura (cartão)
+      if (execTx.method !== 'Dinheiro') {
+        const [, mm, dd] = execTx.postDate.split('-');
+        toastMsg = `Movida para fatura de ${dd}/${mm}`;
+      }
     }
   } else {
     // If un-planning an expired transaction, adjust based on method
@@ -336,9 +801,22 @@ const togglePlanned = (id, iso) => {
       master.ts = new Date().toISOString();
     }
     master.planned = !master.planned;
+    if (!master.planned && master.method !== 'Dinheiro') {
+      master.postDate = post(master.opDate, master.method);      // move para a fatura
+      const [, mm, dd] = master.postDate.split('-');
+      toastMsg = `Movida para fatura de ${dd}/${mm}`;
+    }
   }
   save('tx', transactions);
   renderTable();
+  // restaura faturas que o usuário tinha expandido
+  openInvoices.forEach(pd => {
+    const det = document.querySelector(`details.invoice[data-pd="${pd}"]`);
+    if (det) det.open = true;
+  });
+
+  // mostra o toast por último, já com a tela renderizada
+  if (toastMsg) showToast(toastMsg, 'success');
 };
 
 const openCardBtn=document.getElementById('openCardModal');
@@ -359,9 +837,17 @@ function renderCardList() {
       const actions = document.createElement('div');
       actions.className = 'swipe-actions';
 
+      // Edit SVG icon
       const editBtn = document.createElement('button');
       editBtn.className = 'icon edit';
-      editBtn.innerHTML = '✏️';
+      editBtn.style.padding = '0';
+      editBtn.style.background = 'none';
+      editBtn.style.border = 'none';
+      editBtn.style.cursor = 'pointer';
+      // SVG icon as mask-image
+      const editIconDiv = document.createElement('div');
+      editIconDiv.className = 'icon-action icon-edit';
+      editBtn.appendChild(editIconDiv);
       editBtn.addEventListener('click', () => {
         const newName  = prompt('Nome do cartão', c.name)?.trim();
         if (!newName) return;
@@ -394,9 +880,16 @@ function renderCardList() {
       });
       actions.appendChild(editBtn);
 
+      // Delete SVG icon
       const delBtn = document.createElement('button');
       delBtn.className = 'icon danger delete';
-      delBtn.innerHTML = '🗑';
+      delBtn.style.padding = '0';
+      delBtn.style.background = 'none';
+      delBtn.style.border = 'none';
+      delBtn.style.cursor = 'pointer';
+      const delIconDiv = document.createElement('div');
+      delIconDiv.className = 'icon-action icon-delete';
+      delBtn.appendChild(delIconDiv);
       delBtn.addEventListener('click', () => {
         if (!confirm('Excluir cartão?')) return;
         cards = cards.filter(x => x.name !== c.name);
@@ -407,51 +900,36 @@ function renderCardList() {
       });
       actions.appendChild(delBtn);
 
-      const line = document.createElement('div');
-      line.className = 'card-line';
-      line.innerHTML = `
-        <div>
-          <div class="card-name">${c.name}</div>
-          <div class="card-dates">Fechamento: ${c.close} | Vencimento: ${c.due}</div>
-        </div>`;
-
-      wrap.appendChild(actions);
-      wrap.appendChild(line);
-      li.appendChild(wrap);
+    const content = document.createElement('div');
+    content.className = 'card-content card-line';
+    content.innerHTML = `
+      <b>${c.name}</b>
+      <div class="card-detail">
+        <span class="card-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1 .9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1 -.9-2-2-2zm0 16H5V9h14v11z"/>
+          </svg>
+        </span>
+        <span class="card-label">Fechamento</span>
+        <span class="card-value">${c.close}</span>
+      </div>
+      <div class="card-detail">
+        <span class="card-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 20c4.41 0 8-3.59 8-8s-3.59-8 -8-8 -8 3.59 -8 8 3.59 8 8 8zm0-14c3.31 0 6 2.69 6 6s-2.69 6 -6 6 -6-2.69 -6-6 2.69-6 6-6zm.5 3H11v5l4.25 2.52 .75-1.23 -3.5-2.04V9z"/>
+          </svg>
+        </span>
+        <span class="card-label">Vencimento</span>
+        <span class="card-value">${c.due}</span>
+      </div>
+    `;
+    wrap.appendChild(actions);
+    wrap.appendChild(content);
+    li.appendChild(wrap);
       cardList.appendChild(li);
     });
 
-  if (!window.cardsSwipeInit) {
-    let startX = 0;
-    cardList.addEventListener('touchstart', e => {
-      const wrap = e.target.closest('.swipe-wrapper');
-      if (!wrap) return;
-      startX = e.touches[0].clientX;
-      wrap.dataset.startX = startX;
-    }, { passive: true });
-
-    cardList.addEventListener('touchend', e => {
-      const wrap = e.target.closest('.swipe-wrapper');
-      if (!wrap) return;
-      const start = parseFloat(wrap.dataset.startX || 0);
-      const diff  = start - e.changedTouches[0].clientX;
-      const line  = wrap.querySelector('.card-line');
-      const actW  = wrap.querySelector('.swipe-actions').offsetWidth;
-      // Close other open swipes
-      document.querySelectorAll('.card-line').forEach(l => {
-        if (l !== line) {
-          l.style.transform = 'translateX(0)';
-        }
-      });
-      if (diff > 30) {
-        line.style.transform = `translateX(-${actW}px)`;
-      } else if (diff < -30) {
-        line.style.transform = 'translateX(0)';
-      }
-    }, { passive: true });
-
-    window.cardsSwipeInit = true;
-  }
+  // swipe-init for cards is now handled via initSwipe at the end of the file.
 }
 // Helper: returns true if this record is a detached (single‑edited) occurrence
 function isDetachedOccurrence(tx) {
@@ -470,7 +948,11 @@ const makeLine = t => {
   // Edit button
   const editBtn = document.createElement('button');
   editBtn.className = 'icon edit';
-  editBtn.textContent = '✏️';
+  // Remove emoji, add SVG icon
+  editBtn.textContent = '';
+  const editIconDiv = document.createElement('div');
+  editIconDiv.className = 'icon-action icon-edit';
+  editBtn.appendChild(editIconDiv);
   editBtn.onclick = () => {
     if (t.recurrence) {
       /* ocorrência dinâmica ou regra‑mestre — mostra opções */
@@ -497,7 +979,10 @@ const makeLine = t => {
   // Delete button
   const delBtn = document.createElement('button');
   delBtn.className = 'icon danger delete';
-  delBtn.textContent = '🗑';
+  delBtn.textContent = '';
+  const delIconDiv = document.createElement('div');
+  delIconDiv.className = 'icon-action icon-delete';
+  delBtn.appendChild(delIconDiv);
   delBtn.onclick = () => {
     if (t.recurrence) {
       // show bottom sheet only for recurring operations
@@ -532,7 +1017,7 @@ const makeLine = t => {
     chk.type = 'checkbox';
     chk.className = 'plan-check';
     chk.name = 'planned';
-    chk.onchange = () => togglePlanned(t.id, t.postDate);
+    chk.onchange = () => togglePlanned(t.id, t.opDate);
     left.appendChild(chk);
   }
   const descNode = document.createElement('span');
@@ -541,8 +1026,7 @@ const makeLine = t => {
   // mark recurring transactions (master or detached occurrence) with an icon
   if (t.recurrence || t.parentId) {
     const recIcon = document.createElement('span');
-    recIcon.className = 'recurring-icon';
-    recIcon.textContent = '🔄';
+    recIcon.className = 'icon-repeat';
     recIcon.title = 'Recorrência';
     left.appendChild(recIcon);
   }
@@ -551,6 +1035,12 @@ const makeLine = t => {
   const value = document.createElement('span');
   value.className = 'value';
   value.textContent = `R$ ${(t.val < 0 ? '-' : '')}${Math.abs(t.val).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  // assign color class based on sign
+  if (t.val < 0) {
+    value.classList.add('negative');
+  } else {
+    value.classList.add('positive');
+  }
   right.appendChild(value);
   topRow.appendChild(left);
   topRow.appendChild(right);
@@ -578,36 +1068,7 @@ const makeLine = t => {
   wrap.appendChild(d);
   return wrap;
 };
-// Operations swipe handler (inicialização única)
-if (!window.opsSwipeInit) {
-  let startXOp = 0;
-  document.body.addEventListener('touchstart', e => {
-    const wrap = e.target.closest('.swipe-wrapper');
-    if (!wrap) return;
-    startXOp = e.touches[0].clientX;
-    wrap.dataset.startX = startXOp;
-  }, { passive: true });
-
-  document.body.addEventListener('touchend', e => {
-    const wrap = e.target.closest('.swipe-wrapper');
-    if (!wrap) return;
-    const start = parseFloat(wrap.dataset.startX || 0);
-    const diff = start - e.changedTouches[0].clientX;
-    const line = wrap.querySelector('.op-line');
-    const actW = wrap.querySelector('.swipe-actions').offsetWidth;
-    // Close other open swipes
-    document.querySelectorAll('.op-line').forEach(l => {
-      if (l !== line) l.style.transform = 'translateX(0)';
-    });
-    if (diff > 30) {
-      line.style.transform = `translateX(-${actW}px)`;
-    } else if (diff < -30) {
-      line.style.transform = 'translateX(0)';
-    }
-  }, { passive: true });
-
-  window.opsSwipeInit = true;
-}
+// swipe-init for operations is now handled via initSwipe at the end of the file.
 
 function addCard(){const n=cardName.value.trim(),cl=+cardClose.value,du=+cardDue.value;if(!n||cl<1||cl>31||du<1||du>31||cl>=du||cards.some(c=>c.name===n)){alert('Dados inválidos');return;}cards.push({name:n,close:cl,due:du});cacheSet('cards', cards);save('cards',cards);refreshMethods();renderCardList();cardName.value='';cardClose.value='';cardDue.value='';}
 
@@ -774,6 +1235,7 @@ async function addTx() {
 
   // Adiciona e salva
   transactions.push(...batch);
+  sortTransactions();
   cacheSet('tx', transactions);
 
   if (!navigator.onLine) {
@@ -955,6 +1417,7 @@ const editTx = id => {
 };
 
 function renderTable() {
+  sortTransactions();   // ensure data is ordered before rendering
   tbody.innerHTML = '';
   const y = new Date().getFullYear();
   const cur = new Date().getMonth();
@@ -997,6 +1460,7 @@ function renderTable() {
       Object.keys(grp).forEach(card => {
         const det = document.createElement('details');
         det.className = 'invoice';
+        det.dataset.pd = iso;           // YYYY-MM-DD do vencimento
         const sm = document.createElement('summary');
         sm.textContent = 'Fatura ' + card;
         det.appendChild(sm);
@@ -1009,6 +1473,18 @@ function renderTable() {
         });
         tdD.appendChild(det);
       });
+      // --- INÍCIO: plannedOps filtrados e ordenados ---
+      const plannedOps = dayTx
+        .filter(t => t.planned)
+        .sort((a, b) => {
+          const dateCmp = a.opDate.localeCompare(b.opDate);
+          if (dateCmp !== 0) return dateCmp;
+          return (a.ts || '').localeCompare(b.ts || '');
+        });
+      // --- FIM: plannedOps filtrados e ordenados ---
+      const plannedSection = document.createElement('div');
+      plannedSection.className = 'planned-cash';
+      // ... (continuação do bloco planejados, mantido como estava)
       tbody.appendChild(row);
     }
   }
@@ -1016,6 +1492,7 @@ function renderTable() {
   renderAccordion();
   updateStickyMonth();
 }
+
 
 // -----------------------------------------------------------------------------
 // Acordeão: mês → dia → fatura
@@ -1048,7 +1525,7 @@ function renderAccordion() {
       formattedTotal = `R$ ${cardTotalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
     }
     invSum.innerHTML = `
-      <span class="invoice-label">💳 Fatura - ${cardName}</span>
+      <span class="invoice-label">Fatura – ${cardName}</span>
       <span class="invoice-total">${formattedTotal}</span>
     `;
     return invSum;
@@ -1116,10 +1593,12 @@ function renderAccordion() {
   const txByDate = iso => {
     const today = todayISO();
     const todayIso = todayISO();
-    // direct transactions (non-recurring, non-installment)
-    let dayList = transactions.filter(t =>
-      t.postDate === iso && !t.recurrence && t.installments === 1
-    );
+    // planned → agrupa pelo dia escolhido (opDate)
+    // executed → agrupa pelo vencimento ou data de pagamento (postDate)
+    let dayList = transactions.filter(t => {
+      if (t.recurrence || t.installments !== 1) return false;
+      return t.planned ? (t.opDate === iso) : (t.postDate === iso);
+    });
     // 2. ocorrências dinâmicas (inclui cartão)
     transactions
       .filter(t => t.recurrence)
@@ -1136,14 +1615,29 @@ function renderAccordion() {
           if (!occursOn(master, occIso)) continue;
 
           const pd = post(occIso, master.method);
-          if (pd !== iso) continue; // só se vencimento cai hoje
+          const plannedFlag = occIso > todayIso;  // true → ainda não executada
 
-          dayList.push({
-            ...master,
-            opDate: occIso,
-            postDate: pd,
-            planned: occIso > todayIso          // planejado se a data da COMPRA ainda não chegou
-          });
+          if (plannedFlag) {
+            // FUTURO → mostra no dia escolhido
+            if (occIso === iso) {
+              dayList.push({
+                ...master,
+                opDate: occIso,
+                postDate: pd,
+                planned: true
+              });
+            }
+          } else {
+            // PASSADO/HOJE → já executada, entra na fatura
+            if (pd === iso) {
+              dayList.push({
+                ...master,
+                opDate: occIso,
+                postDate: pd,
+                planned: false
+              });
+            }
+          }
         }
       });
     // Para cartão, só exibe se postDate === iso (já garantido acima)
@@ -1164,14 +1658,52 @@ function renderAccordion() {
     const monthTotal = transactions
       .filter(t => new Date(t.postDate).getMonth() === mIdx)
       .reduce((s,t) => s + t.val, 0);
-    // Cria summary estilizado como linha do mês
+    // Cabeçalho flutuante dos meses
     const mSum = document.createElement('summary');
     mSum.className = 'month-divider';
-    mSum.innerHTML = `${nomeMes.toUpperCase()} <hr>`;
+
+    const monthActual = transactions
+      .filter(t => {
+        const pd = new Date(t.postDate);
+        return pd.getMonth() === mIdx && !t.planned;
+      })
+      .reduce((s, t) => s + t.val, 0);
+
+    const monthPlanned = transactions
+      .filter(t => {
+        const pd = new Date(t.postDate);
+        return pd.getMonth() === mIdx && t.planned;
+      })
+      .reduce((s, t) => s + t.val, 0);
+
+    let metaLabel = '';
+    let metaValue = '';
+
+    if (mIdx < curMonth) { // meses passados
+      metaLabel = 'Saldo final:';
+      metaValue = currency(monthActual);
+    } else if (mIdx === curMonth) { // mês corrente
+      metaLabel = 'Saldo atual:';
+      metaValue = currency(monthActual);
+    } else { // meses futuros
+      metaLabel = 'Saldo projetado:';
+      metaValue = currency(monthActual + monthPlanned);
+    }
+
+    mSum.innerHTML = `
+      <div class="month-row">
+        <span class="month-name">${nomeMes.toUpperCase()}</span>
+      </div>
+      <div class="month-meta">
+        <span class="meta-label">${metaLabel}</span>
+        <span class="meta-value">${metaValue}</span>
+      </div>`;
+
     mDet.appendChild(mSum);
 
     // Garante o número correto de dias em cada mês
     const daysInMonth = new Date(2025, mIdx + 1, 0).getDate();
+    let monthEndBalanceForHeader;
     for (let d = 1; d <= daysInMonth; d++) {
       const dateObj = new Date(2025, mIdx, d);
       const iso = dateObj.toISOString().slice(0, 10);
@@ -1199,19 +1731,25 @@ function renderAccordion() {
       );
 
       const labelParts = [baseLabel];
-      if (hasCardDue) labelParts.push('💳');
-      if (hasSalary)  labelParts.push('💰');
+      if (hasCardDue) labelParts.push('<span class="icon-invoice"></span>');
+      if (hasSalary)  labelParts.push('<span class="icon-salary"></span>');
 
-      const labelWithDue = labelParts.join(' | ');
+      const labelWithDue = labelParts.join('');
       dSum.innerHTML = `<span>${labelWithDue}</span><span class="day-balance" style="margin-left:auto">${saldoFormatado}</span>`;
       if (runningBalance < 0) dDet.classList.add('negative');
       dDet.appendChild(dSum);
 
       // Seção de planejados (apenas se houver planejados)
-      const plannedOps = dayTx.filter(t => t.planned);
+      const plannedOps = dayTx
+        .filter(t => t.planned)
+        .sort((a, b) => {
+          const dateCmp = a.opDate.localeCompare(b.opDate);
+          if (dateCmp !== 0) return dateCmp;
+          return (a.ts || '').localeCompare(b.ts || '');
+        });
       if (plannedOps.length) {
         const plannedSection = document.createElement('div');
-        plannedSection.className = 'planned-section';
+        plannedSection.className = 'planned-cash';
         const plannedHeader = document.createElement('div');
         plannedHeader.className = 'planned-header';
         plannedHeader.textContent = 'Planejados:';
@@ -1256,6 +1794,7 @@ function renderAccordion() {
             // Cria bloco de fatura
             const invDet = document.createElement('details');
             invDet.className = 'invoice';
+            invDet.dataset.pd = cardDueDateKey;   // YYYY-MM-DD do vencimento
             invDet.appendChild(createCardInvoiceHeader(card.name, cardTotalAmount));
             // Lista transações do cartão na fatura deste mês
             if (cardExecuted.length > 0) {
@@ -1297,19 +1836,25 @@ function renderAccordion() {
 
       mDet.appendChild(dDet);
     }
+
+// --- Atualiza o preview do mês com base no último dia visível ---
+monthEndBalanceForHeader = runningBalance; // saldo do último dia do mês
+const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado';
+
+    // Atualiza o summary do mês (cabeçalho do accordion)
+    const labelEl = mSum.querySelector('.meta-label');
+    const valueEl = mSum.querySelector('.meta-value');
+    if (labelEl) labelEl.textContent = headerPreviewLabel + ':';
+    if (valueEl) valueEl.textContent = currency(monthEndBalanceForHeader);
+
     // (month summary já foi adicionado no topo; não adicionar novamente)
     acc.appendChild(mDet);
 
     // Cria linha meta como elemento independente
     const metaLine = document.createElement('div');
     metaLine.className = 'month-meta';
-
-    let label;
-    if (mIdx < curMonth) label = 'Saldo final:';
-    else if (mIdx === curMonth) label = 'Saldo atual:';
-    else label = 'Saldo projetado:';
-
-    metaLine.innerHTML = `<span>| ${label}</span><strong>${currency(runningBalance)}</strong>`;
+    const previewLabel = (mIdx < curMonth) ? 'Saldo final:' : 'Saldo planejado:';
+    metaLine.innerHTML = `<span>| ${previewLabel}</span><strong>${currency(monthEndBalanceForHeader)}</strong>`;
     // Clique em "Saldo final" também expande/colapsa o mês
     metaLine.addEventListener('click', () => {
       mDet.open = !mDet.open;
@@ -1390,6 +1935,14 @@ cardModal.onclick = e => {
 };
 
  (async () => {
+    // Instancia todos os botões “Adicionar” a partir do template
+  document.querySelectorAll('[data-add-btn-container]').forEach(container => {
+    const tpl = document.getElementById('add-button-template');
+    const btn = tpl.content.cloneNode(true).firstElementChild;
+    const targetId = container.dataset.targetId;
+    if (targetId) btn.id = targetId;
+    container.appendChild(btn);
+  });
   date.value = todayISO();
   // Renderiza imediatamente com dados em cache
   refreshMethods();
@@ -1524,36 +2077,54 @@ occur = occur.filter(o =>
       plannedList.appendChild(sub);
     }
 
-    const item = document.createElement('div');
-    item.className = 'planned-item';
-    if (t.opDate < today) item.classList.add('overdue');
+    // create <li class="planned-cash"> card instead of a <div>
+const li = document.createElement('li');
+li.className = 'planned-cash';
 
-    const row = document.createElement('div');
-    row.className = 'planned-row';
+// row: checkbox + description + value
+const row = document.createElement('div');
+row.className = 'op-main';
 
-    const chk = document.createElement('input');
-    chk.type = 'checkbox';
-    chk.onchange = () => togglePlanned(t.id, t.opDate);
-    row.appendChild(chk);
+// left side: checkbox + description
+const left = document.createElement('div');
+left.className = 'op-left';
 
-    const descSpan = document.createElement('span');
-    descSpan.className = 'desc';
-    descSpan.textContent = t.desc;
-    row.appendChild(descSpan);
+const chk = document.createElement('input');
+chk.type = 'checkbox';
+chk.className = 'plan-check';
+chk.name = 'planned';
+chk.onchange = () => togglePlanned(t.id, t.opDate);
+left.appendChild(chk);
 
-    const valSpan = document.createElement('span');
-    valSpan.className = 'value';
-    valSpan.textContent = `R$ ${(t.val < 0 ? '-' : '')}${Math.abs(t.val).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
-    row.appendChild(valSpan);
+const descNode = document.createElement('span');
+descNode.textContent = t.desc;
+left.appendChild(descNode);
 
-    item.appendChild(row);
+// right side: value, with sign colouring
+const right = document.createElement('div');
+right.className = 'op-right';
 
-    const methodDiv = document.createElement('div');
-    methodDiv.className = 'method';
-    methodDiv.textContent = t.method === 'Dinheiro' ? 'Dinheiro' : `Cartão ${t.method}`;
-    item.appendChild(methodDiv);
+const value = document.createElement('span');
+value.className = 'value';
+value.textContent = `R$ ${(t.val < 0 ? '-' : '')}${Math.abs(t.val).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+if (t.val < 0) {
+  value.classList.add('negative');
+} else {
+  value.classList.add('positive');
+}
+right.appendChild(value);
 
-    plannedList.appendChild(item);
+row.appendChild(left);
+row.appendChild(right);
+li.appendChild(row);
+
+// method label (below the row)
+const methodDiv = document.createElement('div');
+methodDiv.className = 'method';
+methodDiv.textContent = t.method === 'Dinheiro' ? 'Dinheiro' : `Cartão ${t.method}`;
+li.appendChild(methodDiv);
+
+plannedList.appendChild(li);
   });
 }
 
@@ -1579,3 +2150,7 @@ if (!window.plannedHandlersInit) {
   };
   window.plannedHandlersInit = true;
 }
+// Initialize swipe for operations (op-line)
+initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.op-line', 'opsSwipeInit');
+// Initialize swipe for card list (card-line)
+initSwipe(cardList,      '.swipe-wrapper', '.swipe-actions', '.card-line', 'cardsSwipeInit');

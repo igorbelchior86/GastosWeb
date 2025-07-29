@@ -4,25 +4,44 @@
   <meta charset="utf-8"/>
   <title>Gastos+</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- PWA status bar color -->
+  <meta name="theme-color" content="#1e1e1e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=1.4.0">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
   <link rel="manifest" href="site.webmanifest">
 </head>
 <body>
+  <template id="add-button-template">
+    <button class="add-button">Adicionar</button>
+  </template>
   <header class="app-header">
     <div class="logo-title">
       <span class="logo-text">Gastos+</span>
     </div>
     <span id="offlineIndicator" class="offline-icon" hidden>📴</span>
-    <button id="openPlannedBtn" class="floating-planned-button" title="Planejados">📅</button>
-    <button id="openCardModal" class="floating-card-button" title="Gerenciar cartões">💳</button>
+
+    <!-- Header segmented control (icons only) -->
+    <div class="header-seg" role="tablist" aria-label="Atalhos do topo" data-selected="planned">
+      <div class="seg-highlight"></div>
+      <button type="button" class="seg-option icon-calendar" data-action="planned" role="tab" aria-selected="true" aria-controls="plannedModal" title="Planejados"></button>
+      <button type="button" class="seg-option icon-creditcard" data-action="cards" role="tab" aria-selected="false" aria-controls="cardModal" title="Gerenciar cartões"></button>
+    </div>
+
+    <!-- Mantidos para compatibilidade com o JS existente (ficam invisíveis) -->
+    <button id="openPlannedBtn" class="floating-planned-button legacy-hidden" title="Planejados">📅</button>
+    <button id="openCardModal" class="floating-card-button legacy-hidden" title="Gerenciar cartões">💳</button>
   </header>
 
-  <div class="wrapper app-hidden">
+  <div class="wrapper app-hidden main-panel">
 
     <!-- Saldo inicial -->
     <div class="start-container">
@@ -48,7 +67,7 @@
       </div>
       <div id="accordion"></div>
       <button id="resetData" class="danger" style="margin-top:12px" hidden>Limpar TODOS</button>
-      <button id="reset" style="display:none">Limpar tudo</button>
+      <button id="reset" hidden>Limpar tudo</button>
     </div>
     <hr class="divider">
   </div>
@@ -65,7 +84,7 @@
         <input id="cardClose" name="cardClose" type="number" min="1" max="31" placeholder="Fechamento">
         <input id="cardDue" name="cardDue" type="number" min="1" max="31" placeholder="Vencimento">
       </div>
-      <button id="addCardBtn">Adicionar</button>
+      <button id="addCardBtn" class="add-button">Adicionar</button>
       <small>Fechamento define a fatura.</small>
 
       <ul id="cardList" class="card-list"></ul>
@@ -80,10 +99,33 @@
       <h2>Lançar operação</h2>
       <button id="closeTxModal" class="modal-close-btn" aria-label="Fechar">✕</button>
       <div class="form-grid">
+        <div class="value-input-wrapper">
+          <input
+            id="value"
+            name="value"
+            type="tel"
+            placeholder="Valor"
+            inputmode="decimal"
+            pattern="[0-9]*"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+          <div class="value-toggle">
+            <button type="button" data-type="expense" class="active">↓</button>
+            <button type="button" data-type="income">↑</button>
+          </div>
+        </div>
         <input id="desc" name="desc" placeholder="Descrição">
-        <input id="value" name="value" type="number" placeholder="Valor (- despesa)">
-        <select id="method" name="method"></select>
-        <!-- Recorrência -->
+        <!-- hidden original select to retain data binding -->
+        <select id="method" name="method" hidden></select>
+        <div class="method-switch">
+          <div class="switch-highlight"></div>
+          <button type="button" data-method="Dinheiro" class="switch-option active">Dinheiro</button>
+          <button type="button" data-method="Cartão" class="switch-option">Cartão</button>
+        </div>
+        <div id="cardSelector" class="form-row" hidden></div>
         <select id="recurrence" name="recurrence">
           <option value="">Nenhuma (única)</option>
           <option value="D">Diário</option>
@@ -94,15 +136,16 @@
           <option value="S">A cada 6 meses</option>
           <option value="Y">Anual</option>
         </select>
-
         <!-- Parcelas (visível somente se método ≠ Dinheiro) -->
         <div id="parcelasBlock" class="hidden">
           <select id="installments" name="installments">
             <!-- options 1‑24 serão criadas via JS -->
           </select>
         </div>
-        <input id="opDate" name="opDate" type="date">
-        <button id="addBtn">Adicionar</button>
+        <div class="date-input-wrapper">
+          <input id="opDate" name="opDate" type="date">
+        </div>
+        <button id="addBtn" class="add-button">Adicionar</button>
       </div>
     </div>
   </div>
@@ -114,7 +157,7 @@
       <h2>Planejados</h2>
       <button id="closePlannedModal" class="modal-close-btn" aria-label="Fechar">✕</button>
       <div class="modal-content">
-        <div id="plannedList" class="planned-list"></div>
+        <ul id="plannedList" class="planned-list"></ul>
       </div>
     </div>
   </div>
@@ -151,81 +194,13 @@
 
   <button id="openTxModal" class="floating-add-button" title="Nova operação">＋</button>
 
-  <script type="module" src="main.js?v=5"></script>
-  <style>
-/* Action buttons for recurrence modal */
-.action-btn {
-  padding: 14px 0;
-  width: 100%;
-  border-radius: 18px;
-  font-size: 1rem;
-  font-weight: bold;
-  border: none;
-  background: #ededed;
-  margin-bottom: 8px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.action-btn:not(.cancel-btn):hover {
-  background: #e0e0e0;
-}
-.cancel-btn {
-  background: #f5f5f5;
-  color: #888;
-}
-/* Parcelas: colapsa/expande suavemente */
-#parcelasBlock {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease;
-}
-#parcelasBlock.hidden {
-  display: none;
-  max-height: 0;
-}
-#parcelasBlock:not(.hidden) {
-  max-height: 120px;   /* altura suficiente para o select */
-}
-#parcelasBlock select {
-  margin-top: 4px;
-}
-  </style>
+  <script type="module" src="main.js?v=1.4.0"></script>
+  <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
   <div id="toast" class="toast"></div>
 
-  <script>
-    const openTxBtn = document.getElementById('openTxModal');
-    const txModal = document.getElementById('txModal');
-    const wrapperEl = document.querySelector('.wrapper');
-    const closeTxModal = document.getElementById('closeTxModal');
-
-    function toggleTxModal() {
-      const isOpening = txModal.classList.contains('hidden');
-      if (isOpening) {
-        if (document.body) document.body.style.overflow = 'hidden';
-        if (wrapperEl) wrapperEl.style.overflow = 'hidden';
-      } else {
-        if (document.body) document.body.style.overflow = '';
-        if (wrapperEl) wrapperEl.style.overflow = '';
-      }
-      txModal.classList.toggle('hidden');
-      openTxBtn.style.transform = isOpening ? 'rotate(45deg)' : 'rotate(0deg)';
-    }
-
-    openTxBtn.onclick = toggleTxModal;
-    // Close via close-icon button
-    closeTxModal.onclick = toggleTxModal;
-    txModal.onclick = e => { if (e.target === txModal) toggleTxModal(); };
-    // Block background touch scroll when txModal open
-    document.addEventListener('touchmove', e => {
-      if (!txModal.classList.contains('hidden')) e.preventDefault();
-    }, { passive: false });
-    // Block background wheel scroll when txModal open
-    document.addEventListener('wheel', e => {
-      if (!txModal.classList.contains('hidden')) e.preventDefault();
-    }, { passive: false });
-  </script>
-  <footer class="app-footer"><small id="version"></small></footer>
+  <!-- Scripts moved to main.js -->
+  <footer class="app-footer"><small id="version">v1.4.0</small></footer>
 </body>
 </html>
