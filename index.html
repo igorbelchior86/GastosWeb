@@ -14,7 +14,7 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.2">
+  <link rel="stylesheet" href="style.css?v=1.4.6">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -33,7 +33,6 @@
 
     <!-- Header segmented control (icons only) -->
     <div class="header-seg" role="tablist" aria-label="Atalhos do topo" data-selected="planned">
-      <div class="seg-highlight"></div>
       <button type="button" class="seg-option icon-calendar" data-action="planned" role="tab" aria-selected="true" aria-controls="plannedModal" title="Planejados"></button>
       <button type="button" class="seg-option icon-creditcard" data-action="cards" role="tab" aria-selected="false" aria-controls="cardModal" title="Gerenciar cartões"></button>
     </div>
@@ -186,9 +185,9 @@
       <h2>Editar recorrência</h2>
       <button id="closeEditRecurrenceModal" class="modal-close-btn" aria-label="Fechar">✕</button>
       <div class="form-grid">
-        <button id="editSingleBtn" class="action-btn">Editar somente esta</button>
-        <button id="editFutureBtn" class="action-btn">Editar esta e futuras</button>
-        <button id="editAllBtn" class="action-btn">Editar todas</button>
+        <button id="editSingleBtn" class="action-btn">Somente esta</button>
+        <button id="editFutureBtn" class="action-btn">Esta e futuras</button>
+        <button id="editAllBtn" class="action-btn">Todas</button>
         <button id="cancelEditRecurrence" class="action-btn cancel-btn">Cancelar</button>
       </div>
     </div>
@@ -196,13 +195,13 @@
 
   <button id="openTxModal" class="floating-add-button" title="Nova operação">＋</button>
 
-  <script type="module" src="main.js?v=1.4.0"></script>
+  <script type="module" src="main.js?v=1.4.6"></script>
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
   <div id="toast" class="toast"></div>
 
   <!-- Scripts moved to main.js -->
-  <footer class="app-footer"><small id="version">v1.4.0</small></footer>
+  <footer class="app-footer"><small id="version">v1.4.6</small></footer>
 </body>
 </html>

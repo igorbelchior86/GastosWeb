@@ -277,9 +277,16 @@ input,select,textarea{font-size:16px!important;box-sizing:border-box;}
 
 /* ===================== ICONS ===================== */
 .icon-action{
-  display:inline-block;width:24px;height:24px;background-color:#fff;
-  mask-repeat:no-repeat;mask-position:center;mask-size:100%;
-  -webkit-mask-repeat:no-repeat;-webkit-mask-position:center;-webkit-mask-size:100%;
+  display:inline-block;
+  width:24px;
+  height:24px;
+  background-color:#fff;
+  mask-repeat:no-repeat;
+  mask-position:center;
+  mask-size:100%;
+  -webkit-mask-repeat:no-repeat;
+  -webkit-mask-position:center;
+  -webkit-mask-size:100%;
   filter: drop-shadow(0 1px 2px #0008);
   -webkit-filter: drop-shadow(0 1px 2px #0008);
 }
@@ -356,6 +363,15 @@ input,select,textarea{font-size:16px!important;box-sizing:border-box;}
           mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M12 6V3l-5 4 5 4V8c2.8 0 5 2.2 5 5s-2.2 5-5 5a5 5 0 0 1-4.7-3.4H6.1A7 7 0 0 0 12 19a7 7 0 0 0 0-14z"/></svg>');
 }
 
+/* --- Fine‑tune recurrence icon alignment --- */
+.icon-repeat{
+  width:18px;
+  height:18px;
+  margin-left:12px;
+  flex:0 0 18px;      /* keeps size inside flex rows */
+  vertical-align:middle;
+}
+
 /* linha separadora (opção A) */
 summary.day-summary .icon-salary::before,
 summary.day-summary .icon-invoice::before{
@@ -412,19 +428,17 @@ summary.day-summary .icon-invoice::before{
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0;
-  padding: 2px;
+  gap: 18px;
+  padding: 0;
   height: 44px;
-  background: rgba(42,42,44,0.8) !important;
-  backdrop-filter: saturate(180%) blur(10px);
-  -webkit-backdrop-filter: saturate(180%) blur(10px);
-  border: 1px solid rgba(255,255,255,0.18);
-  border-radius: 22px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 6px 16px rgba(0,0,0,0.35);
+  background: transparent;
+  border: none;
+  box-shadow: none;
   margin-left: auto; /* encosta no lado direito do header */
   margin-right: 8px;
 }
 .header-seg .seg-highlight{
+  display: none;
   position: absolute;
   top: 2px; bottom: 2px; left: 2px;
   width: calc(50% - 2px);
@@ -437,11 +451,12 @@ summary.day-summary .icon-invoice::before{
 .header-seg[data-selected="cards"] .seg-highlight{ transform: translateX(100%); }
 .header-seg .seg-option{
   position: relative;
-  width: 56px; /* toque confortável; 44px útil + respiro */
-  height: 40px;
-  border: none;
-  background: transparent;
-  border-radius: 18px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.05);
+  border-radius: 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.45);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -761,13 +776,58 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   border-color: var(--blue);
 }
 
+
+/* ===== Accordion planned items: match modal checkbox style ===== */
+#accordion .plan-check,
+.executed-list .plan-check {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--txt-muted);
+  border-radius: 50%;
+  background: transparent;
+  -webkit-appearance: none;
+          appearance: none;
+  cursor: pointer;
+  margin-right: 6px;
+}
+#accordion .plan-check:checked,
+.executed-list .plan-check:checked {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+/* ---- Alignment fix for planned rows inside accordion ---- */
+.planned-list .op-left{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:1 1 auto;
+  min-width:0;
+}
+.planned-list .op-left .icon-repeat{
+  margin-left:4px;      /* tighter gap from checkbox */
+  margin-right:0;
+  flex:0 0 18px;
+  vertical-align:middle;
+}
+
 /* ===================== SWIPE ===================== */
 .swipe-wrapper {
   position: relative;
   overflow: hidden;
 }
 
-.swipe-wrapper .card-line,
+/* ==== Card modal: high-contrast glass-style cards ==== */
+#cardModal .swipe-wrapper .card-line {
+  background: var(--glass-bg-light);          /* lighter glass for contrast */
+  border: 1px solid rgba(255,255,255,0.12);   /* subtle white border */
+  border-radius: 12px;                        /* larger rounding */
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);      /* stronger shadow */
+  margin-top: 12px !important;                /* more vertical spacing */
+  padding: 16px;                              /* slightly more padding */
+  color: #fff;                                /* ensure readability */
+}
+
 .swipe-wrapper .op-line {
   background: var(--card-bg); /* was: var(--panel) */
   color: #fff;
@@ -1475,4 +1535,11 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
 #cardModal .bottom-modal-box {
   max-height: 80vh;
   overflow-y: auto;
+}
+
+ 
+
+/* Toast: prevent text wrapping for aesthetic single-line messages */
+.toast {
+  white-space: nowrap;
 }

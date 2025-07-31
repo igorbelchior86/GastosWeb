@@ -264,7 +264,7 @@ let PATH;
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 let save, load;
 let firebaseDb;
 
@@ -933,7 +933,7 @@ function isDetachedOccurrence(tx) {
   return !tx.recurrence && !!tx.parentId;
 }
 
-const makeLine = t => {
+const makeLine = (t) => {
   // Create swipe wrapper
   const wrap = document.createElement('div');
   wrap.className = 'swipe-wrapper';
@@ -950,9 +950,11 @@ const makeLine = t => {
   const editIconDiv = document.createElement('div');
   editIconDiv.className = 'icon-action icon-edit';
   editBtn.appendChild(editIconDiv);
-  editBtn.onclick = () => {
-    if (t.recurrence) {
-      /* ocorrência dinâmica ou regra‑mestre — mostra opções */
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // master or dynamically recurring occurrence
+    if (t.recurrence || (hasRecurrence && !t.recurrence && !t.parentId)) {
+      // recorrência: mostra opções de edição
       pendingEditTxId  = t.id;
       pendingEditTxIso = t.postDate;
       editRecurrenceModal.classList.remove('hidden');
@@ -960,17 +962,15 @@ const makeLine = t => {
       wrapperEl.style.overflow     = 'hidden';
       return;
     }
-
     if (isDetachedOccurrence(t)) {
-      /* Já foi editada como “Somente esta”: trata como operação única */
+      // ocorrência destacada: edição única
       pendingEditMode = null;
       editTx(t.id);
       return;
     }
-
-    /* Operação realmente única (sem parentId) */
+    // operação única: abre modal de edição
     editTx(t.id);
-  };
+  });
   actions.appendChild(editBtn);
 
   // Delete button
@@ -981,7 +981,7 @@ const makeLine = t => {
   delIconDiv.className = 'icon-action icon-delete';
   delBtn.appendChild(delIconDiv);
   delBtn.onclick = () => {
-    if (t.recurrence) {
+    if (hasRecurrence) {
       // show bottom sheet only for recurring operations
       delTx(t.id, t.postDate);
     } else {
@@ -1020,12 +1020,53 @@ const makeLine = t => {
   const descNode = document.createElement('span');
   descNode.textContent = t.desc;
   left.appendChild(descNode);
-  // mark recurring transactions (master or detached occurrence) with an icon
-  if (t.recurrence || t.parentId) {
+  // mark recurring transactions (master, occurrence, or detached‑edited copy)
+  const hasRecurrence = (() => {
+    // (a) O próprio registro é a regra‑mestre (recurrence não‑vazio)
+    if (typeof t.recurrence === 'string' && t.recurrence.trim() !== '') return true;
+
+    // (b) Possui parentId apontando para regra‑mestre
+    if (t.parentId) {
+      const master = transactions.find(p => p.id === t.parentId);
+      if (master && typeof master.recurrence === 'string' && master.recurrence.trim() !== '') return true;
+    }
+
+    /* (c) Ocorrência dinâmica criada em tempo de render:
+       Não tem parentId nem recurrence. Procuramos QUALQUER
+       regra‑mestre cuja frequência caia exatamente em t.opDate. */
+    for (const p of transactions) {
+      if (typeof p.recurrence === 'string' && p.recurrence.trim() !== '') {
+        if (occursOn(p, t.opDate)) {
+          // Para evitar falsos‑positivos, exige igual descrição OU valor
+          if (p.desc === t.desc || p.val === t.val) return true;
+        }
+      }
+    }
+
+    return false;
+  })();
+  if (hasRecurrence) {
     const recIcon = document.createElement('span');
     recIcon.className = 'icon-repeat';
     recIcon.title = 'Recorrência';
     left.appendChild(recIcon);
+  }
+  // Fallback guard — if, for any reason, no icon was appended yet but
+  // the transaction (or its parent) is recurring, inject it at the start.
+  if (!left.querySelector('.icon-repeat')) {
+    const hasRecurrenceFinal =
+      (typeof t.recurrence === 'string' && t.recurrence.trim() !== '') ||
+      (t.parentId && transactions.some(p =>
+        p.id === t.parentId &&
+        typeof p.recurrence === 'string' &&
+        p.recurrence.trim() !== ''
+      ));
+
+    if (hasRecurrenceFinal) {
+      const recIc = document.createElement('span');
+      recIc.className = 'icon-repeat';
+      left.insertBefore(recIc, left.firstChild);
+    }
   }
   const right = document.createElement('div');
   right.className = 'op-right';
@@ -1101,7 +1142,7 @@ async function addTx() {
         // Create standalone edited transaction
         transactions.push({
           id: Date.now(),
-          parentId: t.id,
+          parentId: t.parentId || t.id,
           desc: newDesc,
           val: newVal,
           method: newMethod,
@@ -1193,7 +1234,10 @@ async function addTx() {
   }
 
   const d   = desc.value.trim();
-  const v   = parseFloat(val.value);
+  // parse valor BRL (ex.: "-2.900,00") corretamente
+  let v = parseFloat(val.value.replace(/\./g, '').replace(/,/g, '.')) || 0;
+  const activeType = document.querySelector('.value-toggle button.active').dataset.type;
+  if (activeType === 'expense') v = -Math.abs(v);
   const m   = met.value;
   const iso = date.value;
 
