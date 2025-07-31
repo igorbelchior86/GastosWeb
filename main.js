@@ -423,7 +423,9 @@ function resetTxModal() {
 function toggleTxModal() {
   const isOpening = txModal.classList.contains('hidden');
   if (isOpening) {
-    resetTxModal();
+    if (!isEditing) {
+      resetTxModal();
+    }
     // Prevent background scrolling when modal is open
     if (document.body) document.body.style.overflow = 'hidden';
     if (wrapperEl) wrapperEl.style.overflow = 'hidden';
@@ -1125,7 +1127,9 @@ async function addTx() {
       return;
     }
     const newDesc    = desc.value.trim();
-    const newVal     = parseFloat(val.value);
+    let newVal = parseFloat(val.value.replace(/\./g, '').replace(/,/g, '.')) || 0;
+    const activeType = document.querySelector('.value-toggle button.active').dataset.type;
+    if (activeType === 'expense') newVal = -Math.abs(newVal);
     const newMethod  = met.value;
     const newOpDate  = date.value;
     const newPostDate = post(newOpDate, newMethod);
@@ -1447,10 +1451,22 @@ editAllBtn.onclick = () => {
 const editTx = id => {
   const t = transactions.find(x => x.id === id);
   if (!t) return;
-  // Preenche modal com dados para edição
-  desc.value   = t.desc;
-  val.value    = t.val;
-  met.value    = t.method;
+  // Preencher descrição
+  desc.value = t.desc;
+  // Preencher valor formatado em BRL
+  const valInput = document.getElementById('value');
+  if (valInput) {
+    // t.val is already in reais, format directly
+    const amount = t.val;
+    valInput.value = amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  // Ajustar toggle despesa/receita
+  document.querySelectorAll('.value-toggle button').forEach(b => b.classList.remove('active'));
+  const type = t.val < 0 ? 'expense' : 'income';
+  const typeBtn = document.querySelector(`.value-toggle button[data-type="${type}"]`);
+  if (typeBtn) typeBtn.classList.add('active');
+  // Preencher método de pagamento
+  met.value = t.method;
   // garante que o bloco Parcelas apareça para métodos de cartão
   met.dispatchEvent(new Event('change'));
   // Preenche recorrência e parcelas e data especial, se em pendingEditMode
@@ -1499,6 +1515,14 @@ document.addEventListener('click', (e) => {
 });
 
 function renderTable() {
+  // Preserve accordion open state
+  const accordionEl = document.getElementById('accordion');
+  const openMonthDates = Array.from(
+    accordionEl.querySelectorAll('details.month[open]')
+  ).map(el => el.getAttribute('data-month'));
+  const openDayDates = Array.from(
+    accordionEl.querySelectorAll('details.day[open]')
+  ).map(el => el.getAttribute('data-date'));
   sortTransactions();   // ensure data is ordered before rendering
   tbody.innerHTML = '';
   const y = new Date().getFullYear();
@@ -1551,6 +1575,15 @@ function renderTable() {
   }
   // constrói o acordeão de 3 níveis
   renderAccordion();
+  // Restore accordion open state
+  openMonthDates.forEach(month => {
+    const monthEl = accordionEl.querySelector(`details.month[data-month="${month}"]`);
+    if (monthEl) monthEl.open = true;
+  });
+  openDayDates.forEach(date => {
+    const dayEl = accordionEl.querySelector(`details.day[data-date="${date}"]`);
+    if (dayEl) dayEl.open = true;
+  });
   updateStickyMonth();
 }
 
