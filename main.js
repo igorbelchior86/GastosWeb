@@ -192,7 +192,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebas
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
-// Configuração do Firebase de TESTE (arquivo separado)
+// Configuração do Firebase de PRODUÇÃO (arquivo separado)
 import { firebaseConfig } from './firebase.prod.config.js';
 
 /**
@@ -264,7 +264,7 @@ let PATH;
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.6';
+const APP_VERSION = '1.4.7';
 let save, load;
 let firebaseDb;
 
@@ -721,6 +721,20 @@ recurrence.onchange = () => {
 let isEditing = null;
 const cardName=$('cardName'),cardClose=$('cardClose'),cardDue=$('cardDue'),addCardBtn=$('addCardBtn'),cardList=$('cardList');
 const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setStartBtn'),resetBtn=$('resetData');
+// Auto-format initial balance input as BRL currency
+if (startInput) {
+  startInput.addEventListener('input', () => {
+    const digits = startInput.value.replace(/\D/g, '');
+    if (!digits) {
+      startInput.value = '';
+      return;
+    }
+    const numberValue = parseInt(digits, 10) / 100;
+    startInput.value = numberValue.toLocaleString('pt-BR', {
+      style: 'currency', currency: 'BRL'
+    });
+  });
+}
 const startContainer = document.querySelector('.start-container');
 const dividerSaldo = document.getElementById('dividerSaldo');
 
@@ -1227,7 +1241,21 @@ async function addTx() {
     save('tx', transactions);
     renderTable();
     toggleTxModal();
-    showToast('Alterações salvas!', 'success');
+    // Custom edit confirmation toast
+    const formattedVal = parseFloat(val.value.replace(/\./g, '').replace(/,/g, '.'))
+      .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const recValue = recurrence.value;
+    let toastMsg;
+    if (!recValue) {
+      // Edição de operação única
+      const opDateVal = date.value; // formato YYYY-MM-DD
+      toastMsg = `Edição: ${formattedVal} em ${opDateVal.slice(8,10)}/${opDateVal.slice(5,7)}`;
+    } else {
+      // Edição de recorrência
+      const recText = recurrence.options[recurrence.selectedIndex].text.toLowerCase();
+      toastMsg = `Edição: ${formattedVal} (${recText})`;
+    }
+    showToast(toastMsg, 'success');
     return;
   }
 
@@ -1305,7 +1333,20 @@ async function addTx() {
   updatePendingBadge();
   renderTable();
   toggleTxModal();
-  showToast('Tudo certo!', 'success');
+  // Custom save confirmation toast
+  const formattedVal = v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const recValue = recurrence.value;
+  let toastMsg;
+  if (!recValue) {
+    // Operação única: inclui data
+    const opDateVal = date.value; // formato YYYY-MM-DD
+    toastMsg = `${formattedVal} salvo em ${opDateVal.slice(8,10)}/${opDateVal.slice(5,7)}`;
+  } else {
+    // Recorrência: inclui periodicidade (ex: mensal)
+    const recText = recurrence.options[recurrence.selectedIndex].text.toLowerCase();
+    toastMsg = `${formattedVal} salvo (${recText})`;
+  }
+  showToast(toastMsg, 'success');
 }
 
 // Função auxiliar para gerar recorrências
@@ -1602,6 +1643,10 @@ function renderAccordion() {
   // Salva quais <details> estão abertos antes de recriar
   const openKeys = Array.from(acc.querySelectorAll('details[open]'))
                         .map(d => d.dataset.key || '');
+  // Preserve which invoice panels are open
+  const openInvoices = Array.from(
+    acc.querySelectorAll('details.invoice[open]')
+  ).map(d => d.dataset.pd);
   acc.innerHTML = '';
 
   const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -2004,6 +2049,10 @@ const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado'
       }
     });
   }
+  // Restore open state for invoice panels
+  openInvoices.forEach(pd => {
+    acc.querySelectorAll(`details.invoice[data-pd="${pd}"]`).forEach(inv => inv.open = true);
+  });
   updateStickyMonth();
 }
 
@@ -2017,7 +2066,27 @@ function initStart() {
   // mantém o botão habilitado; a função addTx impede lançamentos
   addBtn.classList.toggle('disabled', showStart);
 }
-setStartBtn.onclick=()=>{const v=parseFloat(startInput.value);if(isNaN(v)){alert('Valor inválido');return;}startBalance=v;cacheSet('startBal', v);save('startBal',v);initStart();renderTable();};
+setStartBtn.addEventListener('click', () => {
+  const raw = startInput.value || '';
+  // remove tudo que não for dígito
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) {
+    alert('Valor inválido');
+    return;
+  }
+  // interpreta como centavos
+  const numberValue = parseInt(digits, 10) / 100;
+  if (isNaN(numberValue)) {
+    alert('Valor inválido');
+    return;
+  }
+  // salva o novo saldo e renderiza novamente
+  startBalance = numberValue;
+  cacheSet('startBal', startBalance);
+  save('startBal', startBalance);
+  initStart();
+  renderTable();
+});
 resetBtn.onclick=()=>{if(!confirm('Resetar tudo?'))return;transactions=[];cards=[{name:'Dinheiro',close:0,due:0}];startBalance=null;cacheSet('tx', []);cacheSet('cards', [{name:'Dinheiro',close:0,due:0}]);cacheSet('startBal', null);save('tx',transactions);save('cards',cards);save('startBal',null);refreshMethods();renderCardList();initStart();renderTable();};
 
 addCardBtn.onclick=addCard;addBtn.onclick=addTx;

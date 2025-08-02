@@ -505,7 +505,57 @@ summary.day-summary .icon-invoice::before{
 @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 
 /* ===================== PANELS & CONTAINERS ===================== */
+
 .container{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:18px;}
+
+.start-container {
+  flex-direction: column;
+  align-items: flex-start;
+  background: var(--glass-bg);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px #FFFFFF1A, 0 6px 20px rgba(0,0,0,.45);
+  padding: 12px 18px;
+  margin-bottom: 18px;
+}
+.start-container .modal-title {
+  font-family: 'SF Pro Display', system-ui;
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: #fff;
+}
+
+/* New layout for Saldo inicial row */
+.start-input-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  width: 100%;
+}
+
+/* Override full-width for the OK button beside the input */
+#startGroup .start-input-row #setStartBtn {
+  width: auto;
+  margin: 0;
+  padding: 0 20px;
+  height: 48px;
+  white-space: nowrap;
+}
+
+.currency-input {
+  flex: 1;
+  background: var(--glass-bg);
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.6);
+  border-radius: 9999px;
+  padding: 14px 16px;
+  font-size: 1rem;
+  color: #fff;
+  text-align: left;
+}
+
+
 
 
 /* Sólido apenas onde precisamos realmente (ex.: fatura) */
@@ -535,11 +585,6 @@ summary.day-summary .icon-invoice::before{
   background: var(--glass-bg) !important;
 }
 
-/* Start container */
-.start-container{display:none;background-color:#fff;border:2px solid #000;border-radius:16px;padding:16px;margin-bottom:18px;}
-.start-container h2{font-size:1.2rem;font-weight:bold;margin-bottom:12px;}
-#startInput{width:100%;padding:10px;border:2px solid #000;border-radius:16px;font-size:1rem;}
-.start-controls{display:grid;grid-template-columns:1fr auto;gap:10px;width:100%;}
 #setStartBtn,#addCardBtn,.bottom-modal-box #addCardBtn{
   background:#4CAF50;
   color:#fff;
@@ -1543,3 +1588,4 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
 .toast {
   white-space: nowrap;
 }
+

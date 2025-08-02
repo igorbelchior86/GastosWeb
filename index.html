@@ -14,7 +14,7 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.6">
+  <link rel="stylesheet" href="style.css?v=1.4.7">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -45,13 +45,11 @@
   <div class="wrapper app-hidden main-panel">
 
     <!-- Saldo inicial -->
-    <div class="start-container">
-      <h2>Saldo inicial</h2>
-      <div id="startGroup" class="start-box">
-        <div class="start-controls">
-          <input id="startInput" name="startInput" type="number">
-          <button id="setStartBtn">OK</button>
-        </div>
+    <div id="startGroup" class="start-container">
+      <h2 class="modal-title">Saldo inicial</h2>
+      <div class="start-input-row">
+        <input id="startInput" name="startInput" type="text" placeholder="R$ 0,00" class="currency-input" />
+        <button id="setStartBtn" class="add-button">OK</button>
       </div>
     </div>
     <hr class="divider" id="dividerSaldo">
@@ -67,8 +65,7 @@
         </table>
       </div>
       <div id="accordion"></div>
-      <button id="resetData" class="danger" style="margin-top:12px" hidden>Limpar TODOS</button>
-      <button id="reset" hidden style="display:none">Limpar tudo</button>
+      <button id="resetData" class="danger" style="margin-top:12px" hidden>Limpar tudo</button>
     </div>
     <hr class="divider">
   </div>
@@ -195,13 +192,13 @@
 
   <button id="openTxModal" class="floating-add-button" title="Nova operação">＋</button>
 
-  <script type="module" src="main.js?v=1.4.6"></script>
+  <script type="module" src="main.js?v=1.4.7"></script>
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
   <div id="toast" class="toast"></div>
 
   <!-- Scripts moved to main.js -->
-  <footer class="app-footer"><small id="version">v1.4.6</small></footer>
+  <footer class="app-footer"><small id="version">v1.4.7</small></footer>
 </body>
 </html>
