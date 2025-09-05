@@ -29,7 +29,7 @@
     <div class="logo-title">
       <span class="logo-text">Gastos+</span>
     </div>
-    <span id="offlineIndicator" class="offline-icon" hidden>📴</span>
+    <!-- Offline indicator removed -->
 
     <!-- Header segmented control (icons only) -->
     <div class="header-seg" role="tablist" aria-label="Atalhos do topo" data-selected="planned">
@@ -65,7 +65,7 @@
         </table>
       </div>
       <div id="accordion"></div>
-      <button id="resetData" class="danger" style="margin-top:12px" hidden>Limpar tudo</button>
+      <button id="resetData" class="danger" style="margin-top:12px; display:none" hidden>Limpar tudo</button>
     </div>
     <hr class="divider">
   </div>
@@ -143,6 +143,10 @@
         <div class="date-input-wrapper">
           <input id="opDate" name="opDate" type="date">
         </div>
+        <!-- Pagamento de fatura: parcelar -->
+        <label class="form-row" id="invoiceParcelRow" style="display:none; align-items:center; gap:8px;">
+          <input type="checkbox" id="invoiceParcel"> Parcelar
+        </label>
         <button id="addBtn" class="add-button">Adicionar</button>
       </div>
     </div>
@@ -190,7 +194,25 @@
     </div>
   </div>
 
+  <!-- Modal Confirmar mover para hoje -->
+  <div id="confirmMoveModal" class="bottom-modal backdrop-blur hidden" role="dialog" aria-modal="true" aria-labelledby="confirmMoveTitle">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
+      <h2 id="confirmMoveTitle">Confirmação</h2>
+      <button id="closeConfirmMove" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="form-grid">
+        <p id="confirmMoveText" style="margin: 6px 0 4px; color:#fff; text-align:center;">Operação concluída. Gostaria de mover para hoje?</p>
+        <button id="confirmMoveYes" class="action-btn">Sim</button>
+        <button id="confirmMoveNo" class="action-btn cancel-btn">Não</button>
+      </div>
+    </div>
+  </div>
+
   <button id="openTxModal" class="floating-add-button" title="Nova operação">＋</button>
+  <!-- Botão Home (leva o dia atual ao centro) -->
+  <button id="scrollTodayBtn" class="floating-home-button" title="Hoje">
+    <div class="icon-action icon-home" aria-hidden="true"></div>
+  </button>
 
   <script type="module" src="main.js?v=1.4.7"></script>
   <!-- Styles moved to style.css -->

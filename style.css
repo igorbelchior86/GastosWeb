@@ -53,13 +53,14 @@
   margin-top: 2px;
   font-size: 0.9rem;
   color: var(--txt-muted);
-  padding-left: var(--check-space) !important; /* fallback: alinha sob descrição */
+  margin-left: var(--check-space) !important;
+  padding-left: 0 !important;
 }
 
-/* Planned modal: day headers and description text must be white */
 #plannedModal .subheader { color: #fff; }
 #plannedModal .planned-list > li .op-left span:not(.method) { color: #fff; }
 #plannedModal .planned-list .op-left input.plan-check + span { color: #fff; }
+#plannedModal h3 { color: #FFFFFF; }
 
 /* Planned modal: valor fixo à direita do cartão */
 #plannedModal .planned-list > li .op-line{
@@ -299,6 +300,14 @@ input,select,textarea{font-size:16px!important;box-sizing:border-box;}
   -webkit-mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="white" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>');
 }
 
+/* Ícone "home" para o botão flutuante esquerdo */
+.icon-home{
+  mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3l9 8h-3v9h-4v-6H10v6H6v-9H3l9-8z"/></svg>');
+  -webkit-mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3l9 8h-3v9h-4v-6H10v6H6v-9H3l9-8z"/></svg>');
+  width:28px;
+  height:28px;
+}
+
 /* ==== Category icons (monocromáticos via mask-image) ==== */
 .icon-card{mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M3 4h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v2h18V8H3zm0 6v2h6v-2H3z"/></svg>');-webkit-mask-image:inherit;}
 .icon-transporte{mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M5 11l1-5a3 3 0 0 1 3-2h6a3 3 0 0 1 3 2l1 5v6a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H7v1a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6zm3 6a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm8 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg>');-webkit-mask-image:inherit;}
@@ -497,6 +506,8 @@ summary.day-summary .icon-invoice::before{
 #syncNowBtn,#offlineIndicator{position:absolute;top:21px;z-index:1100;background:none;border:none;cursor:pointer;}
 #syncNowBtn{right:124px;width:40px;height:40px;font-size:1.5rem;display:flex;align-items:center;justify-content:center;}
 #offlineIndicator{right:172px;font-size:1.3rem;}
+#enablePushBtn{position:absolute;top:21px;right:76px;width:40px;height:40px;font-size:1.3rem;background:none;border:none;cursor:pointer;}
+#enablePushBtn.enabled{opacity:.6;}
 .offline-icon{margin-right:0;font-size:1.2rem;color:#e74c3c;}
 .offline-icon[hidden]{display:none;}
 
@@ -788,35 +799,24 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
 
 /* Planned modal: render circular checkbox via the description span, keep native input clickable */
 #plannedModal .planned-list .op-left{ position: relative; }
-#plannedModal .planned-list .op-left input.plan-check{
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 24px;
-  height: 24px;
-  opacity: 0;            /* invisible but clickable */
-  z-index: 2;
-  cursor: pointer;
-}
-#plannedModal .planned-list .op-left input.plan-check + span{
-  position: relative;
-  display: inline-block;
-  padding-left: var(--check-space) !important;   /* garante não sobreposição */
-}
-#plannedModal .planned-list .op-left input.plan-check + span::before{
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+#plannedModal .planned-list .op-left input.plan-check {
   width: 24px;
   height: 24px;
   border: 2px solid var(--txt-muted);
   border-radius: 50%;
   background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  align-self: center;
+  box-sizing: border-box;
+  cursor: pointer;
 }
-#plannedModal .planned-list .op-left input.plan-check:checked + span::before{
+
+#plannedModal .planned-list .op-left input.plan-check:checked {
   background: var(--blue);
   border-color: var(--blue);
 }
@@ -893,8 +893,9 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   align-items: center;
   gap: 24px;
   padding: 0 24px;
-  background: #2a2a2c;
-  z-index: 0;
+  /* Match container by default: reveal only icons */
+  background: transparent !important;
+  z-index: 2;
   opacity: 0;
   transition: opacity .15s linear;
 }
@@ -910,6 +911,11 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   background-color:#fff;
   display:block;
 }
+/* Pay icon */
+.icon-pay{
+  -webkit-mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M21 7H3V5h18v2zm0 2H3v10h18V9zM5 15h6v2H5v-2zm12.59-4.41L16 12.17l-1.59-1.58L13 12l3 3 4-4-1.41-1.41z"/></svg>');
+          mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M21 7H3V5h18v2zm0 2H3v10h18V9zM5 15h6v2H5v-2zm12.59-4.41L16 12.17l-1.59-1.58L13 12l3 3 4-4-1.41-1.41z"/></svg>');
+}
 
 /* Offset swipe‑actions inside invoice items so they reveal fully despite 12 px padding */
 .invoice .executed-list li .swipe-actions{
@@ -917,6 +923,10 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   padding: 0 24px;         /* same inner padding */
   background: transparent !important;   /* let container's glass-bg show through */
 }
+/* Swipe actions for invoice header summary */
+.invoice-header-line{ position: relative; overflow: hidden; }
+.invoice-header-line .invoice-label,
+.invoice-header-line .invoice-total{ position: relative; z-index:1; }
 
 /* ===================== INVOICE ===================== */
 .invoice{
@@ -968,6 +978,9 @@ details.invoice[open] > summary::after{
 
 .invoice > summary .invoice-total{
   margin: 0 0 0 auto; /* override bottom margin so it doesn't push down */
+  display: inline-flex;            /* stack amount + note vertically */
+  flex-direction: column;
+  align-items: flex-end;
 }
 
 .invoice > summary::before{
@@ -988,6 +1001,19 @@ details.invoice[open] > summary::after{
   text-align:right;
   color:var(--red);
   margin-bottom:8px;
+}
+
+/* Visual for post-payment states on invoice header */
+.invoice-total .amount.struck{
+  text-decoration: line-through;
+  opacity:.75;
+}
+.invoice-total .note{
+  display:block;
+  margin-top:2px;
+  font-size:10pt;
+  font-weight:500;
+  color:#e5e7eb;
 }
 
 .invoice.positive .invoice-total{color:var(--green-soft);}
@@ -1300,7 +1326,20 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
   clip-path: circle(50% at 50% 50%);
   -webkit-tap-highlight-color: transparent;
 }
+/* Espelho do botão flutuante de adicionar: leva ao dia atual */
+.floating-home-button{
+  position:fixed;bottom:24px;left:24px;z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
+  backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);
+  border:none;box-shadow:0 4px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:32px;font-weight:600;cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;box-sizing:border-box;
+  animation:pulse 4s ease-in-out infinite;
+  clip-path: circle(50% at 50% 50%);
+  -webkit-tap-highlight-color: transparent;
+}
 .floating-add-button:hover{
+  transform:scale(.97);
+  box-shadow:0 6px 16px rgba(0,0,0,.6), 0 0 12px #00FF0080;
+}
+.floating-home-button:hover{
   transform:scale(.97);
   box-shadow:0 6px 16px rgba(0,0,0,.6), 0 0 12px #00FF0080;
 }
@@ -1308,7 +1347,12 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
   transform:scale(.97);
   box-shadow:0 3px 8px rgba(0,0,0,.4);
 }
+.floating-home-button:active{
+  transform:scale(.97);
+  box-shadow:0 3px 8px rgba(0,0,0,.4);
+}
 .floating-add-button::before{content:"";position:absolute;inset:0;border-radius:inherit;border:1px solid #5a5a5a;opacity:.3;pointer-events:none;z-index:1;}
+.floating-home-button::before{content:"";position:absolute;inset:0;border-radius:inherit;border:1px solid #5a5a5a;opacity:.3;pointer-events:none;z-index:1;}
 
 .floating-planned-button,.floating-card-button{
   position:absolute;top:18px;width:44px;height:44px;border-radius:50%;background:linear-gradient(to bottom,#00CFFF,#007AFF);
@@ -1470,7 +1514,8 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
 }
 
 /* Planned items as cards in Planned Modal */
-#plannedModal .planned-list > li.planned-cash {
+/* Planned items as cards in Planned Modal */
+#plannedModal #plannedList > li.planned-cash {
   background: rgba(255,255,255,0.08);
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
   padding: 12px 16px;
@@ -1491,10 +1536,11 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
 }
 
 /* Grid-based layout for planned modal children */
-#plannedModal .planned-cash .op-main { display: contents; }
-#plannedModal .planned-cash .op-left { grid-column: 1; grid-row: 1; min-width: 0; }
-#plannedModal .planned-cash .op-right { display: contents; }
-#plannedModal .planned-cash .op-right .value {
+/* Grid-based layout for planned modal children */
+#plannedModal #plannedList .planned-cash .op-main { display: contents; }
+#plannedModal #plannedList .planned-cash .op-left { grid-column: 1; grid-row: 1; min-width: 0; }
+#plannedModal #plannedList .planned-cash .op-right { display: contents; }
+#plannedModal #plannedList .planned-cash .op-right .value {
   grid-column: 2;
   grid-row: 1;
   justify-self: end;
@@ -1502,8 +1548,8 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
   font-weight: 600;
 }
 /* Qualquer conteúdo da direita que não seja o valor vira a linha de método, abaixo da descrição */
-#plannedModal .planned-cash .op-right > :not(.value),
-#plannedModal .planned-cash .method {
+#plannedModal #plannedList .planned-cash .op-right > :not(.value),
+#plannedModal #plannedList .planned-cash .method {
   grid-column: 1;
   grid-row: 2;
   justify-self: start;
@@ -1511,8 +1557,8 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
   margin-top: 2px;
   font-size: 0.9rem;
   color: var(--txt-muted);
-  padding-left: 44px;   /* alinha abaixo da descrição após o checkbox */
-  margin-left: 0;       /* cancela regra antiga */
+  margin-left: 100px !important;
+  padding-left: 100px !important;
 }
 /* Guard rails: prevent horizontal overflow in bottom modals */
 .bottom-modal,
@@ -1588,4 +1634,10 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
 .toast {
   white-space: nowrap;
 }
-
+/* —— FIXCorrija o sinal do ajuste no saldo do dia;
+Implemente o pagamento parcial sem parcelar criando um invoiceAdjust do valor pago e uma transação “Rollover fatura – <cartão>” para o próximo vencimento com o restante (como transação do cartão, para compor a próxima fatura);
+Opcional: atualizar o header da fatura para mostrar “total líquido” (total − ajustes) e/ou um badge com restante?: header icons overlapping the segmented control —— */
+#enablePushBtn{ position: static !important; right: auto; top: auto; width:44px; height:44px; display:inline-flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.18); border-radius:14px; box-shadow:0 2px 6px rgba(0,0,0,.45); }
+#offlineIndicator{ position: static !important; right: auto; top: auto; width:40px; height:40px; display:flex; align-items:center; justify-content:center; }
+/* keep the segmented control from pushing over icons */
+.header-seg{ margin-left: 0; margin-right: 0; }
