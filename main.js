@@ -496,6 +496,37 @@ function sortTransactions() {
   });
 }
 
+// Sanitize legacy transactions: ensure postDate/opDate/planned exist
+function sanitizeTransactions(list) {
+  let changed = false;
+  const out = (list || []).map((t) => {
+    if (!t) return t;
+    const nt = { ...t };
+    // Ensure opDate exists; fallback to date from ts
+    if (!nt.opDate) {
+      if (nt.ts) {
+        try { nt.opDate = new Date(nt.ts).toISOString().slice(0, 10); } catch { nt.opDate = todayISO(); }
+      } else {
+        nt.opDate = todayISO();
+      }
+      changed = true;
+    }
+    // Ensure postDate exists; compute with card rule
+    if (!nt.postDate) {
+      const method = nt.method || 'Dinheiro';
+      try { nt.postDate = post(nt.opDate, method); } catch { nt.postDate = nt.opDate; }
+      changed = true;
+    }
+    // Ensure planned flag exists
+    if (typeof nt.planned === 'undefined' && nt.opDate) {
+      nt.planned = nt.opDate > todayISO();
+      changed = true;
+    }
+    return nt;
+  });
+  return { list: out, changed };
+}
+
 // --- Toast helper ---
 const showToast = (msg, type = 'error', duration = 3000) => {
   const t = document.getElementById('toast');
@@ -547,13 +578,15 @@ if (!USE_MOCK) {
 
   // initialize from cache first for instant UI
   transactions = cacheGet('tx', []);
-  transactions = transactions.map(t => ({
-    ...t,
-    method: (t.method && t.method.toLowerCase() === 'dinheiro') ? 'Dinheiro' : t.method,
-    recurrence: t.recurrence ?? '',
-    installments: t.installments ?? 1,
-    parentId: t.parentId ?? null
-  }));
+  transactions = (transactions || [])
+    .filter(t => t) // ignora null/undefined
+    .map(t => ({
+      ...t,
+      method: (t.method && t.method.toLowerCase() === 'dinheiro') ? 'Dinheiro' : t.method,
+      recurrence: t.recurrence ?? '',
+      installments: t.installments ?? 1,
+      parentId: t.parentId ?? null
+    }));
   sortTransactions();
   cards = cacheGet('cards', [{name:'Dinheiro',close:0,due:0}]);
   startBalance = cacheGet('startBal', null);
@@ -572,7 +605,9 @@ if (!USE_MOCK) {
       parentId: t.parentId ?? null
     });
 
-    const remote = (incoming || []).map(norm);
+    const remote = (incoming || [])
+      .filter(t => t)
+      .map(norm);
 
     // If we're online and have no local pending changes for 'tx',
     // trust the server (support hard deletions). Otherwise, do LWW merge.
@@ -596,7 +631,14 @@ if (!USE_MOCK) {
       transactions = Array.from(byId.values());
     }
 
+    // Sanitize legacy/malformed items
+    const s = sanitizeTransactions(transactions);
+    transactions = s.list;
     cacheSet('tx', transactions);
+    if (s.changed) {
+      // Persist sanitized data back to server (best-effort)
+      try { save('tx', transactions); } catch (_) {}
+    }
     sortTransactions();
     renderTable();
     // Refresh Planned modal if it is visible
@@ -712,6 +754,7 @@ function resetTxModal() {
   // Reset pay-invoice mode UI bits
   isPayInvoiceMode = false;
   pendingInvoiceCtx = null;
+  if (txModal && txModal.dataset && txModal.dataset.mode) delete txModal.dataset.mode;
   const invoiceParcelRow = document.getElementById('invoiceParcelRow');
   const invoiceParcel = document.getElementById('invoiceParcel');
   if (invoiceParcelRow) invoiceParcelRow.style.display = 'none';
@@ -1625,6 +1668,7 @@ function openPayInvoiceModal(cardName, dueISO, remaining, totalAbs, adjustedBefo
   if (wasHidden) toggleTxModal();
   isPayInvoiceMode = true;
   pendingInvoiceCtx = { card: cardName, dueISO, remaining, totalAbs, adjustedBefore };
+  if (txModal) txModal.dataset.mode = 'pay-invoice';
   // Prefill form
   const today = todayISO();
   desc.value = `Pagamento fatura – ${cardName}`;
@@ -1642,6 +1686,16 @@ function openPayInvoiceModal(cardName, dueISO, remaining, totalAbs, adjustedBefo
   methodButtons.forEach(b => { b.classList.toggle('active', b.dataset.method === 'Dinheiro'); });
   // Show parcel option (off by default)
   if (invoiceParcelRow) invoiceParcelRow.style.display = '';
+  // Fix label content/order: [text span] ..... [checkbox]
+  if (invoiceParcelRow && invoiceParcelCheckbox) {
+    const cb = invoiceParcelCheckbox;
+    // Preserve checkbox, rebuild label content
+    invoiceParcelRow.textContent = '';
+    const textSpan = document.createElement('span');
+    textSpan.textContent = 'Parcelar fatura';
+    invoiceParcelRow.appendChild(textSpan);
+    invoiceParcelRow.appendChild(cb);
+  }
   if (invoiceParcelCheckbox) invoiceParcelCheckbox.checked = false;
   installments.disabled = true;
   parcelasBlock.classList.add('hidden');
@@ -1656,15 +1710,53 @@ if (invoiceParcelCheckbox) {
   invoiceParcelCheckbox.addEventListener('change', () => {
     if (!isPayInvoiceMode) return;
     if (invoiceParcelCheckbox.checked) {
+      // Populate installments if not yet
+      const sel = document.getElementById('installments');
+      if (sel && !sel.dataset.populated) {
+        sel.innerHTML = '';
+        for (let i = 2; i <= 24; i++) {
+          const o = document.createElement('option');
+          o.value = String(i);
+          o.textContent = `${i}x`;
+          sel.appendChild(o);
+        }
+        sel.dataset.populated = '1';
+      }
       parcelasBlock.classList.remove('hidden');
       installments.disabled = false;
       recurrence.value = 'M';
+      // Default to 2x on (re)enable if previous value was 1 or empty
+      if (!installments.value || installments.value === '1') installments.value = '2';
+      // Set value field to per‑installment amount (negative)
+      const ctx = pendingInvoiceCtx || {};
+      const base = Math.abs(Number(ctx.remaining) || 0);
+      const n = Math.max(2, parseInt(installments.value || '2', 10) || 2);
+      installments.value = String(n);
+      const per = n > 0 ? base / n : base;
+      val.value = (-per).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     } else {
       parcelasBlock.classList.add('hidden');
       installments.disabled = true;
       recurrence.value = '';
       installments.value = '1';
+      // Restore full remaining amount to value field
+      const ctx = pendingInvoiceCtx || {};
+      const base = Math.abs(Number(ctx.remaining) || 0);
+      val.value = (-base).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
+  });
+}
+
+// Update value when installments count changes (pay‑invoice mode only)
+if (installments) {
+  installments.addEventListener('change', () => {
+    if (!isPayInvoiceMode) return;
+    if (!invoiceParcelCheckbox || !invoiceParcelCheckbox.checked) return;
+    const ctx = pendingInvoiceCtx || {};
+    const base = Math.abs(Number(ctx.remaining) || 0);
+    const n = parseInt(installments.value, 10) || 1;
+    const per = n > 0 ? base / n : base;
+    val.value = (-per).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   });
 }
 
@@ -1910,6 +2002,7 @@ async function addTx() {
     // reset pay mode state
     isPayInvoiceMode = false;
     pendingInvoiceCtx = null;
+    if (txModal && txModal.dataset && txModal.dataset.mode) delete txModal.dataset.mode;
     addBtn.textContent = 'Adicionar';
     txModalTitle.textContent = 'Lançar operação';
     showToast('Pagamento registrado', 'success');
@@ -2115,28 +2208,69 @@ closeDeleteRecurrenceModal.onclick = closeDeleteModal;
 cancelDeleteRecurrence.onclick = closeDeleteModal;
 deleteRecurrenceModal.onclick = e => { if (e.target === deleteRecurrenceModal) closeDeleteModal(); };
 
+// Helper: find the master recurring rule for a given tx/iso
+function findMasterRuleFor(tx, iso) {
+  if (!tx) return null;
+  if (tx.recurrence && tx.recurrence.trim() !== '') return tx;
+  if (tx.parentId) {
+    const parent = transactions.find(p => p.id === tx.parentId);
+    if (parent) return parent;
+  }
+  // Heuristic: find a rule that occurs on the same date and looks like this tx
+  for (const p of transactions) {
+    if (!p.recurrence || !p.recurrence.trim()) continue;
+    if (!occursOn(p, iso)) continue;
+    const sameMethod = (p.method || '') === (tx.method || '');
+    const sameDesc   = (p.desc || '') === (tx.desc || '');
+    const sameVal    = Math.abs(Number(p.val || 0) - Number(tx.val || 0)) < 0.005;
+    if (sameMethod && (sameDesc || sameVal)) return p;
+  }
+  return null;
+}
+
 deleteSingleBtn.onclick = () => {
   const tx = transactions.find(t => t.id === pendingDeleteTxId);
+  const iso = pendingDeleteTxIso;
   if (!tx) { closeDeleteModal(); return; }
-  tx.exceptions = tx.exceptions || [];
-  tx.exceptions.push(pendingDeleteTxIso);
+  const master = findMasterRuleFor(tx, iso);
+  if (master) {
+    master.exceptions = master.exceptions || [];
+    if (!master.exceptions.includes(iso)) master.exceptions.push(iso);
+    showToast('Ocorrência excluída!', 'success');
+  } else {
+    // fallback: not a recurrence → hard delete
+    transactions = transactions.filter(x => x.id !== tx.id);
+    showToast('Operação excluída.', 'success');
+  }
   save('tx', transactions);
   renderTable();
   closeDeleteModal();
-  showToast('Ocorrência excluída!', 'success');
 };
+
 deleteFutureBtn.onclick = () => {
   const tx = transactions.find(t => t.id === pendingDeleteTxId);
+  const iso = pendingDeleteTxIso;
   if (!tx) { closeDeleteModal(); return; }
-  tx.recurrenceEnd = pendingDeleteTxIso;
+  const master = findMasterRuleFor(tx, iso);
+  if (master) {
+    master.recurrenceEnd = iso;
+    showToast('Esta e futuras excluídas!', 'success');
+  } else {
+    // fallback: not a recurrence → delete only this occurrence
+    transactions = transactions.filter(x => x.id !== tx.id);
+    showToast('Operação excluída.', 'success');
+  }
   save('tx', transactions);
   renderTable();
   closeDeleteModal();
-  showToast('Esta e futuras excluídas!', 'success');
 };
+
 deleteAllBtn.onclick = () => {
+  const tx = transactions.find(t => t.id === pendingDeleteTxId);
+  if (!tx) { closeDeleteModal(); return; }
+  const master = findMasterRuleFor(tx, pendingDeleteTxIso) || tx;
   // Remove both master rule and any occurrences with parentId
-  transactions = transactions.filter(t => t.id !== pendingDeleteTxId && t.parentId !== pendingDeleteTxId);
+  transactions = transactions.filter(t => t.id !== master.id && t.parentId !== master.id);
   save('tx', transactions);
   renderTable();
   closeDeleteModal();
@@ -2287,8 +2421,10 @@ function groupTransactionsByMonth() {
   const groups = new Map();
   sortTransactions();
   for (const tx of transactions) {
-    // Usa postDate para agrupamento por mês
-    const key = tx.postDate.slice(0, 7); // YYYY-MM
+    // Usa postDate para agrupamento por mês, com fallback seguro
+    const pd = tx.postDate || (tx.opDate && tx.method ? post(tx.opDate, tx.method) : tx.opDate);
+    if (!pd || typeof pd.slice !== 'function') continue; // ignora itens malformados
+    const key = pd.slice(0, 7); // YYYY-MM
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(tx);
   }
@@ -2887,10 +3023,15 @@ cardModal.onclick = e => {
   // Converte objeto → array se necessário
   const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
 
-  if (hasLiveTx && JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
-    transactions = fixedTx;
-    cacheSet('tx', transactions);
-    renderTable();
+  if (hasLiveTx) {
+    // Sanitize and persist if needed (one-time migration path on boot)
+    const s = sanitizeTransactions(fixedTx);
+    if (JSON.stringify(s.list) !== JSON.stringify(transactions)) {
+      transactions = s.list;
+      cacheSet('tx', transactions);
+      if (s.changed) { try { save('tx', transactions); } catch (_) {} }
+      renderTable();
+    }
   }
   if (hasLiveCards && JSON.stringify(liveCards) !== JSON.stringify(cards)) {
     cards = liveCards;

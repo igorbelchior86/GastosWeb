@@ -1141,6 +1141,85 @@ details.invoice[open] > summary::after{
     transform .16s cubic-bezier(.22,1,.36,1),
     opacity   .16s ease;
 }
+
+/* Restrict fields when paying an invoice */
+#txModal[data-mode="pay-invoice"] .method-switch,
+#txModal[data-mode="pay-invoice"] #cardSelector,
+#txModal[data-mode="pay-invoice"] #recurrence,
+#txModal[data-mode="pay-invoice"] .value-toggle {
+  display: none !important;
+}
+
+/* Parcelamento – toggle bonito e compatível (Chrome/Safari) */
+#txModal[data-mode="pay-invoice"] #invoiceParcelRow{
+  display:flex !important;
+  flex-direction: row;                 /* texto à esquerda, toggle à direita */
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 2px 0 2px;
+  color:#e5e7eb;
+  font-weight:700;
+  font-size:12pt;
+}
+/* Garante alinhamento vertical perfeito entre label e toggle */
+#txModal[data-mode="pay-invoice"] #invoiceParcelRow > span:first-child{
+  display: inline-flex;
+  align-items: center;
+  height: 30px;               /* igual ao trilho do toggle */
+  line-height: 30px;
+}
+#txModal[data-mode="pay-invoice"] #invoiceParcelRow input[type="checkbox"]{
+  -webkit-appearance: none;
+  appearance: none;
+  width: 52px; height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #3a3a3c, #2b2b2d);
+  border: 1px solid rgba(0,0,0,.45);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.4);
+  position: relative;
+  cursor: pointer;
+  outline: none;
+  transition: background .2s ease;
+  flex: 0 0 auto;
+  overflow: hidden;
+  vertical-align: middle;
+  margin: 0;                  /* evita desníveis por margens default do iOS */
+}
+#txModal[data-mode="pay-invoice"] #invoiceParcelRow input[type="checkbox"]::before{
+  content: "";
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,.35);
+  transition: transform .2s ease;
+}
+#txModal[data-mode="pay-invoice"] #invoiceParcelRow input[type="checkbox"]:checked{
+  background: linear-gradient(180deg, var(--green-soft), #22c55e);
+}
+#txModal[data-mode="pay-invoice"] #invoiceParcelRow input[type="checkbox"]:checked::before{
+  transform: translateX(22px);
+}
+
+/* Select de parcelas em estilo pill */
+#txModal[data-mode="pay-invoice"] #parcelasBlock{ margin-top: 6px; }
+#txModal[data-mode="pay-invoice"] #parcelasBlock select{
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  -webkit-appearance: none;
+  appearance: none;
+}
+#txModal[data-mode="pay-invoice"] #parcelasBlock select:focus{
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(0,122,255,.2);
+}
 .bottom-modal:not(.hidden) .bottom-modal-box {
   transform: translateY(0) scale(1);
   opacity: 1;
