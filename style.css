@@ -206,6 +206,9 @@
   --txt-main:#fff;
   --txt-muted:#B3B3B3;
   --timestamp:#6b7280;
+  /* Keyboard-aware offsets (aplicados só quando data-vv-kb=1) */
+  --kb-offset-top: 0px;
+  --kb-offset-bottom: 0px;
 }
 
 h1,h2,h3,h4,
@@ -221,8 +224,11 @@ summary.month-divider,
 html,body {
   background-color: #1e1e1e;
   background-image: none !important;
-  background-attachment: fixed;
+  /* iOS 26: evitar background-attachment: fixed quebra o anchor do fixed */
+  /* background-attachment: fixed;  REMOVIDO */
   isolation: isolate;
+  height: 100%;
+  overflow: hidden; /* rolagem no container principal (.wrapper) */
   max-width:100%;
   overflow-x:hidden;
   font-family:'SF Pro Display',system-ui,sans-serif;
@@ -252,12 +258,34 @@ border-radius: 0 !important;
 .hidden{opacity:0!important;pointer-events:none!important;}
 body{display:block;}
 .wrapper{
+  position: relative;
   width:100%;
   max-width:100%;
-  /* fallback antigo (iOS 11): */
-  margin-top: calc(80px + constant(safe-area-inset-top));
-  /* padrão atual: */
-  margin-top: calc(80px + env(safe-area-inset-top));
+  /* Use small viewport to avoid initial iOS toolbar shrink clipping */
+  height: 100vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; /* evita bounce do body */
+  /* espaço do header fixo */
+  padding-top: calc(80px + constant(safe-area-inset-top));
+  padding-top: calc(80px + env(safe-area-inset-top));
+  /* espaço para os botões flutuantes na base */
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  /* scroll-padding-bottom removido para não alterar scrollIntoView/Home */
+}
+
+/* Spacer real no final do conteúdo do acordeão: mantém
+   o último dia visível acima do pseudo‑footer SEM depender
+   de reflows disparados pelo botão Home */
+#accordion::after{
+  content: '';
+  display: block;
+  height: calc(96px + env(safe-area-inset-bottom));
+}
+
+/* Prefer 100svh where supported (stable initial viewport on iOS Safari) */
+@supports (height: 100svh) {
+  .wrapper { height: 100svh; }
 }
 input,select,textarea{font-size:16px!important;box-sizing:border-box;}
 .value{white-space:nowrap;}
@@ -1397,7 +1425,7 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
 
 /* ===================== FLOATING BUTTONS ===================== */
 .floating-add-button{
-  position:fixed;bottom:24px;right:24px;z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
+  position:fixed;bottom:calc(12px + env(safe-area-inset-bottom));right:24px;z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
   backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);
   border:none;box-shadow:0 4px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:32px;font-weight:600;cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;box-sizing:border-box;
   animation:pulse 4s ease-in-out infinite;
@@ -1407,7 +1435,7 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
 }
 /* Espelho do botão flutuante de adicionar: leva ao dia atual */
 .floating-home-button{
-  position:fixed;bottom:24px;left:24px;z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
+  position:fixed;bottom:calc(12px + env(safe-area-inset-bottom));left:24px;z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
   backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);
   border:none;box-shadow:0 4px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:32px;font-weight:600;cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;box-sizing:border-box;
   animation:pulse 4s ease-in-out infinite;
@@ -1429,6 +1457,15 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
 .floating-home-button:active{
   transform:scale(.97);
   box-shadow:0 3px 8px rgba(0,0,0,.4);
+}
+
+/* Ajustes quando o teclado estiver aberto (iOS 26):
+   apenas eleva os botões, sem mexer no header */
+html[data-vv-kb="1"] .floating-add-button{
+  bottom: calc(24px + env(safe-area-inset-bottom) + var(--kb-offset-bottom));
+}
+html[data-vv-kb="1"] .floating-home-button{
+  bottom: calc(24px + env(safe-area-inset-bottom) + var(--kb-offset-bottom));
 }
 .floating-add-button::before{content:"";position:absolute;inset:0;border-radius:inherit;border:1px solid #5a5a5a;opacity:.3;pointer-events:none;z-index:1;}
 .floating-home-button::before{content:"";position:absolute;inset:0;border-radius:inherit;border:1px solid #5a5a5a;opacity:.3;pointer-events:none;z-index:1;}
@@ -1580,6 +1617,22 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
 }
 .card-content b {
   color: #fff;
+}
+
+/* Hide scrollbars (app and modals) */
+.wrapper,
+.modal-content,
+.bottom-modal,
+.bottom-modal-box {
+  -ms-overflow-style: none;     /* IE/Edge legacy */
+  scrollbar-width: none;        /* Firefox */
+}
+.wrapper::-webkit-scrollbar,
+.modal-content::-webkit-scrollbar,
+.bottom-modal::-webkit-scrollbar,
+.bottom-modal-box::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
 }
 /* Mensagem de ajuda abaixo do botão Adicionar */
 .bottom-modal-box small {

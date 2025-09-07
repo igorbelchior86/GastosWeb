@@ -486,6 +486,9 @@ const tbody=document.querySelector('#dailyTable tbody');
 const wrapperEl = document.querySelector('.wrapper');
 const txModalTitle = document.querySelector('#txModal h2');
 
+// Compute a consistent bottom reserve so the last day stops above the pseudo‑footer
+// computeEndPad removido – espaço final constante pelo CSS
+
 // Helper: sort transactions by opDate (YYYY-MM-DD) then by timestamp (ts) so UI is always chronological
 function sortTransactions() {
   transactions.sort((a, b) => {
@@ -770,13 +773,10 @@ function toggleTxModal() {
     if (!isEditing) {
       resetTxModal();
     }
-    // Prevent background scrolling when modal is open
-    if (document.body) document.body.style.overflow = 'hidden';
-    if (wrapperEl) wrapperEl.style.overflow = 'hidden';
+    // Não travar o body; overlay já bloqueia a interação
   } else {
     // Restore scrolling
-    if (document.body) document.body.style.overflow = '';
-    if (wrapperEl) wrapperEl.style.overflow = '';
+    // sem alterações no body
   }
   txModal.classList.toggle('hidden');
   // Rotate the floating button to indicate state
@@ -786,8 +786,13 @@ function toggleTxModal() {
   if (isOpening) {
     const valInput = document.getElementById('value');
     if (valInput) {
-      valInput.focus();
-      valInput.select();
+      // iOS: focar após a transição para evitar flicker/jitter de viewport
+      setTimeout(() => {
+        if (!txModal.classList.contains('hidden')) {
+          valInput.focus();
+          valInput.select();
+        }
+      }, 80);
     }
   }
   // Ao fechar o modal, sempre limpar estado de edição para evitar reabrir em modo editar
@@ -817,32 +822,71 @@ if (txModal) {
     if (e.target === txModal) toggleTxModal();
   };
 }
-// Botão Home: centraliza o dia atual e expande acordes necessários
+// Botão Home: centraliza o dia atual, mantendo-o colapsado
 const homeBtn = document.getElementById('scrollTodayBtn');
 function scrollTodayIntoView() {
   try {
     const iso = todayISO();
+    const wrap = wrapperEl || document.scrollingElement || document.documentElement;
     let dayEl = document.querySelector('details.day.today') ||
                 document.querySelector(`details.day[data-key="d-${iso}"]`);
     if (!dayEl) { showToast('Dia atual não encontrado', 'error'); return; }
     const monthEl = dayEl.closest('details.month');
-    if (monthEl && !monthEl.open) monthEl.open = true;
-    if (!dayEl.open) dayEl.open = true;
-    // aguarda próximo frame para o layout assentar e então centraliza
+    if (monthEl && !monthEl.open) monthEl.open = true; // garante visibilidade
+    // manter colapsado
+    if (dayEl.open) dayEl.open = false;
+    // Centraliza manualmente no scroll container principal
     requestAnimationFrame(() => {
-      dayEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      try {
+        const wrapRect = wrap.getBoundingClientRect();
+        const elRect   = dayEl.getBoundingClientRect();
+        const current  = wrap.scrollTop || 0;
+        const elTopInWrap = (elRect.top - wrapRect.top) + current;
+        // Desconta overlays fixos que ocupam área visível acima do conteúdo (ex.: sticky-month)
+        let overlayAbove = 0;
+        const sticky = document.querySelector('.sticky-month');
+        if (sticky && sticky.classList && sticky.classList.contains('visible')) {
+          overlayAbove += sticky.offsetHeight || 0; // ~52px
+        }
+        const effectiveViewport = Math.max(1, (wrap.clientHeight - overlayAbove));
+        const targetTop = Math.max(0, elTopInWrap - (effectiveViewport / 2) + (dayEl.offsetHeight / 2));
+        wrap.scrollTo({ top: targetTop, behavior: 'smooth' });
+      } catch (_) {
+        dayEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      }
     });
   } catch (_) {}
 }
 if (homeBtn) homeBtn.addEventListener('click', scrollTodayIntoView);
 // (Web Push removido)
-// Block background scrolling via touch/wheel when tx modal is open
-document.addEventListener('touchmove', (e) => {
-  if (!txModal.classList.contains('hidden')) e.preventDefault();
-}, { passive: false });
-document.addEventListener('wheel', (e) => {
-  if (!txModal.classList.contains('hidden')) e.preventDefault();
-}, { passive: false });
+// Block background scrolling via touch/wheel sempre que houver um modal aberto
+function anyModalOpen(){ return !!document.querySelector('.bottom-modal:not(.hidden)'); }
+document.addEventListener('touchmove', (e) => { if (anyModalOpen()) e.preventDefault(); }, { passive: false });
+document.addEventListener('wheel', (e) => { if (anyModalOpen()) e.preventDefault(); }, { passive: false });
+
+// iOS 26: detectar teclado via VisualViewport, mas só ajustar botões inferiores
+(function setupKbOffsets(){
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const root = document.documentElement;
+  const THRESH = 140; // px
+  const update = () => {
+    const gap = (window.innerHeight || 0) - ((vv.height || 0) + (vv.offsetTop || 0));
+    const isKb = gap > THRESH && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isKb) {
+      root.dataset.vvKb = '1';
+      root.style.setProperty('--kb-offset-bottom', Math.max(0, Math.round(gap)) + 'px');
+    } else {
+      delete root.dataset.vvKb;
+      root.style.removeProperty('--kb-offset-bottom');
+    }
+  };
+  update();
+  vv.addEventListener('resize', update);
+  window.addEventListener('orientationchange', () => setTimeout(update, 50));
+  window.addEventListener('focusin', () => setTimeout(update, 0));
+  window.addEventListener('focusout', () => setTimeout(update, 50));
+})();
 
 
 
@@ -891,7 +935,9 @@ function updateStickyMonth() {
   }
 }
 
-window.addEventListener('scroll', updateStickyMonth);
+// Atualiza stickyMonth ao rolar o container principal
+if (wrapperEl) wrapperEl.addEventListener('scroll', updateStickyMonth);
+else window.addEventListener('scroll', updateStickyMonth);
 
 // --- Date helpers ---
 /**
@@ -910,6 +956,10 @@ function formatToISO(date) {
 const todayISO = () => formatToISO(new Date());
 // expose todayISO to global for inline scripts
 window.todayISO = todayISO;
+
+// Ensure end-pad is computed on first render as well
+// Keep end-pad in sync with toolbar/viewport changes (iOS/Safari)
+// End‑pad fixado via CSS: sem atualizações dinâmicas
 
 // Função para calcular o postDate de cartões corretamente (nova lógica)
 const post = (iso, m) => {
@@ -1445,8 +1495,6 @@ function makeLine(tx, disableSwipe = false) {
       pendingEditTxId  = t.id;
       pendingEditTxIso = t.opDate;
       editRecurrenceModal.classList.remove('hidden');
-      document.body.style.overflow = 'hidden';
-      wrapperEl.style.overflow     = 'hidden';
       return;
     }
     if (isDetachedOccurrence(t)) {
@@ -2191,14 +2239,10 @@ function delTx(id, iso) {
   pendingDeleteTxId = id;
   pendingDeleteTxIso = iso || t.opDate;
   deleteRecurrenceModal.classList.remove('hidden');
-  if (document.body) document.body.style.overflow = 'hidden';
-  if (wrapperEl) wrapperEl.style.overflow = 'hidden';
 }
 
 function closeDeleteModal() {
   deleteRecurrenceModal.classList.add('hidden');
-  if (document.body) document.body.style.overflow = '';
-  if (wrapperEl) wrapperEl.style.overflow = '';
   pendingDeleteTxId = null;
   pendingDeleteTxIso = null;
 }
@@ -2280,8 +2324,6 @@ deleteAllBtn.onclick = () => {
 // Modal Editar Recorrência handlers
 function closeEditModal() {
   editRecurrenceModal.classList.add('hidden');
-  if (document.body) document.body.style.overflow = '';
-  if (wrapperEl) wrapperEl.style.overflow = '';
 }
 closeEditRecurrenceModal.onclick = closeEditModal;
 cancelEditRecurrence.onclick = closeEditModal;
@@ -2390,8 +2432,6 @@ document.addEventListener('click', (e) => {
   if (t.recurrence || t.parentId) {
     // recorrente → abre modal de escopo de edição
     editRecurrenceModal.classList.remove('hidden');
-    if (document.body) document.body.style.overflow = 'hidden';
-    if (wrapperEl) wrapperEl.style.overflow = 'hidden';
   } else {
     // não recorrente → vai direto para edição
     editTx(id);
@@ -2975,23 +3015,9 @@ setStartBtn.addEventListener('click', () => {
 });
 
 addCardBtn.onclick=addCard;addBtn.onclick=addTx;
-openCardBtn.onclick = () => {
-  if (document.body) document.body.style.overflow = 'hidden';   // bloqueia scroll de fundo
-  if (wrapperEl) wrapperEl.style.overflow = 'hidden';      // bloqueia scroll no container principal
-  cardModal.classList.remove('hidden');
-};
-closeCardModal.onclick = () => {
-  if (document.body) document.body.style.overflow = '';
-  if (wrapperEl) wrapperEl.style.overflow = '';
-  cardModal.classList.add('hidden');
-};
-cardModal.onclick = e => {
-  if (e.target === cardModal) {
-    if (document.body) document.body.style.overflow = '';
-    if (wrapperEl) wrapperEl.style.overflow = '';
-    cardModal.classList.add('hidden');
-  }
-};
+openCardBtn.onclick = () => { cardModal.classList.remove('hidden'); };
+closeCardModal.onclick = () => { cardModal.classList.add('hidden'); };
+cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('hidden'); };
 
  (async () => {
     // Instancia todos os botões “Adicionar” a partir do template
@@ -3009,7 +3035,15 @@ cardModal.onclick = e => {
   initStart();
   renderTable();
   // exibe conteúdo após carregar dados localmente
-  document.querySelector('.wrapper').classList.remove('app-hidden');
+  const wrap = document.querySelector('.wrapper');
+  wrap.classList.remove('app-hidden');
+  // iOS/Safari: force layout settle so bottom extent is correct
+  // tiny scroll nudge prevents initial underflow that hides last days
+  try {
+    const y = wrap.scrollTop;
+    wrap.scrollTop = y + 1;
+    wrap.scrollTop = y;
+  } catch {}
 
   const [liveTx, liveCards, liveBal] = await Promise.all([
     load('tx', []),
@@ -3152,23 +3186,11 @@ function renderPlannedModal() {
 // Ensure Planejados modal open/close handlers exist exactly once
 if (!window.plannedHandlersInit) {
   openPlannedBtn.onclick = () => {
-    document.body.style.overflow = 'hidden';
-    if (wrapperEl) wrapperEl.style.overflow = 'hidden';
     plannedModal.classList.remove('hidden');
     renderPlannedModal();         // Atualiza sempre ao abrir
   };
-  closePlannedModal.onclick = () => {
-    document.body.style.overflow = '';
-    if (wrapperEl) wrapperEl.style.overflow = '';
-    plannedModal.classList.add('hidden');
-  };
-  plannedModal.onclick = e => {
-    if (e.target === plannedModal) {
-      document.body.style.overflow = '';
-      if (wrapperEl) wrapperEl.style.overflow = '';
-      plannedModal.classList.add('hidden');
-    }
-  };
+  closePlannedModal.onclick = () => { plannedModal.classList.add('hidden'); };
+  plannedModal.onclick = e => { if (e.target === plannedModal) plannedModal.classList.add('hidden'); };
   window.plannedHandlersInit = true;
 }
 // Initialize swipe for operations (op-line)
