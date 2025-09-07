@@ -269,19 +269,33 @@ body{display:block;}
   /* espaço do header fixo */
   padding-top: calc(80px + constant(safe-area-inset-top));
   padding-top: calc(80px + env(safe-area-inset-top));
-  /* espaço para os botões flutuantes na base */
-  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  /* espaço para os botões flutuantes na base (permite o divider passar) */
+  padding-bottom: calc(120px + env(safe-area-inset-bottom));
   /* scroll-padding-bottom removido para não alterar scrollIntoView/Home */
 }
 
 /* Spacer real no final do conteúdo do acordeão: mantém
    o último dia visível acima do pseudo‑footer SEM depender
-   de reflows disparados pelo botão Home */
+   de reflows disparados pelo botão Home 
 #accordion::after{
   content: '';
   display: block;
-  height: calc(96px + env(safe-area-inset-bottom));
+  height: calc(10px + env(safe-area-inset-bottom));
+}*/
+
+/* Divider no rodapé do conteúdo: sem grande espaçamento extra */
+hr.divider{
+  margin: 8px 0 2px;
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.15);
+  position: sticky;
+  bottom: calc(70px + env(safe-area-inset-bottom)); /* segura ligeiramente acima do pseudo-footer */
+  z-index: 5;
+  background: transparent;
 }
+/* Esconde divider e footer quando um modal está aberto para evitar sobreposição com o teclado */
+html.modal-open hr.divider { display: none !important; }
+html.modal-open .app-footer { visibility: hidden; }
 
 /* Prefer 100svh where supported (stable initial viewport on iOS Safari) */
 @supports (height: 100svh) {
@@ -528,7 +542,13 @@ summary.day-summary .icon-invoice::before{
 }
 .logo-title{display:flex;align-items:center;gap:8px;margin-right:auto;}
 .logo-text{font-weight:700;font-size:32pt;letter-spacing:.5pt;color:#fff;text-shadow:0 0 6px #00FF0040;margin-right:auto;}
-.app-footer{text-align:center;font-size:.75rem;color:#666;margin-top:32px;}
+.app-footer{
+  text-align:center;
+  font-size:.75rem;
+  color:#666;
+  margin-top: 80px;
+  padding-bottom: calc(64px + env(safe-area-inset-bottom)); /* ligeiro ajuste para exibir a versão acima */
+}
 .logo-test-tag{font-family:'Caveat',cursive;font-size:1rem;margin-left:4px;}
 
 #syncNowBtn,#offlineIndicator{position:absolute;top:21px;z-index:1100;background:none;border:none;cursor:pointer;}
@@ -1469,6 +1489,9 @@ html[data-vv-kb="1"] .floating-home-button{
 }
 .floating-add-button::before{content:"";position:absolute;inset:0;border-radius:inherit;border:1px solid #5a5a5a;opacity:.3;pointer-events:none;z-index:1;}
 .floating-home-button::before{content:"";position:absolute;inset:0;border-radius:inherit;border:1px solid #5a5a5a;opacity:.3;pointer-events:none;z-index:1;}
+/* Oculta botões flutuantes quando um modal está aberto (ficariam acima do modal) */
+html.modal-open .floating-add-button,
+html.modal-open .floating-home-button { display: none !important; }
 
 .floating-planned-button,.floating-card-button{
   position:absolute;top:18px;width:44px;height:44px;border-radius:50%;background:linear-gradient(to bottom,#00CFFF,#007AFF);
@@ -1541,6 +1564,39 @@ html[data-vv-kb="1"] .floating-home-button{
 @keyframes fadeSlideOut{from{opacity:1;transform:translateY(0);}to{opacity:0;transform:translateY(-10px);}}
 
 details.month[open] > details.day{animation:fadeSlideIn .5s ease-out;}
+
+/* ===================== UPDATE BANNER ===================== */
+.update-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(30,30,30,.92);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  z-index: 1400;
+  backdrop-filter: blur(8px) saturate(150%);
+}
+.update-banner button {
+  appearance: none;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #00C853, #00A94F);
+  color: #fff;
+  padding: 8px 12px;
+  font-weight: 700;
+  letter-spacing: .2px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+.update-banner button:disabled {
+  opacity: .75;
+}
 details.month:not([open]) > details.day{animation:fadeSlideOut .5s ease-in;}
 details.day[open] > .swipe-wrapper,
 details.day[open] > .planned-cash,

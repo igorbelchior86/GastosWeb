@@ -297,7 +297,7 @@ let PATH;
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.7';
+const APP_VERSION = '1.4.8(a1)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -783,18 +783,9 @@ function toggleTxModal() {
   if (openTxBtn) {
     openTxBtn.style.transform = isOpening ? 'rotate(45deg)' : 'rotate(0deg)';
   }
-  if (isOpening) {
-    const valInput = document.getElementById('value');
-    if (valInput) {
-      // iOS: focar após a transição para evitar flicker/jitter de viewport
-      setTimeout(() => {
-        if (!txModal.classList.contains('hidden')) {
-          valInput.focus();
-          valInput.select();
-        }
-      }, 80);
-    }
-  }
+  if (isOpening) focusValueField();
+  // Reflect global modal-open state (used by CSS to hide floating buttons/footer)
+  updateModalOpenState();
   // Ao fechar o modal, sempre limpar estado de edição para evitar reabrir em modo editar
   if (!isOpening) {
     isEditing = null;
@@ -802,6 +793,30 @@ function toggleTxModal() {
     pendingEditTxId = null;
     pendingEditTxIso = null;
   }
+}
+
+function focusValueField() {
+  const valInput = document.getElementById('value');
+  if (!valInput) return;
+  // Ensure numeric keypad attributes remain
+  try {
+    if (valInput.type !== 'tel') valInput.type = 'tel';
+    valInput.setAttribute('inputmode', 'decimal');
+  } catch (_) {}
+
+  const doFocus = () => {
+    if (txModal && txModal.classList.contains('hidden')) return;
+    try {
+      valInput.focus({ preventScroll: true });
+      // Select all to start typing immediately
+      if (typeof valInput.select === 'function') valInput.select();
+    } catch (_) {}
+  };
+  // Multiple attempts to accommodate iOS timing quirks
+  doFocus();
+  setTimeout(doFocus, 80);
+  setTimeout(doFocus, 200);
+  requestAnimationFrame(doFocus);
 }
 
 // Attach event handlers if elements exist
@@ -815,7 +830,16 @@ if (openTxBtn) openTxBtn.onclick = () => {
     resetTxModal();
   }
   toggleTxModal();
+  // Try to focus within the user gesture
+  focusValueField();
 };
+
+// Helper: apply/remove body class depending on whether any bottom-modal is open
+function updateModalOpenState() {
+  const open = !!document.querySelector('.bottom-modal:not(.hidden)');
+  const root = document.documentElement || document.body;
+  if (open) root.classList.add('modal-open'); else root.classList.remove('modal-open');
+}
 if (closeTxModal) closeTxModal.onclick = toggleTxModal;
 if (txModal) {
   txModal.onclick = (e) => {
@@ -832,8 +856,13 @@ function scrollTodayIntoView() {
                 document.querySelector(`details.day[data-key="d-${iso}"]`);
     if (!dayEl) { showToast('Dia atual não encontrado', 'error'); return; }
     const monthEl = dayEl.closest('details.month');
-    if (monthEl && !monthEl.open) monthEl.open = true; // garante visibilidade
-    // manter colapsado
+    if (monthEl && !monthEl.open) {
+      monthEl.open = true;
+      // aguarda próximo frame para layout estabilizar e reexecuta
+      requestAnimationFrame(() => scrollTodayIntoView());
+      return;
+    }
+    // manter colapsado (adiado para depois do scroll)
     if (dayEl.open) dayEl.open = false;
     // Centraliza manualmente no scroll container principal
     requestAnimationFrame(() => {
@@ -845,11 +874,16 @@ function scrollTodayIntoView() {
         // Desconta overlays fixos que ocupam área visível acima do conteúdo (ex.: sticky-month)
         let overlayAbove = 0;
         const sticky = document.querySelector('.sticky-month');
-        if (sticky && sticky.classList && sticky.classList.contains('visible')) {
+        // O sticky pode ficar "visível" durante o scroll; antecipe sempre sua altura
+        if (sticky) {
           overlayAbove += sticky.offsetHeight || 0; // ~52px
         }
-        const effectiveViewport = Math.max(1, (wrap.clientHeight - overlayAbove));
-        const targetTop = Math.max(0, elTopInWrap - (effectiveViewport / 2) + (dayEl.offsetHeight / 2));
+        const footerReserve = 180; // altura ajustada para alinhar o dia mais acima
+        const effectiveViewport = Math.max(1, (wrap.clientHeight - overlayAbove - footerReserve));
+        const targetTop = Math.max(
+          0,
+          elTopInWrap - (effectiveViewport / 2) + (dayEl.offsetHeight / 2)
+        );
         wrap.scrollTo({ top: targetTop, behavior: 'smooth' });
       } catch (_) {
         dayEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
@@ -1056,8 +1090,16 @@ if (addBtn && !addBtn.dataset.toastSaveHook) {
     }, 0);
   }, { capture: true });
 }
+// Ensure numeric keypad and proper formatting on mobile
+try {
+  // Prefer 'tel' to trigger numeric keypad on iOS; keep inputmode for Android/Chromium
+  if (val.type !== 'tel') val.type = 'tel';
+  val.setAttribute('inputmode', 'decimal');
+  val.setAttribute('enterkeyhint', 'done');
+  val.setAttribute('pattern', '[0-9.,]*');
+} catch (_) {}
+
 // Auto-format value input as BRL currency while typing
-val.type = 'text';  // ensure it's text for formatting
 val.addEventListener('input', () => {
   // Remove all non-digit characters
   const digits = val.value.replace(/\D/g, '');
@@ -2447,6 +2489,17 @@ function renderTable() {
   renderTransactionGroups(groups);
 }
 
+// Defensive render: avoids silent failures leaving the UI empty
+function safeRenderTable(attempt = 1) {
+  try {
+    renderTable();
+  } catch (err) {
+    console.error('renderTable failed (attempt ' + attempt + '):', err);
+    try { showToast('Erro ao renderizar. Tentando novamente…', 'error', 2500); } catch (_) {}
+    if (attempt < 3) setTimeout(() => safeRenderTable(attempt + 1), 300);
+  }
+}
+
 // 1. NÃO limpe o #accordion aqui para preservar estado; apenas zere o tableBody (legacy).
 function clearTableContent() {
   // Preserva o estado do acordeão; a limpeza/recálculo é feita dentro de renderAccordion().
@@ -2771,10 +2824,19 @@ for (const master of transactions.filter(t => t.recurrence && t.method !== 'Dinh
 }
 
 // 1) Dinheiro impacta o saldo no dia da operação (inclui invoicePayment; exclui invoiceAdjust)
-const cashImpact = transactions
-  .filter(t => t.method === 'Dinheiro' && t.opDate === iso && (!t.recurrence || t.opDate === iso))
+//    Agora considera também as ocorrências de recorrências em Dinheiro no dia
+const cashNonRecurring = transactions
+  .filter(t => t.method === 'Dinheiro' && !t.recurrence && t.opDate === iso)
   .filter(t => !t.invoiceAdjust) // ajustes da fatura têm val=0 e não devem afetar caixa
   .reduce((s, t) => s + (Number(t.val) || 0), 0);
+
+// Soma das recorrências de Dinheiro que ocorrem neste dia
+const cashRecurring = transactions
+  .filter(t => t.method === 'Dinheiro' && t.recurrence)
+  .filter(t => occursOn(t, iso))
+  .reduce((s, t) => s + (Number(t.val) || 0), 0);
+
+const cashImpact = cashNonRecurring + cashRecurring;
 
 // 2) Cartões impactam via total da fatura no vencimento, menos ajustes (parcelamentos/rollovers)
 const invoiceTotals = {};
@@ -3015,9 +3077,9 @@ setStartBtn.addEventListener('click', () => {
 });
 
 addCardBtn.onclick=addCard;addBtn.onclick=addTx;
-openCardBtn.onclick = () => { cardModal.classList.remove('hidden'); };
-closeCardModal.onclick = () => { cardModal.classList.add('hidden'); };
-cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('hidden'); };
+openCardBtn.onclick = () => { cardModal.classList.remove('hidden'); updateModalOpenState(); };
+closeCardModal.onclick = () => { cardModal.classList.add('hidden'); updateModalOpenState(); };
+cardModal.onclick = e => { if (e.target === cardModal) { cardModal.classList.add('hidden'); updateModalOpenState(); } };
 
  (async () => {
     // Instancia todos os botões “Adicionar” a partir do template
@@ -3033,7 +3095,7 @@ cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('
   refreshMethods();
   renderCardList();
   initStart();
-  renderTable();
+  safeRenderTable();
   // exibe conteúdo após carregar dados localmente
   const wrap = document.querySelector('.wrapper');
   wrap.classList.remove('app-hidden');
@@ -3044,6 +3106,45 @@ cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('
     wrap.scrollTop = y + 1;
     wrap.scrollTop = y;
   } catch {}
+
+  // Watchdog: se o acordeão não montar, tenta novamente sem travar a UI
+  const ensureAccordion = () => {
+    const hasMonths = document.querySelector('#accordion details.month');
+    if (!hasMonths) {
+      console.warn('Accordion still empty; retrying render…');
+      safeRenderTable();
+    }
+  };
+  // duas tentativas espaçadas
+  setTimeout(ensureAccordion, 1200);
+  setTimeout(ensureAccordion, 4000);
+
+  // Spacer dinâmico no fim: só aparece quando o usuário encosta o fim
+  // para permitir que o último divider passe sob o pseudo‑footer
+  try {
+    let endSpacer = document.getElementById('endScrollSpacer');
+    if (!endSpacer) {
+      endSpacer = document.createElement('div');
+      endSpacer.id = 'endScrollSpacer';
+      Object.assign(endSpacer.style, {
+        height: '0px', width: '100%', pointerEvents: 'none'
+      });
+      wrap.appendChild(endSpacer);
+    }
+    const targetSpacer = () => {
+      const btn = document.querySelector('.floating-add-button');
+      const h = btn ? (btn.getBoundingClientRect().height || 64) : 64;
+      return Math.max(72, Math.round(h + 12));
+    };
+    const updateEndSpacer = () => {
+      const nearBottom = (wrap.scrollTop + wrap.clientHeight) >= (wrap.scrollHeight - 2);
+      endSpacer.style.height = nearBottom ? (targetSpacer() + 'px') : '0px';
+    };
+    wrap.addEventListener('scroll', updateEndSpacer);
+    window.addEventListener('resize', updateEndSpacer);
+    if (window.visualViewport) visualViewport.addEventListener('resize', updateEndSpacer);
+    updateEndSpacer();
+  } catch (_) {}
 
   const [liveTx, liveCards, liveBal] = await Promise.all([
     load('tx', []),
@@ -3087,7 +3188,55 @@ cardModal.onclick = e => { if (e.target === cardModal) cardModal.classList.add('
 
 // Service Worker registration and sync event (disabled in mock mode)
 if (!USE_MOCK && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js');
+  // Helper: non-intrusive update banner
+  function showUpdateBanner(onUpdateClick) {
+    let banner = document.getElementById('updateBanner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'updateBanner';
+      banner.className = 'update-banner';
+      const label = document.createElement('div');
+      label.textContent = 'Nova versão disponível';
+      const btn = document.createElement('button');
+      btn.textContent = 'Atualizar';
+      btn.addEventListener('click', () => {
+        btn.disabled = true;
+        btn.textContent = 'Atualizando…';
+        try { onUpdateClick && onUpdateClick(); } catch (_) {}
+      });
+      banner.appendChild(label);
+      banner.appendChild(btn);
+      document.body.appendChild(banner);
+    }
+    return banner;
+  }
+
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // Reload once when the new SW takes control
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    // If an update is already waiting, show prompt
+    if (reg.waiting) {
+      showUpdateBanner(() => reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }));
+    }
+
+    // Detect updates while the page is open
+    reg.addEventListener('updatefound', () => {
+      const sw = reg.installing;
+      if (!sw) return;
+      sw.addEventListener('statechange', () => {
+        if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+          // New version ready → let user choose when to update
+          showUpdateBanner(() => sw.postMessage({ type: 'SKIP_WAITING' }));
+        }
+      });
+    });
+  });
   navigator.serviceWorker.addEventListener('message', event => {
     if (event.data?.type === 'sync-tx') flushQueue();
   });
@@ -3188,9 +3337,10 @@ if (!window.plannedHandlersInit) {
   openPlannedBtn.onclick = () => {
     plannedModal.classList.remove('hidden');
     renderPlannedModal();         // Atualiza sempre ao abrir
+    updateModalOpenState();
   };
-  closePlannedModal.onclick = () => { plannedModal.classList.add('hidden'); };
-  plannedModal.onclick = e => { if (e.target === plannedModal) plannedModal.classList.add('hidden'); };
+  closePlannedModal.onclick = () => { plannedModal.classList.add('hidden'); updateModalOpenState(); };
+  plannedModal.onclick = e => { if (e.target === plannedModal) { plannedModal.classList.add('hidden'); updateModalOpenState(); } };
   window.plannedHandlersInit = true;
 }
 // Initialize swipe for operations (op-line)
