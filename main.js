@@ -182,9 +182,8 @@ if (plannedList) {
 }
 
 import { openDB } from 'https://unpkg.com/idb?module';
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
+import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
 
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
 // Configuração do Firebase de PRODUÇÃO (arquivo separado)
@@ -293,16 +292,27 @@ document.addEventListener('click', (e) => {
 }, true);
 
 let PATH;
+// Casa compartilhada (PROD atual) e e‑mails que devem enxergar esta Casa
+const WID_CASA = 'orcamento365_9b8e04c5';
+const CASA_EMAILS = ['icmbelchior@gmail.com','sarargjesus@gmail.com'];
+function resolvePathForUser(user){
+  if (!user) return null;
+  const email = (user.email || '').toLowerCase();
+  if (CASA_EMAILS.includes(email)) return WID_CASA;
+  return `users/${user.uid}`;
+}
 
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a8)';
+const APP_VERSION = '1.4.8(a17)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
   try {
-    if (!METRICS_ENABLED || USE_MOCK || !firebaseDb) return;
+    // Only log when DB ready and a workspace PATH is known (after auth)
+    if (!METRICS_ENABLED || USE_MOCK || !firebaseDb || !PATH) return;
+    if (window.Auth && !window.Auth.currentUser) return;
     const key = `${PATH}/metrics/${name}/${Date.now()}_${Math.random().toString(36).slice(2)}`;
     set(ref(firebaseDb, key), {
       ...payload,
@@ -323,15 +333,13 @@ let firebaseDb;
 if (!USE_MOCK) {
   // Seleciona config conforme ambiente
   const cfg = firebaseConfig;
-  const app  = initializeApp(cfg);
+  const app  = (getApps().length ? getApp() : initializeApp(cfg));
   const db   = getDatabase(app);
   firebaseDb = db;
 
-  // Mesmo caminho de DB para ambos os ambientes
-  PATH = 'orcamento365_9b8e04c5';
+  // PATH será definido após o login (Casa para e‑mails definidos; pessoal para demais)
 
-  const auth = getAuth(app);
-  await signInAnonymously(auth);
+  // Auth is required; handled by auth.js (Google). No anonymous sign-in.
 
   // Wrapper: save marks as dirty and updates cache if offline
   save = async (k, v) => {
@@ -478,8 +486,8 @@ async function flushQueue() {
 
 
 // Load transactions/cards/balance: now with realtime listeners if not USE_MOCK
-let transactions;
-let cards;
+let transactions = [];
+let cards = [{ name:'Dinheiro', close:0, due:0 }];
 let startBalance;
 const $=id=>document.getElementById(id);
 const tbody=document.querySelector('#dailyTable tbody');
@@ -574,10 +582,12 @@ function buildSaveToast(tx) {
 // ---------------------------------------------------------------------------
 
 if (!USE_MOCK) {
-  // Live listeners (Realtime DB)
-  const txRef    = ref(firebaseDb, `${PATH}/tx`);
-  const cardsRef = ref(firebaseDb, `${PATH}/cards`);
-  const balRef   = ref(firebaseDb, `${PATH}/startBal`);
+  // Start realtime listeners only after user is authenticated
+  const startRealtime = () => {
+    // Live listeners (Realtime DB)
+    const txRef    = ref(firebaseDb, `${PATH}/tx`);
+    const cardsRef = ref(firebaseDb, `${PATH}/cards`);
+    const balRef   = ref(firebaseDb, `${PATH}/startBal`);
 
   // initialize from cache first for instant UI
   transactions = cacheGet('tx', []);
@@ -649,7 +659,7 @@ if (!USE_MOCK) {
       renderPlannedModal();
       fixPlannedAlignment();
       expandPlannedDayLabels();
-}
+    }
   });
 
   // Listen for card changes
@@ -677,6 +687,17 @@ if (!USE_MOCK) {
     initStart();
     renderTable();
   });
+  };
+
+  const readyUser = (window.Auth && window.Auth.currentUser) ? window.Auth.currentUser : null;
+  if (readyUser) { PATH = resolvePathForUser(readyUser); startRealtime(); }
+  else {
+    const h = (e) => {
+      const u = e.detail && e.detail.user;
+      if (u) { document.removeEventListener('auth:state', h); PATH = resolvePathForUser(u); startRealtime(); }
+    };
+    document.addEventListener('auth:state', h);
+  }
 } else {
   // Fallback (mock) — carrega uma vez
   const [liveTx, liveCards, liveBal] = await Promise.all([
@@ -848,6 +869,8 @@ if (txModal) {
 }
 // Botão Home: centraliza o dia atual, mantendo-o colapsado
 const homeBtn = document.getElementById('scrollTodayBtn');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettingsModal = document.getElementById('closeSettingsModal');
 function scrollTodayIntoView() {
   try {
     const iso = todayISO();
@@ -892,6 +915,106 @@ function scrollTodayIntoView() {
   } catch (_) {}
 }
 if (homeBtn) homeBtn.addEventListener('click', scrollTodayIntoView);
+
+// Bottom pill: Home/Ajustes
+(function setupBottomPill(){
+  const pill = document.querySelector('.floating-pill');
+  if (!pill) return;
+  const highlight = pill.querySelector('.pill-highlight');
+  const options = pill.querySelectorAll('.pill-option');
+  const setSelected = (key) => {
+    pill.dataset.selected = key;
+    options.forEach(b => b.setAttribute('aria-selected', b.dataset.action === key ? 'true' : 'false'));
+  };
+  const updateHighlight = () => {
+    const sel = pill.querySelector('.pill-option[aria-selected="true"]');
+    if (!sel || !highlight) return;
+    const pr = pill.getBoundingClientRect();
+    const sr = sel.getBoundingClientRect();
+    const x = sr.left - pr.left - 6; // 6px padding left
+    highlight.style.transform = `translateX(${Math.max(0,x)}px)`;
+    highlight.style.width = `${sr.width}px`;
+  };
+  options.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      setSelected(action); updateHighlight();
+      if (action === 'home') scrollTodayIntoView();
+else if (action === 'settings') {
+        if (settingsModal) { renderSettings(); settingsModal.classList.remove('hidden'); }
+        updateModalOpenState();
+      }
+    });
+  });
+  window.addEventListener('resize', updateHighlight);
+  setTimeout(updateHighlight, 60);
+})();
+
+// Settings modal close handlers
+if (closeSettingsModal) closeSettingsModal.onclick = () => { settingsModal.classList.add('hidden'); updateModalOpenState(); };
+if (settingsModal) settingsModal.onclick = (e) => { if (e.target === settingsModal) { settingsModal.classList.add('hidden'); updateModalOpenState(); } };
+
+// ---------- Settings modal rendering ----------
+function getProfileFromAuth() {
+  try {
+    const u = window.Auth && window.Auth.currentUser;
+    if (!u) return null;
+    return { name: u.displayName || '', email: u.email || '', photo: u.photoURL || '' };
+  } catch { return null; }
+}
+
+function persistProfile(p) { try { cacheSet('profile', p); } catch {} }
+function loadCachedProfile() { try { return cacheGet('profile', null); } catch { return null; } }
+
+function renderSettings() {
+  if (!settingsModal) return;
+  const box = settingsModal.querySelector('.modal-content');
+  if (!box) return;
+  // Get profile (auth → cache; fallback cache)
+  let prof = getProfileFromAuth();
+  if (prof && prof.email) persistProfile(prof);
+  if (!prof) prof = loadCachedProfile() || { name:'', email:'', photo:'' };
+
+  // Build profile card
+  const avatarImg = prof.photo ? `<img src="${prof.photo}" alt="Avatar"/>` : '';
+  const sub = prof.email || '';
+  const cardHTML = `
+    <div class="settings-card">
+      <div class="settings-profile">
+        <div class="settings-avatar">${avatarImg}</div>
+        <div class="settings-names">
+          <div class="settings-name">${(prof.name||'')}</div>
+          <div class="settings-sub">${sub}</div>
+        </div>
+      </div>
+    </div>`;
+  const listHTML = `
+    <div class="settings-list">
+      <div class="settings-item danger">
+        <button id="logoutBtn" class="settings-cta">
+          <span class="settings-icon icon-logout"></span>
+          <span>Sair da conta</span>
+        </button>
+        <span class="right"></span>
+      </div>
+    </div>`;
+  box.innerHTML = cardHTML + listHTML;
+  const btn = box.querySelector('#logoutBtn');
+  if (btn) btn.onclick = async () => {
+    try { await (window.Auth && window.Auth.signOut ? window.Auth.signOut() : Promise.resolve()); }
+    catch (_) {}
+    // Clear local state minimal
+    try { cacheSet('profile', null); } catch {}
+    settingsModal.classList.add('hidden');
+    updateModalOpenState();
+    // UI overlay de login aparece via auth state
+  };
+}
+
+// Re-render settings when auth user changes (to keep profile fresh)
+document.addEventListener('auth:state', () => {
+  try { renderSettings(); } catch {}
+});
 // (Web Push removido)
 // Block background scrolling via touch/wheel sempre que houver um modal aberto
 function anyModalOpen(){ return !!document.querySelector('.bottom-modal:not(.hidden)'); }
@@ -1395,7 +1518,12 @@ const openCardBtn=document.getElementById('openCardModal');
 const cardModal=document.getElementById('cardModal');
 const closeCardModal=document.getElementById('closeCardModal');
 
-function refreshMethods(){met.innerHTML='';cards.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.name;met.appendChild(o);});}
+function refreshMethods(){
+  if (!met) return;
+  met.innerHTML='';
+  const list = Array.isArray(cards) && cards.length ? cards : [{name:'Dinheiro',close:0,due:0}];
+  list.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.name;met.appendChild(o);});
+}
 // --- Card List Rendering (Refatorado) ---
 function createCardSwipeActions(card) {
   const actions = document.createElement('div');
@@ -3218,38 +3346,42 @@ cardModal.onclick = e => { if (e.target === cardModal) { cardModal.classList.add
     updateEndSpacer();
   } catch (_) {}
 
-  const [liveTx, liveCards, liveBal] = await Promise.all([
-    load('tx', []),
-    load('cards', cards),
-    load('startBal', startBalance)
-  ]);
+  if (typeof PATH === 'string') {
+    try {
+      const [liveTx, liveCards, liveBal] = await Promise.all([
+        load('tx', []),
+        load('cards', cards),
+        load('startBal', startBalance)
+      ]);
 
-  const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
-  const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
+      const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
+      const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
 
-  // Converte objeto → array se necessário
-  const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
+      // Converte objeto → array se necessário
+      const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
 
-  if (hasLiveTx) {
-    // Sanitize and persist if needed (one-time migration path on boot)
-    const s = sanitizeTransactions(fixedTx);
-    if (JSON.stringify(s.list) !== JSON.stringify(transactions)) {
-      transactions = s.list;
-      cacheSet('tx', transactions);
-      if (s.changed) { try { save('tx', transactions); } catch (_) {} }
-      renderTable();
-    }
-  }
-  if (hasLiveCards && JSON.stringify(liveCards) !== JSON.stringify(cards)) {
-    cards = liveCards;
-    if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
-    cacheSet('cards', cards);
-    refreshMethods(); renderCardList(); renderTable();
-  }
-  if (liveBal !== startBalance) {
-    startBalance = liveBal;
-    cacheSet('startBal', startBalance);
-    initStart(); renderTable();
+      if (hasLiveTx) {
+        // Sanitize and persist if needed (one-time migration path on boot)
+        const s = sanitizeTransactions(fixedTx);
+        if (JSON.stringify(s.list) !== JSON.stringify(transactions)) {
+          transactions = s.list;
+          cacheSet('tx', transactions);
+          if (s.changed) { try { save('tx', transactions); } catch (_) {} }
+          renderTable();
+        }
+      }
+      if (hasLiveCards && JSON.stringify(liveCards) !== JSON.stringify(cards)) {
+        cards = liveCards;
+        if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
+        cacheSet('cards', cards);
+        refreshMethods(); renderCardList(); renderTable();
+      }
+      if (liveBal !== startBalance) {
+        startBalance = liveBal;
+        cacheSet('startBal', startBalance);
+        initStart(); renderTable();
+      }
+    } catch (_) { /* ignore boot fetch when not logged yet */ }
   }
   // exibe versão
   const verEl = document.getElementById('version');
