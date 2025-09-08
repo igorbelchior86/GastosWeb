@@ -1301,7 +1301,7 @@ details.invoice[open] > summary::after{
   color: rgba(255,255,255,0.7);
 }
 .modal-drag{width:40px;height:4px;background:#ccc;border-radius:2px;margin:0 auto 12px;} 
-.modal-content{flex:1;overflow-y:auto;width:100%;padding:0 24px 0 2px;overscroll-behavior:contain;} 
+.modal-content{flex:1;overflow-y:auto;width:100%;padding:0 24px 0 2px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;} 
 .modal-close-btn{
   position:absolute;
   top:16px;
@@ -1829,3 +1829,16 @@ Opcional: atualizar o header da fatura para mostrar “total líquido” (total 
 #offlineIndicator{ position: static !important; right: auto; top: auto; width:40px; height:40px; display:flex; align-items:center; justify-content:center; }
 /* keep the segmented control from pushing over icons */
 .header-seg{ margin-left: 0; margin-right: 0; }
+/* ===================== SKELETON (light shimmer) ===================== */
+@keyframes skeletonShimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.skeleton{position:relative;display:inline-block;background:linear-gradient(90deg, rgba(255,255,255,.10), rgba(255,255,255,.18), rgba(255,255,255,.10));background-size:200% 100%;animation:skeletonShimmer 1.2s ease-in-out infinite;border-radius:8px;color:transparent;}
+.skeleton-pill{height:16px;min-width:80px;border-radius:9999px;}
+.skeleton-line{height:12px;width:120px;border-radius:6px;}
+.skeleton-small{height:10px;width:80px;border-radius:6px;}
+#accordion .month-divider .s-meta .skeleton-pill{margin-left:auto;}
+#accordion .day-summary .skeleton-pill{margin-left:auto;}
+
+/* Hide start-balance box only during skeleton boot */
+html.skeleton-boot #startGroup,
+html.skeleton-boot .start-container,
+html.skeleton-boot #dividerSaldo { display: none !important; }

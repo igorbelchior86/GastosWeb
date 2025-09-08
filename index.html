@@ -14,7 +14,7 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.8(a1)">
+  <link rel="stylesheet" href="style.css?v=1.4.8(a8)">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -68,7 +68,7 @@
       <button id="resetData" class="danger" style="margin-top:12px; display:none" hidden>Limpar tudo</button>
     </div>
     <hr class="divider">
-    <footer class="app-footer"><small id="version">v1.4.8(a1)</small></footer>
+    <footer class="app-footer"><small id="version">v1.4.8(a8)</small></footer>
   </div>
 
   <!-- Modal Cartões -->
@@ -215,7 +215,56 @@
     <div class="icon-action icon-home" aria-hidden="true"></div>
   </button>
 
-  <script type="module" src="main.js?v=1.4.8(a1)"></script>
+  <!-- Early skeleton and unhide: runs before main.js to ensure immediate UI -->
+  <script>
+  (function(){
+    try{
+      // Mark skeleton boot so CSS can hide the start-balance box
+      document.documentElement.classList.add('skeleton-boot');
+      var wrap = document.querySelector('.wrapper');
+      if (wrap) wrap.classList.remove('app-hidden');
+      var acc = document.getElementById('accordion');
+      if (!acc || acc.children.length) return;
+      var now = new Date();
+      // Alinhar com o render atual (usa 2025)
+      var year = 2025; // mesmo ano usado no render final
+      function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
+      var curMonth = now.getMonth();
+      for (var mIdx=0; mIdx<12; mIdx++){
+        var monthName = new Date(year, mIdx).toLocaleDateString('pt-BR',{month:'long'});
+        var mDet = document.createElement('details');
+        mDet.className='month'; mDet.dataset.key = 'm-'+mIdx;
+        mDet.open = (mIdx >= curMonth);
+        var mSum = document.createElement('summary');
+        mSum.className='month-divider';
+        // Cabeçalho do mês
+        var row = document.createElement('div'); row.className='month-row';
+        var name = document.createElement('span'); name.className='month-name'; name.textContent = cap(monthName).toUpperCase();
+        row.appendChild(name);
+        var meta = document.createElement('div'); meta.className='month-meta';
+        var label = document.createElement('span'); label.className='meta-label';
+        // Label conforme passado/atual/futuro
+        if (mIdx < curMonth) label.textContent = 'Saldo final:';
+        else if (mIdx === curMonth) label.textContent = 'Saldo atual:';
+        else label.textContent = 'Saldo projetado:';
+        var value = document.createElement('span'); value.className='meta-value';
+        var pill = document.createElement('span'); pill.className='skeleton skeleton-pill'; pill.style.width='120px';
+        value.appendChild(pill);
+        meta.appendChild(label); meta.appendChild(value);
+        mSum.appendChild(row); mSum.appendChild(meta);
+        mDet.appendChild(mSum);
+        acc.appendChild(mDet);
+      }
+      acc.dataset.state = 'skeleton';
+      var sticky = document.querySelector('.sticky-month');
+      if (sticky) {
+        var stickyMonthName = new Date(year, curMonth).toLocaleDateString('pt-BR',{month:'long'});
+        sticky.textContent = cap(stickyMonthName);
+      }
+    }catch(e){}
+  })();
+  </script>
+  <script type="module" src="main.js?v=1.4.8(a8)"></script>
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->

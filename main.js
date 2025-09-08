@@ -297,7 +297,7 @@ let PATH;
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a1)';
+const APP_VERSION = '1.4.8(a8)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -895,8 +895,32 @@ if (homeBtn) homeBtn.addEventListener('click', scrollTodayIntoView);
 // (Web Push removido)
 // Block background scrolling via touch/wheel sempre que houver um modal aberto
 function anyModalOpen(){ return !!document.querySelector('.bottom-modal:not(.hidden)'); }
-document.addEventListener('touchmove', (e) => { if (anyModalOpen()) e.preventDefault(); }, { passive: false });
-document.addEventListener('wheel', (e) => { if (anyModalOpen()) e.preventDefault(); }, { passive: false });
+function isInScrollableModal(el){
+  const content = el && el.closest ? el.closest('.bottom-modal .modal-content') : null;
+  if (!content) return false;
+  let node = el;
+  while (node && node !== content.parentElement) {
+    const style = window.getComputedStyle(node);
+    const oy = style.overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight) return true;
+    node = node.parentElement;
+  }
+  // fallback: treat .modal-content as scrollable container
+  return content && content.scrollHeight > content.clientHeight;
+}
+// Allow scroll inside modal content; block background scroll only
+document.addEventListener('touchmove', (e) => {
+  if (!anyModalOpen()) return;
+  const target = e.target;
+  if (isInScrollableModal(target)) return; // allow natural scroll in modal
+  e.preventDefault();
+}, { passive: false });
+document.addEventListener('wheel', (e) => {
+  if (!anyModalOpen()) return;
+  const target = e.target;
+  if (isInScrollableModal(target)) return; // allow wheel inside modal
+  e.preventDefault();
+}, { passive: false });
 
 // iOS 26: detectar teclado via VisualViewport, mas só ajustar botões inferiores
 (function setupKbOffsets(){
@@ -2545,14 +2569,15 @@ function renderTransactionGroups(groups) {
 function renderAccordion() {
   const acc = document.getElementById('accordion');
   if (!acc) return;
-  // Salva quais <details> estão abertos antes de recriar
+  const hydrating = acc.dataset && acc.dataset.state === 'skeleton';
+  // Salva quais <details> estão abertos
   const openKeys = Array.from(acc.querySelectorAll('details[open]'))
                         .map(d => d.dataset.key || '');
   // Preserve which invoice panels are open
   const openInvoices = Array.from(
     acc.querySelectorAll('details.invoice[open]')
   ).map(d => d.dataset.pd);
-  acc.innerHTML = '';
+  if (!hydrating) acc.innerHTML = '';
 
   const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const currency = v => v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
@@ -2728,19 +2753,45 @@ function renderAccordion() {
   let runningBalance = startBalance || 0;          // saldo acumulado
   for (let mIdx = 0; mIdx < 12; mIdx++) {
     const nomeMes = new Date(2025, mIdx).toLocaleDateString('pt-BR', { month: 'long' });
-    // Build month container
-    const mDet = document.createElement('details');
-    mDet.className = 'month';
-    mDet.dataset.key = `m-${mIdx}`;   // identifica o mês
-    const isOpen = mIdx >= curMonth;
-    mDet.open = openKeys.includes(mDet.dataset.key) || isOpen;
+    // Build or reuse month container
+    let mDet;
+    if (hydrating) {
+      mDet = acc.querySelector(`details.month[data-key="m-${mIdx}"]`) || document.createElement('details');
+      mDet.className = 'month';
+      mDet.dataset.key = `m-${mIdx}`;
+      const isOpen = mIdx >= curMonth;
+      mDet.open = openKeys.includes(mDet.dataset.key) || isOpen;
+      if (!mDet.parentElement) acc.appendChild(mDet);
+      // Ensure summary exists and is in final structure
+      let mSum = mDet.querySelector('summary.month-divider');
+      if (!mSum) {
+        mSum = document.createElement('summary');
+        mSum.className = 'month-divider';
+        mDet.prepend(mSum);
+      }
+      // Update header content (month name; meta updated later)
+      mSum.innerHTML = `
+        <div class="month-row">
+          <span class="month-name">${nomeMes.toUpperCase()}</span>
+        </div>
+        <div class="month-meta">
+          <span class="meta-label"></span>
+          <span class="meta-value"></span>
+        </div>`;
+    } else {
+      mDet = document.createElement('details');
+      mDet.className = 'month';
+      mDet.dataset.key = `m-${mIdx}`;   // identifica o mês
+      const isOpen = mIdx >= curMonth;
+      mDet.open = openKeys.includes(mDet.dataset.key) || isOpen;
+    }
     // Month total = sum of all tx in that month
     const monthTotal = transactions
       .filter(t => new Date(t.postDate).getMonth() === mIdx)
       .reduce((s,t) => s + t.val, 0);
     // Cabeçalho flutuante dos meses
-    const mSum = document.createElement('summary');
-    mSum.className = 'month-divider';
+    let mSum = mDet.querySelector('summary.month-divider');
+    if (!mSum) { mSum = document.createElement('summary'); mSum.className = 'month-divider'; }
 
     const monthActual = transactions
       .filter(t => {
@@ -2779,7 +2830,7 @@ function renderAccordion() {
         <span class="meta-value">${metaValue}</span>
       </div>`;
 
-    mDet.appendChild(mSum);
+    if (!hydrating) mDet.appendChild(mSum);
 
     // Garante o número correto de dias em cada mês
     const daysInMonth = new Date(2025, mIdx + 1, 0).getDate();
@@ -2857,15 +2908,25 @@ Object.keys(invoiceTotals).forEach(card => {
 const dayTotal = cashImpact + cardImpact;
       runningBalance += dayTotal;                           // atualiza saldo acumulado
       const dow = dateObj.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
-      const dDet = document.createElement('details');
-      dDet.dataset.has = String(dayTx.length > 0);
-      dDet.className = 'day';
-      dDet.dataset.key = `d-${iso}`;    // identifica o dia YYYY‑MM‑DD
-      dDet.open = openKeys.includes(dDet.dataset.key);
+      let dDet;
+      if (hydrating) {
+        dDet = mDet.querySelector(`details.day[data-key="d-${iso}"]`) || document.createElement('details');
+        dDet.className = 'day';
+        dDet.dataset.key = `d-${iso}`;
+        dDet.open = openKeys.includes(dDet.dataset.key);
+        dDet.dataset.has = String(dayTx.length > 0);
+        if (!dDet.parentElement) mDet.appendChild(dDet);
+      } else {
+        dDet = document.createElement('details');
+        dDet.dataset.has = String(dayTx.length > 0);
+        dDet.className = 'day';
+        dDet.dataset.key = `d-${iso}`;    // identifica o dia YYYY‑MM‑DD
+        dDet.open = openKeys.includes(dDet.dataset.key);
+      }
       const today = todayISO();
       if (iso === today) dDet.classList.add('today');
-      const dSum = document.createElement('summary');
-      dSum.className = 'day-summary';
+      let dSum = dDet.querySelector('summary.day-summary');
+      if (!dSum) { dSum = document.createElement('summary'); dSum.className = 'day-summary'; }
       const saldoFormatado = runningBalance < 0
         ? `R$ -${Math.abs(runningBalance).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
         : `R$ ${runningBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
@@ -2882,7 +2943,8 @@ const dayTotal = cashImpact + cardImpact;
       const labelWithDue = labelParts.join('');
       dSum.innerHTML = `<span>${labelWithDue}</span><span class="day-balance" style="margin-left:auto">${saldoFormatado}</span>`;
       if (runningBalance < 0) dDet.classList.add('negative');
-      dDet.appendChild(dSum);
+      // Replace or append summary
+      if (!hydrating) dDet.appendChild(dSum); else if (!dDet.contains(dSum)) dDet.prepend(dSum);
 
       // Seção de planejados (apenas se houver planejados)
       const plannedOps = dayTx
@@ -2895,9 +2957,9 @@ const dayTotal = cashImpact + cardImpact;
 
       // === INVOICE UI (vencendo hoje) ===
       // Remove restos de render anteriores
-      (dDet.querySelectorAll && dDet.querySelectorAll('details.invoice').forEach(n => n.remove()));
+      if (!hydrating) { (dDet.querySelectorAll && dDet.querySelectorAll('details.invoice').forEach(n => n.remove())); }
 
-      Object.keys(invoicesByCard).forEach(cardName => {
+      if (!hydrating) Object.keys(invoicesByCard).forEach(cardName => {
         const det = document.createElement('details');
         det.className = 'invoice swipe-wrapper';
         det.dataset.pd = iso; // YYYY-MM-DD (vencimento)
@@ -3009,12 +3071,16 @@ const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado'
     if (valueEl) valueEl.textContent = currency(monthEndBalanceForHeader);
 
     // (month summary já foi adicionado no topo; não adicionar novamente)
-    acc.appendChild(mDet);
+    if (!hydrating || !mDet.parentElement) acc.appendChild(mDet);
 
     // Cria linha meta como elemento independente
-    const metaLine = document.createElement('div');
-    metaLine.className = 'month-meta';
     const previewLabel = (mIdx < curMonth) ? 'Saldo final:' : 'Saldo planejado:';
+    let metaLine = mDet.nextSibling;
+    const isMetaLine = node => node && node.nodeType === 1 && node.classList && node.classList.contains('month-meta');
+    if (!isMetaLine(metaLine)) {
+      metaLine = document.createElement('div');
+      metaLine.className = 'month-meta';
+    }
     metaLine.innerHTML = `<span>| ${previewLabel}</span><strong>${currency(monthEndBalanceForHeader)}</strong>`;
     // Clique em "Saldo final" também expande/colapsa o mês
     metaLine.addEventListener('click', () => {
@@ -3023,7 +3089,10 @@ const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado'
 
     // Se o mês estiver fechado (collapsed), exibe metaLine abaixo de mDet
     if (!mDet.open) {
-      acc.appendChild(metaLine);
+      if (!isMetaLine(mDet.nextSibling)) acc.appendChild(metaLine);
+    } else {
+      // se estiver aberto, garanta que a linha meta não fique sobrando
+      if (isMetaLine(mDet.nextSibling)) acc.removeChild(mDet.nextSibling);
     }
 
     // Atualiza visibilidade ao expandir/fechar
@@ -3041,6 +3110,7 @@ const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado'
   openInvoices.forEach(pd => {
     acc.querySelectorAll(`details.invoice[data-pd="${pd}"]`).forEach(inv => inv.open = true);
   });
+  if (hydrating && acc.dataset) delete acc.dataset.state;
   updateStickyMonth();
 }
 
@@ -3099,6 +3169,8 @@ cardModal.onclick = e => { if (e.target === cardModal) { cardModal.classList.add
   // exibe conteúdo após carregar dados localmente
   const wrap = document.querySelector('.wrapper');
   wrap.classList.remove('app-hidden');
+  // Remove skeleton flag so start-balance obeys real logic
+  try { document.documentElement.classList.remove('skeleton-boot'); } catch (_) {}
   // iOS/Safari: force layout settle so bottom extent is correct
   // tiny scroll nudge prevents initial underflow that hides last days
   try {
