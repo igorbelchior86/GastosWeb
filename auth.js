@@ -17,6 +17,9 @@ import {
   linkWithPopup,
   linkWithRedirect,
   signInAnonymously,
+  isSignInWithEmailLink,
+  sendSignInLinkToEmail,
+  signInWithEmailLink,
   signOut as fbSignOut
 } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { firebaseConfig } from './firebase.prod.config.js';
@@ -101,6 +104,27 @@ async function completeRedirectIfAny() {
 }
 completeRedirectIfAny();
 
+// Handle email link sign-in completion (works in iOS PWA)
+async function completeEmailLinkIfAny() {
+  try {
+    if (!isSignInWithEmailLink(auth, window.location.href)) return;
+    let email = null;
+    try { email = localStorage.getItem('emailForSignIn') || ''; } catch (_) {}
+    if (!email) {
+      email = window.prompt('Digite seu e-mail para concluir o login:');
+    }
+    if (!email) return;
+    await signInWithEmailLink(auth, email, window.location.href);
+    try { localStorage.removeItem('emailForSignIn'); } catch (_) {}
+    // clean URL
+    try { history.replaceState({}, document.title, location.origin + location.pathname); } catch (_) {}
+  } catch (err) {
+    console.error('Email link completion failed:', err);
+    try { document.dispatchEvent(new CustomEvent('auth:error', { detail: { code: err.code, message: err.message } })); } catch (_) {}
+  }
+}
+completeEmailLinkIfAny();
+
 async function signInWithGoogle() {
   try {
     const useRedirect = isStandalone();
@@ -142,12 +166,36 @@ async function signInAnon() {
   }
 }
 
+function getEmailLinkContinueUrl() {
+  try {
+    // Send users back to the same origin/path; avoid query/hash to keep SW simple
+    return location.origin + location.pathname;
+  } catch (_) { return 'https://'+(firebaseConfig?.authDomain||''); }
+}
+
+async function sendMagicLink(email) {
+  try {
+    const actionCodeSettings = {
+      url: getEmailLinkContinueUrl(),
+      handleCodeInApp: true
+    };
+    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+    try { localStorage.setItem('emailForSignIn', email); } catch (_) {}
+    document.dispatchEvent(new CustomEvent('auth:magiclink-sent', { detail: { email } }));
+  } catch (err) {
+    console.error('Send magic link failed:', err);
+    document.dispatchEvent(new CustomEvent('auth:error', { detail: { code: err.code, message: err.message } }));
+    throw err;
+  }
+}
+
 // Expose tiny facade
 window.Auth = {
   auth,
   onReady(cb) { if (typeof cb === 'function') listeners.add(cb); },
   off(cb) { listeners.delete(cb); },
   signInWithGoogle,
+  sendMagicLink,
   signInAnonymously: signInAnon,
   signOut,
   get currentUser() { return auth.currentUser; }

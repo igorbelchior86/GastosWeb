@@ -23,6 +23,10 @@ function ensureOverlay() {
         <button id="offlineBtn" class="login-google offline" style="margin-top:10px">
           Usar sem login (offline)
         </button>
+        <div class="email-block" style="margin-top:12px">
+          <input id="emailInput" type="email" placeholder="Seu e-mail" autocomplete="email" style="width:100%;padding:12px;border-radius:12px;border:none;outline:none;margin-bottom:8px;">
+          <button id="emailBtn" class="login-google" style="background:linear-gradient(180deg,#3b82f6,#2563eb)">Enviar link por e-mail</button>
+        </div>
       </div>
     </div>
   `;
@@ -47,6 +51,21 @@ function ensureOverlay() {
     } catch (e) {
       off.disabled = false;
       showError(el, 'Não foi possível entrar offline');
+    }
+  });
+  const emailBtn = el.querySelector('#emailBtn');
+  if (emailBtn) emailBtn.addEventListener('click', async () => {
+    const input = el.querySelector('#emailInput');
+    const email = (input && input.value || '').trim();
+    if (!email) { showError(el, 'Digite seu e-mail'); return; }
+    emailBtn.disabled = true;
+    try {
+      await window.Auth?.sendMagicLink(email);
+      showError(el, `Enviamos um link para ${email}`);
+    } catch (e) {
+      emailBtn.disabled = false;
+      const msg = (e && e.code) ? e.code.replace('auth/','Auth: ') : 'Erro ao enviar link';
+      showError(el, msg);
     }
   });
   return el;

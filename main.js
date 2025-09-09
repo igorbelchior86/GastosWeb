@@ -305,7 +305,7 @@ function resolvePathForUser(user){
 // Modo convidado/local: quando 'guestMode' = '1', operamos totalmente local (sem Firebase)
 // Isso permite usar o app no PWA iOS mesmo se login Google estiver bloqueado.
 const USE_MOCK = (localStorage.getItem('guestMode') === '1');
-const APP_VERSION = '1.4.8(a21)';
+const APP_VERSION = '1.4.8(a22)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -3430,7 +3430,7 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
     return banner;
   }
 
-  navigator.serviceWorker.register('sw.js?v=1.4.8(a21)').then(reg => {
+  navigator.serviceWorker.register('sw.js?v=1.4.8(a22)').then(reg => {
     // Only reload when user explicitly accepts the update
     let requestedUpdate = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {

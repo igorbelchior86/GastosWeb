@@ -1,6 +1,6 @@
 // Cache principal. Mantemos um único bucket e confiamos em URLs versionadas
 // e estratégias de atualização para evitar precisar "bump" manual a cada release.
-const CACHE = 'app-cache-1.4.8-a21';
+const CACHE = 'app-cache-1.4.8-a22';
 const RUNTIME = { pages: 'pages-v1', assets: 'assets-v1', cdn: 'cdn-v1' };
 const ASSETS = [
   './',
