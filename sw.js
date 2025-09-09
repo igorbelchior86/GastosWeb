@@ -1,6 +1,6 @@
 // Cache principal com versionamento explícito
-const VERSION = '1.4.8(a28)';
-const CACHE = 'app-cache-1.4.8-a28';
+const VERSION = '1.4.8(a29)';
+const CACHE = 'app-cache-1.4.8-a29';
 const RUNTIME = { pages: 'pages-v1', assets: 'assets-v1', cdn: 'cdn-v1' };
 const VQ = `?v=${VERSION}`;
 const ASSETS = [

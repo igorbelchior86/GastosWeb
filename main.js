@@ -305,7 +305,7 @@ function resolvePathForUser(user){
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a28)';
+const APP_VERSION = '1.4.8(a29)';
 // Hard-update quando a versão do app muda
 try {
   const prev = localStorage.getItem('app_version');
