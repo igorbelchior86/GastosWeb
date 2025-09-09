@@ -305,7 +305,7 @@ function resolvePathForUser(user){
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a27)';
+const APP_VERSION = '1.4.8(a28)';
 // Hard-update quando a versão do app muda
 try {
   const prev = localStorage.getItem('app_version');
@@ -323,10 +323,16 @@ try {
 // Desfaz registro antigo de SW com querystring (após limpeza de caches)
 try {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistration().then(reg => {
-      if (reg && reg.scriptURL && !reg.scriptURL.endsWith('/sw.js')) {
-        reg.unregister().then(() => { try { caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))); } catch(_){} location.reload(); });
-      }
+    var _expectedSw = new URL('sw.js', location.href).href.replace(/\?+.*/, '');
+    navigator.serviceWorker.getRegistrations().then(function(regs){
+      regs.forEach(function(reg){
+        if (!reg.scriptURL || reg.scriptURL !== _expectedSw) {
+          reg.unregister().then(function(){
+            try { caches.keys().then(function(keys){ return Promise.all(keys.map(function(k){ return caches.delete(k); })); }); } catch(_){ }
+            location.reload();
+          });
+        }
+      });
     });
   }
 } catch(_){}

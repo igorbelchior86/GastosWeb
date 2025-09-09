@@ -14,8 +14,8 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.8(a27)">
-  <link rel="stylesheet" href="login.css?v=1.4.8(a27)">
+  <link rel="stylesheet" href="style.css?v=1.4.8(a28)">
+  <link rel="stylesheet" href="login.css?v=1.4.8(a28)">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -69,7 +69,7 @@
       <button id="resetData" class="danger" style="margin-top:12px; display:none" hidden>Limpar tudo</button>
     </div>
     <hr class="divider">
-  <footer class="app-footer"><small id="version">v1.4.8(a27)</small></footer>
+  <footer class="app-footer"><small id="version">v1.4.8(a28)</small></footer>
   </div>
 
   <!-- Modal Ajustes -->
@@ -285,36 +285,64 @@
   </script>
   <script>
   (function(){
-    var VER = '1.4.8(a27)';
-    if ('serviceWorker' in navigator) {
-      // Se já houver um SW registrado com scriptURL diferente, desregistra para evitar o erro do Safari
-      navigator.serviceWorker.getRegistration().then(function(reg){
-        if (reg && reg.scriptURL && !reg.scriptURL.endsWith('/sw.js')) {
-          reg.unregister().then(function(){ location.reload(); });
+    var VER = '1.4.8(a28)';
+    if (!('serviceWorker' in navigator)) return;
+
+    // Expected absolute URL for this scope (no querystring)
+    var expectedUrl = new URL('sw.js', location.href).href.replace(/\?+.*/, '');
+
+    // Aggressive cleanup of any old registrations using a different scriptURL (including query strings)
+    (async function cleanupAndRegister(){
+      try {
+        var regs = await navigator.serviceWorker.getRegistrations();
+        var needsReload = false;
+        for (var i=0;i<regs.length;i++){
+          var r = regs[i];
+          if (!r.scriptURL || r.scriptURL !== expectedUrl){
+            try { await r.unregister(); needsReload = true; } catch(_){}
+          }
         }
-      });
-      window.addEventListener('load', function(){
-        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-          .then(function(reg){
-            function forceActivate(){ try{ reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(_){} }
-            if (reg.waiting) forceActivate();
-            reg.addEventListener('updatefound', function(){
-              var nw = reg.installing; if (!nw) return;
-              nw.addEventListener('statechange', function(){ if (nw.state === 'installed') forceActivate(); });
-            });
-            try{ reg.update(); }catch(_){ }
-          })
-          .catch(function(_){});
-      });
-      navigator.serviceWorker.addEventListener('controllerchange', function(){
-        if (!window._swReloaded){ window._swReloaded = true; window.location.reload(); }
-      });
-    }
+        // Also purge all caches on version bump
+        try {
+          var prev = localStorage.getItem('app_version');
+          if (prev !== VER && 'caches' in window){
+            var keys = await caches.keys();
+            await Promise.all(keys.map(function(k){ return caches.delete(k); }));
+            localStorage.setItem('app_version', VER);
+          }
+        } catch(_){ }
+
+        // If we removed a mismatched SW, force a hard navigation to break Safari’s stale controller
+        if (needsReload && !navigator.serviceWorker.controller){
+          location.replace(location.href);
+          return;
+        }
+
+        window.addEventListener('load', function(){
+          navigator.serviceWorker.register(expectedUrl, { updateViaCache: 'none' })
+            .then(function(reg){
+              function forceActivate(){ try{ reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(_){} }
+              if (reg.waiting) forceActivate();
+              reg.addEventListener('updatefound', function(){
+                var nw = reg.installing; if (!nw) return;
+                nw.addEventListener('statechange', function(){ if (nw.state === 'installed') forceActivate(); });
+              });
+              try{ reg.update(); }catch(_){ }
+            })
+            .catch(function(_){ /* swallow */ });
+        });
+
+        // One-shot reload when new controller takes over
+        navigator.serviceWorker.addEventListener('controllerchange', function(){
+          if (!window._swReloaded){ window._swReloaded = true; window.location.reload(); }
+        });
+      } catch(_){ /* swallow */ }
+    })();
   })();
   </script>
-  <script type="module" src="auth.js?v=1.4.8(a27)"></script>
-  <script type="module" src="login.view.js?v=1.4.8(a27)"></script>
-  <script type="module" src="main.js?v=1.4.8(a27)"></script>
+  <script type="module" src="auth.js?v=1.4.8(a28)"></script>
+  <script type="module" src="login.view.js?v=1.4.8(a28)"></script>
+  <script type="module" src="main.js?v=1.4.8(a28)"></script>
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
