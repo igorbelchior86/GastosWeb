@@ -41,8 +41,13 @@ function ensureOverlay() {
   const off = el.querySelector('#offlineBtn');
   if (off) off.addEventListener('click', async () => {
     off.disabled = true;
-    try { await window.Auth?.signInAnonymously(); }
-    catch (e) { off.disabled = false; showError(el, 'Não foi possível entrar offline'); }
+    try {
+      localStorage.setItem('guestMode', '1');
+      location.reload();
+    } catch (e) {
+      off.disabled = false;
+      showError(el, 'Não foi possível entrar offline');
+    }
   });
   return el;
 }
@@ -63,6 +68,10 @@ function hide() {
 // React to auth state
 function hookAuth() {
   const update = (user) => {
+    try {
+      const guest = localStorage.getItem('guestMode') === '1';
+      if (guest) { hide(); return; }
+    } catch (_) {}
     if (!user) show(); else hide();
   };
   if (window.Auth && typeof window.Auth.onReady === 'function') {

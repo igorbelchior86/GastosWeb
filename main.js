@@ -302,10 +302,10 @@ function resolvePathForUser(user){
   return `users/${user.uid}`;
 }
 
-// Flag for mocking data while working on UI.  
-// Switch to `false` to reconnect to production Firebase.
-const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a20)';
+// Modo convidado/local: quando 'guestMode' = '1', operamos totalmente local (sem Firebase)
+// Isso permite usar o app no PWA iOS mesmo se login Google estiver bloqueado.
+const USE_MOCK = (localStorage.getItem('guestMode') === '1');
+const APP_VERSION = '1.4.8(a21)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -974,6 +974,7 @@ function renderSettings() {
   let prof = getProfileFromAuth();
   if (prof && prof.email) persistProfile(prof);
   if (!prof) prof = loadCachedProfile() || { name:'', email:'', photo:'' };
+  const hasUser = !!(window.Auth && window.Auth.currentUser && !window.Auth.currentUser.isAnonymous);
 
   // Build profile card
   const avatarImg = prof.photo ? `<img src="${prof.photo}" alt="Avatar"/>` : '';
@@ -988,7 +989,7 @@ function renderSettings() {
         </div>
       </div>
     </div>`;
-  const listHTML = `
+  const listHTML = hasUser ? `
     <div class="settings-list">
       <div class="settings-item danger">
         <button id="logoutBtn" class="settings-cta">
@@ -997,17 +998,31 @@ function renderSettings() {
         </button>
         <span class="right"></span>
       </div>
+    </div>` : `
+    <div class="settings-list">
+      <div class="settings-item">
+        <button id="loginBtn" class="settings-cta">
+          <span class="settings-icon icon-google"></span>
+          <span>Entrar com Google</span>
+        </button>
+        <span class="right"></span>
+      </div>
     </div>`;
   box.innerHTML = cardHTML + listHTML;
-  const btn = box.querySelector('#logoutBtn');
-  if (btn) btn.onclick = async () => {
+  const btnLogout = box.querySelector('#logoutBtn');
+  if (btnLogout) btnLogout.onclick = async () => {
     try { await (window.Auth && window.Auth.signOut ? window.Auth.signOut() : Promise.resolve()); }
     catch (_) {}
-    // Clear local state minimal
     try { cacheSet('profile', null); } catch {}
     settingsModal.classList.add('hidden');
     updateModalOpenState();
-    // UI overlay de login aparece via auth state
+  };
+  const btnLogin = box.querySelector('#loginBtn');
+  if (btnLogin) btnLogin.onclick = async () => {
+    try { await (window.Auth && window.Auth.signInWithGoogle ? window.Auth.signInWithGoogle() : Promise.resolve()); }
+    catch (_) {}
+    settingsModal.classList.add('hidden');
+    updateModalOpenState();
   };
 }
 
@@ -3415,7 +3430,7 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
     return banner;
   }
 
-  navigator.serviceWorker.register('sw.js?v=1.4.8(a20)').then(reg => {
+  navigator.serviceWorker.register('sw.js?v=1.4.8(a21)').then(reg => {
     // Only reload when user explicitly accepts the update
     let requestedUpdate = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {

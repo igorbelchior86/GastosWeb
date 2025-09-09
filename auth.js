@@ -67,6 +67,14 @@ async function nukeSWAndReloadOnce() {
 }
 
 onAuthStateChanged(auth, (user) => {
+  try {
+    const guest = localStorage.getItem('guestMode') === '1';
+    if (user && !user.isAnonymous && guest) {
+      // Voltou ao usuário real: sair do modo convidado e reinicializar em modo online
+      localStorage.removeItem('guestMode');
+      try { location.reload(); return; } catch (_) {}
+    }
+  } catch (_) {}
   // Detect regression to null right after having a user in standalone (iOS PWA)
   const now = Date.now();
   if (user) {
