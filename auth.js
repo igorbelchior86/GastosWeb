@@ -6,7 +6,9 @@ import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebase
 import {
   getAuth,
   setPersistence,
+  indexedDBLocalPersistence,
   browserLocalPersistence,
+  inMemoryPersistence,
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
@@ -25,7 +27,13 @@ function getOrInitApp() {
 
 const app = getOrInitApp();
 const auth = getAuth(app);
-try { await setPersistence(auth, browserLocalPersistence); } catch (_) {}
+// Persistence: prefer IndexedDB (iOS PWA-friendly), fallback to Local, then Memory
+try {
+  await setPersistence(auth, indexedDBLocalPersistence);
+} catch (_) {
+  try { await setPersistence(auth, browserLocalPersistence); }
+  catch { await setPersistence(auth, inMemoryPersistence); }
+}
 
 // Configure Google provider
 const provider = new GoogleAuthProvider();
@@ -40,11 +48,11 @@ onAuthStateChanged(auth, (user) => {
   document.dispatchEvent(new CustomEvent('auth:state', { detail: { user } }));
 });
 
-function isIOSStandalone() {
-  const ua = navigator.userAgent || '';
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
-  const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-  return isIOS || standalone;
+function isStandalone() {
+  // Detect PWA standalone (iOS/Android)
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+         // iOS < 13
+         (typeof navigator !== 'undefined' && 'standalone' in navigator && navigator.standalone);
 }
 
 async function completeRedirectIfAny() {
@@ -54,7 +62,7 @@ completeRedirectIfAny();
 
 async function signInWithGoogle() {
   try {
-    const useRedirect = isIOSStandalone();
+    const useRedirect = isStandalone();
     const u = auth.currentUser;
     if (u && u.isAnonymous) {
       // Link anonymous session to Google to preserve any local data
