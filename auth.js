@@ -16,10 +16,6 @@ import {
   getRedirectResult,
   linkWithPopup,
   linkWithRedirect,
-  signInAnonymously,
-  isSignInWithEmailLink,
-  sendSignInLinkToEmail,
-  signInWithEmailLink,
   signOut as fbSignOut
 } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { firebaseConfig } from './firebase.prod.config.js';
@@ -47,47 +43,7 @@ auth.languageCode = 'pt_BR';
 const listeners = new Set();
 const emit = (user) => { listeners.forEach(fn => { try { fn(user); } catch {} }); };
 
-// Guard: if iOS PWA auth regresses immediately after a successful login,
-// clear SW caches/registrations to break stale bundles, then reload once.
-let _hadUserOnce = false;
-const _bootGuardUntil = Date.now() + 8000; // only during initial boot window
-async function nukeSWAndReloadOnce() {
-  try {
-    if (sessionStorage.getItem('nukedSwOnce')) return;
-    sessionStorage.setItem('nukedSwOnce', '1');
-  } catch (_) {}
-  try {
-    if ('serviceWorker' in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister().catch(()=>{})));
-    }
-  } catch (_) {}
-  try {
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => caches.delete(k).catch(()=>{})));
-  } catch (_) {}
-  try { location.reload(); } catch (_) { /* noop */ }
-}
-
 onAuthStateChanged(auth, (user) => {
-  try {
-    const guest = localStorage.getItem('guestMode') === '1';
-    if (user && !user.isAnonymous && guest) {
-      // Voltou ao usuário real: sair do modo convidado e reinicializar em modo online
-      localStorage.removeItem('guestMode');
-      try { location.reload(); return; } catch (_) {}
-    }
-  } catch (_) {}
-  // Detect regression to null right after having a user in standalone (iOS PWA)
-  const now = Date.now();
-  if (user) {
-    _hadUserOnce = true;
-  } else if (_hadUserOnce && isStandalone() && now < _bootGuardUntil) {
-    // Likely stale SW/assets in PWA context causing auth loss → hard refresh path
-    // Log for remote debugging and attempt a one-time SW/caches cleanup
-    try { console.warn('[Auth] User regressed to null during boot in standalone; forcing SW reset'); } catch (_) {}
-    nukeSWAndReloadOnce();
-  }
   emit(user);
   document.dispatchEvent(new CustomEvent('auth:state', { detail: { user } }));
 });
@@ -103,27 +59,6 @@ async function completeRedirectIfAny() {
   try { await getRedirectResult(auth); } catch (_) {}
 }
 completeRedirectIfAny();
-
-// Handle email link sign-in completion (works in iOS PWA)
-async function completeEmailLinkIfAny() {
-  try {
-    if (!isSignInWithEmailLink(auth, window.location.href)) return;
-    let email = null;
-    try { email = localStorage.getItem('emailForSignIn') || ''; } catch (_) {}
-    if (!email) {
-      email = window.prompt('Digite seu e-mail para concluir o login:');
-    }
-    if (!email) return;
-    await signInWithEmailLink(auth, email, window.location.href);
-    try { localStorage.removeItem('emailForSignIn'); } catch (_) {}
-    // clean URL
-    try { history.replaceState({}, document.title, location.origin + location.pathname); } catch (_) {}
-  } catch (err) {
-    console.error('Email link completion failed:', err);
-    try { document.dispatchEvent(new CustomEvent('auth:error', { detail: { code: err.code, message: err.message } })); } catch (_) {}
-  }
-}
-completeEmailLinkIfAny();
 
 async function signInWithGoogle() {
   try {
@@ -155,48 +90,12 @@ async function signOut() {
   try { await fbSignOut(auth); } catch (_) {}
 }
 
-async function signInAnon() {
-  try {
-    // Persistence already set above; just sign in anonymously
-    return await signInAnonymously(auth);
-  } catch (err) {
-    console.error('Anonymous sign-in failed:', err);
-    try { document.dispatchEvent(new CustomEvent('auth:error', { detail: { code: err.code, message: err.message } })); } catch (_) {}
-    throw err;
-  }
-}
-
-function getEmailLinkContinueUrl() {
-  try {
-    // Send users back to the same origin/path; avoid query/hash to keep SW simple
-    return location.origin + location.pathname;
-  } catch (_) { return 'https://'+(firebaseConfig?.authDomain||''); }
-}
-
-async function sendMagicLink(email) {
-  try {
-    const actionCodeSettings = {
-      url: getEmailLinkContinueUrl(),
-      handleCodeInApp: true
-    };
-    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
-    try { localStorage.setItem('emailForSignIn', email); } catch (_) {}
-    document.dispatchEvent(new CustomEvent('auth:magiclink-sent', { detail: { email } }));
-  } catch (err) {
-    console.error('Send magic link failed:', err);
-    document.dispatchEvent(new CustomEvent('auth:error', { detail: { code: err.code, message: err.message } }));
-    throw err;
-  }
-}
-
 // Expose tiny facade
 window.Auth = {
   auth,
   onReady(cb) { if (typeof cb === 'function') listeners.add(cb); },
   off(cb) { listeners.delete(cb); },
   signInWithGoogle,
-  sendMagicLink,
-  signInAnonymously: signInAnon,
   signOut,
   get currentUser() { return auth.currentUser; }
 };
