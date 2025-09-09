@@ -305,7 +305,7 @@ function resolvePathForUser(user){
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a18)';
+const APP_VERSION = '1.4.8(a19)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -3415,18 +3415,25 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
     return banner;
   }
 
-  navigator.serviceWorker.register('sw.js').then(reg => {
-    // Reload once when the new SW takes control
-    let refreshing = false;
+  navigator.serviceWorker.register('sw.js?v=1.4.8(a19)').then(reg => {
+    // Only reload when user explicitly accepts the update
+    let requestedUpdate = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
+      if (!requestedUpdate) return;
+      try { window.location.reload(); } catch (_) {}
     });
+
+    const promptUpdate = (postMsgTarget) => {
+      const banner = showUpdateBanner(() => {
+        requestedUpdate = true;
+        try { postMsgTarget && postMsgTarget.postMessage({ type: 'SKIP_WAITING' }); } catch (_) {}
+      });
+      return banner;
+    };
 
     // If an update is already waiting, show prompt
     if (reg.waiting) {
-      showUpdateBanner(() => reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }));
+      promptUpdate(reg.waiting);
     }
 
     // Detect updates while the page is open
@@ -3436,7 +3443,7 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
       sw.addEventListener('statechange', () => {
         if (sw.state === 'installed' && navigator.serviceWorker.controller) {
           // New version ready → let user choose when to update
-          showUpdateBanner(() => sw.postMessage({ type: 'SKIP_WAITING' }));
+          promptUpdate(sw);
         }
       });
     });

@@ -43,7 +43,39 @@ auth.languageCode = 'pt_BR';
 const listeners = new Set();
 const emit = (user) => { listeners.forEach(fn => { try { fn(user); } catch {} }); };
 
+// Guard: if iOS PWA auth regresses immediately after a successful login,
+// clear SW caches/registrations to break stale bundles, then reload once.
+let _hadUserOnce = false;
+const _bootGuardUntil = Date.now() + 8000; // only during initial boot window
+async function nukeSWAndReloadOnce() {
+  try {
+    if (sessionStorage.getItem('nukedSwOnce')) return;
+    sessionStorage.setItem('nukedSwOnce', '1');
+  } catch (_) {}
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister().catch(()=>{})));
+    }
+  } catch (_) {}
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k).catch(()=>{})));
+  } catch (_) {}
+  try { location.reload(); } catch (_) { /* noop */ }
+}
+
 onAuthStateChanged(auth, (user) => {
+  // Detect regression to null right after having a user in standalone (iOS PWA)
+  const now = Date.now();
+  if (user) {
+    _hadUserOnce = true;
+  } else if (_hadUserOnce && isStandalone() && now < _bootGuardUntil) {
+    // Likely stale SW/assets in PWA context causing auth loss → hard refresh path
+    // Log for remote debugging and attempt a one-time SW/caches cleanup
+    try { console.warn('[Auth] User regressed to null during boot in standalone; forcing SW reset'); } catch (_) {}
+    nukeSWAndReloadOnce();
+  }
   emit(user);
   document.dispatchEvent(new CustomEvent('auth:state', { detail: { user } }));
 });
