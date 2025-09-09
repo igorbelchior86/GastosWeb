@@ -284,61 +284,63 @@
   })();
   </script>
   <script>
-  (function(){
-    var VER = '1.4.8(a28)';
-    if (!('serviceWorker' in navigator)) return;
+(function(){
+  var VER = '1.4.8(a28)';
+  if (!('serviceWorker' in navigator)) return;
 
-    // Expected absolute URL for this scope (no querystring)
-    var expectedUrl = new URL('sw.js', location.href).href.replace(/\?+.*/, '');
+  // Expected absolute URL for this scope (no querystring)
+  var expectedUrl = new URL('sw.js', location.href).href.replace(/\?+.*/, '');
 
-    // Aggressive cleanup of any old registrations using a different scriptURL (including query strings)
-    (async function cleanupAndRegister(){
+  // Clear runtime caches on version bump to avoid stale assets controlled by old SW
+  (async function clearCachesOnBump(){
+    try {
+      var prev = localStorage.getItem('app_version');
+      if (prev !== VER && 'caches' in window){
+        var keys = await caches.keys();
+        await Promise.all(keys.map(function(k){ return caches.delete(k); }));
+        localStorage.setItem('app_version', VER);
+      }
+    } catch(_){}
+  })();
+
+  // Single-shot hard reload when a new controller takes over
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if (!window._swReloaded){ window._swReloaded = true; window.location.reload(); }
+  });
+
+  (async function ensureSingleCleanRegistration(){
+    try {
+      var regs = await navigator.serviceWorker.getRegistrations();
+      var mismatched = false;
+      for (var i=0;i<regs.length;i++){
+        var r = regs[i];
+        if (!r.scriptURL || r.scriptURL !== expectedUrl){
+          try { await r.unregister(); mismatched = true; } catch(_){ /* ignore */ }
+        }
+      }
+
+      // If we removed a mismatched SW but an old controller is still in charge, force a full navigation.
+      // Safari iOS may otherwise keep trying to update with the old scriptURL and throw.
+      if (mismatched && navigator.serviceWorker.controller){
+        // Give the browser a tick to settle the unregister, then reload this page.
+        setTimeout(function(){ location.replace(location.href); }, 0);
+        return;
+      }
+
+      // Register the expected SW URL without query strings. Avoid reg.update() here to prevent
+      // "Cannot update a service worker with a requested script URL whose newest worker has a different script URL" on Safari.
       try {
-        var regs = await navigator.serviceWorker.getRegistrations();
-        var needsReload = false;
-        for (var i=0;i<regs.length;i++){
-          var r = regs[i];
-          if (!r.scriptURL || r.scriptURL !== expectedUrl){
-            try { await r.unregister(); needsReload = true; } catch(_){}
-          }
-        }
-        // Also purge all caches on version bump
-        try {
-          var prev = localStorage.getItem('app_version');
-          if (prev !== VER && 'caches' in window){
-            var keys = await caches.keys();
-            await Promise.all(keys.map(function(k){ return caches.delete(k); }));
-            localStorage.setItem('app_version', VER);
-          }
-        } catch(_){ }
-
-        // If we removed a mismatched SW, force a hard navigation to break Safari’s stale controller
-        if (needsReload && !navigator.serviceWorker.controller){
-          location.replace(location.href);
-          return;
-        }
-
-        window.addEventListener('load', function(){
-          navigator.serviceWorker.register(expectedUrl, { updateViaCache: 'none' })
-            .then(function(reg){
-              function forceActivate(){ try{ reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(_){} }
-              if (reg.waiting) forceActivate();
-              reg.addEventListener('updatefound', function(){
-                var nw = reg.installing; if (!nw) return;
-                nw.addEventListener('statechange', function(){ if (nw.state === 'installed') forceActivate(); });
-              });
-              try{ reg.update(); }catch(_){ }
-            })
-            .catch(function(_){ /* swallow */ });
-        });
-
-        // One-shot reload when new controller takes over
-        navigator.serviceWorker.addEventListener('controllerchange', function(){
-          if (!window._swReloaded){ window._swReloaded = true; window.location.reload(); }
+        var reg = await navigator.serviceWorker.register(expectedUrl, { updateViaCache: 'none' });
+        function forceActivate(){ try{ reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(_){} }
+        if (reg.waiting) forceActivate();
+        reg.addEventListener('updatefound', function(){
+          var nw = reg.installing; if (!nw) return;
+          nw.addEventListener('statechange', function(){ if (nw.state === 'installed') forceActivate(); });
         });
       } catch(_){ /* swallow */ }
-    })();
+    } catch(_){ /* swallow */ }
   })();
+})();
   </script>
   <script type="module" src="auth.js?v=1.4.8(a28)"></script>
   <script type="module" src="login.view.js?v=1.4.8(a28)"></script>

@@ -320,22 +320,6 @@ try {
     }
   }
 } catch(_){}
-// Desfaz registro antigo de SW com querystring (após limpeza de caches)
-try {
-  if ('serviceWorker' in navigator) {
-    var _expectedSw = new URL('sw.js', location.href).href.replace(/\?+.*/, '');
-    navigator.serviceWorker.getRegistrations().then(function(regs){
-      regs.forEach(function(reg){
-        if (!reg.scriptURL || reg.scriptURL !== _expectedSw) {
-          reg.unregister().then(function(){
-            try { caches.keys().then(function(keys){ return Promise.all(keys.map(function(k){ return caches.delete(k); })); }); } catch(_){ }
-            location.reload();
-          });
-        }
-      });
-    });
-  }
-} catch(_){}
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
