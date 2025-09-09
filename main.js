@@ -305,7 +305,21 @@ function resolvePathForUser(user){
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a25)';
+const APP_VERSION = '1.4.8(a26)';
+// Hard-update quando a versão do app muda
+try {
+  const prev = localStorage.getItem('app_version');
+  if (prev !== APP_VERSION) {
+    localStorage.setItem('app_version', APP_VERSION);
+    if ('caches' in window) { caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))).catch(()=>{})); }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        try { reg && reg.update(); } catch(_){}
+        try { reg && reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(_){}
+      });
+    }
+  }
+} catch(_){}
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
