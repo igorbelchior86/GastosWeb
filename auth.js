@@ -16,7 +16,6 @@ import {
   getRedirectResult,
   linkWithPopup,
   linkWithRedirect,
-  signInWithCredential,
   signOut as fbSignOut
 } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { firebaseConfig } from './firebase.prod.config.js';
@@ -57,23 +56,7 @@ function isStandalone() {
 }
 
 async function completeRedirectIfAny() {
-  try {
-    await getRedirectResult(auth);
-  } catch (err) {
-    // If linking failed because the Google credential is already linked
-    // to another account, sign into that account instead of failing.
-    if (err && err.code === 'auth/credential-already-in-use') {
-      try {
-        const cred = GoogleAuthProvider.credentialFromError(err);
-        if (cred) {
-          await signInWithCredential(auth, cred);
-          return;
-        }
-      } catch (_) {}
-    }
-    // swallow other errors to avoid boot loops; surface via event
-    try { document.dispatchEvent(new CustomEvent('auth:error', { detail: { code: err.code, message: err.message } })); } catch (_) {}
-  }
+  try { await getRedirectResult(auth); } catch (_) {}
 }
 completeRedirectIfAny();
 
@@ -82,27 +65,9 @@ async function signInWithGoogle() {
     const useRedirect = isStandalone();
     const u = auth.currentUser;
     if (u && u.isAnonymous) {
-      // Link anonymous session to Google to preserve any local data.
-      // If Google is already linked to an existing user, sign into that account.
-      if (useRedirect) {
-        try { return await linkWithRedirect(u, provider); }
-        catch (err) {
-          if (err && err.code === 'auth/credential-already-in-use') {
-            const cred = GoogleAuthProvider.credentialFromError(err);
-            if (cred) return await signInWithCredential(auth, cred);
-          }
-          throw err;
-        }
-      } else {
-        try { return await linkWithPopup(u, provider); }
-        catch (err) {
-          if (err && err.code === 'auth/credential-already-in-use') {
-            const cred = GoogleAuthProvider.credentialFromError(err);
-            if (cred) return await signInWithCredential(auth, cred);
-          }
-          throw err;
-        }
-      }
+      // Link anonymous session to Google to preserve any local data
+      if (useRedirect) return await linkWithRedirect(u, provider);
+      return await linkWithPopup(u, provider);
     }
     if (useRedirect) return await signInWithRedirect(auth, provider);
     try {

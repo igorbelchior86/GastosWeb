@@ -305,21 +305,7 @@ function resolvePathForUser(user){
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a29)';
-// Hard-update quando a versão do app muda
-try {
-  const prev = localStorage.getItem('app_version');
-  if (prev !== APP_VERSION) {
-    localStorage.setItem('app_version', APP_VERSION);
-    if ('caches' in window) { caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))).catch(()=>{})); }
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistration().then(reg => {
-        try { reg && reg.update(); } catch(_){}
-        try { reg && reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(_){}
-      });
-    }
-  }
-} catch(_){}
+const APP_VERSION = '1.4.8(a18)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -988,7 +974,6 @@ function renderSettings() {
   let prof = getProfileFromAuth();
   if (prof && prof.email) persistProfile(prof);
   if (!prof) prof = loadCachedProfile() || { name:'', email:'', photo:'' };
-  const hasUser = !!(window.Auth && window.Auth.currentUser && !window.Auth.currentUser.isAnonymous);
 
   // Build profile card
   const avatarImg = prof.photo ? `<img src="${prof.photo}" alt="Avatar"/>` : '';
@@ -1003,35 +988,12 @@ function renderSettings() {
         </div>
       </div>
     </div>`;
-  const listHTML = hasUser ? `
+  const listHTML = `
     <div class="settings-list">
       <div class="settings-item danger">
         <button id="logoutBtn" class="settings-cta">
           <span class="settings-icon icon-logout"></span>
           <span>Sair da conta</span>
-        </button>
-        <span class="right"></span>
-      </div>
-      <div class="settings-item">
-        <button id="repairBtn" class="settings-cta">
-          <span class="settings-icon icon-refresh"></span>
-          <span>Recuperar app (reinstalar PWA)</span>
-        </button>
-        <span class="right"></span>
-      </div>
-    </div>` : `
-    <div class="settings-list">
-      <div class="settings-item">
-        <button id="loginBtn" class="settings-cta">
-          <span class="settings-icon icon-google"></span>
-          <span>Entrar com Google</span>
-        </button>
-        <span class="right"></span>
-      </div>
-      <div class="settings-item">
-        <button id="repairBtn" class="settings-cta">
-          <span class="settings-icon icon-refresh"></span>
-          <span>Recuperar app (reinstalar PWA)</span>
         </button>
         <span class="right"></span>
       </div>
@@ -1046,17 +1008,6 @@ function renderSettings() {
     settingsModal.classList.add('hidden');
     updateModalOpenState();
     // UI overlay de login aparece via auth state
-  };
-  const btnLogin = box.querySelector('#loginBtn');
-  if (btnLogin) btnLogin.onclick = async () => {
-    try { await (window.Auth && window.Auth.signInWithGoogle ? window.Auth.signInWithGoogle() : Promise.resolve()); }
-    catch (_) {}
-    settingsModal.classList.add('hidden');
-    updateModalOpenState();
-  };
-  const btnRepair = box.querySelector('#repairBtn');
-  if (btnRepair) btnRepair.onclick = async () => {
-    try { await hardRepairApp(); } catch (_) {}
   };
 }
 
@@ -3464,25 +3415,18 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
     return banner;
   }
 
-  navigator.serviceWorker.register('sw.js?v=1.4.8(a25)').then(reg => {
-    // Only reload when user explicitly accepts the update
-    let requestedUpdate = false;
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // Reload once when the new SW takes control
+    let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!requestedUpdate) return;
-      try { window.location.reload(); } catch (_) {}
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
     });
-
-    const promptUpdate = (postMsgTarget) => {
-      const banner = showUpdateBanner(() => {
-        requestedUpdate = true;
-        try { postMsgTarget && postMsgTarget.postMessage({ type: 'SKIP_WAITING' }); } catch (_) {}
-      });
-      return banner;
-    };
 
     // If an update is already waiting, show prompt
     if (reg.waiting) {
-      promptUpdate(reg.waiting);
+      showUpdateBanner(() => reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }));
     }
 
     // Detect updates while the page is open
@@ -3492,7 +3436,7 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
       sw.addEventListener('statechange', () => {
         if (sw.state === 'installed' && navigator.serviceWorker.controller) {
           // New version ready → let user choose when to update
-          promptUpdate(sw);
+          showUpdateBanner(() => sw.postMessage({ type: 'SKIP_WAITING' }));
         }
       });
     });
@@ -3609,14 +3553,3 @@ initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.op-line', 'opsSwi
 initSwipe(cardList,      '.swipe-wrapper', '.swipe-actions', '.card-line', 'cardsSwipeInit');
 // Initialize swipe for invoice headers (summary)
 initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.invoice-header-line', 'invoiceSwipeInit');
-async function hardRepairApp(){
-  try {
-    if ('serviceWorker' in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister().catch(()=>{})));
-    }
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => caches.delete(k).catch(()=>{})));
-  } catch (_) {}
-  try { location.reload(); } catch (_) {}
-}

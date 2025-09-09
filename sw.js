@@ -1,13 +1,12 @@
-// Cache principal com versionamento explícito
-const VERSION = '1.4.8(a29)';
-const CACHE = 'app-cache-1.4.8-a29';
+// Cache principal. Mantemos um único bucket e confiamos em URLs versionadas
+// e estratégias de atualização para evitar precisar "bump" manual a cada release.
+const CACHE = 'app-cache';
 const RUNTIME = { pages: 'pages-v1', assets: 'assets-v1', cdn: 'cdn-v1' };
-const VQ = `?v=${VERSION}`;
 const ASSETS = [
   './',
-  `./index.html${VQ}`,
-  `./style.css${VQ}`,
-  `./main.js${VQ}`,
+  './index.html',
+  './style.css',
+  './main.js',
   './icons/icon-192x192.png',
   './icons/icon-180x180.png',
   './site.webmanifest'
@@ -55,14 +54,12 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        // força revalidação da navegação para escapar de caches agressivos no iOS PWA
-        const fresh = await fetch(new Request(request.url, { cache: 'reload' }));
+        const fresh = await fetch(request);
         const c = await caches.open(CACHE);
-        c.put(new Request('./index.html'+VQ), fresh.clone());
+        c.put(request, fresh.clone());
         return fresh;
       } catch (_) {
-        // tenta recurso versionado, depois sem versão
-        const cached = await caches.match(new Request('./index.html'+VQ)) || await caches.match(request);
+        const cached = await caches.match(request);
         return cached || caches.match('./index.html');
       }
     })());

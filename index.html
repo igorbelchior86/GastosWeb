@@ -14,8 +14,8 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.8(a29)">
-  <link rel="stylesheet" href="login.css?v=1.4.8(a29)">
+  <link rel="stylesheet" href="style.css?v=1.4.8(a18)">
+  <link rel="stylesheet" href="login.css?v=1.4.8(a18)">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -69,7 +69,7 @@
       <button id="resetData" class="danger" style="margin-top:12px; display:none" hidden>Limpar tudo</button>
     </div>
     <hr class="divider">
-  <footer class="app-footer"><small id="version">v1.4.8(a29)</small></footer>
+    <footer class="app-footer"><small id="version">v1.4.8(a18)</small></footer>
   </div>
 
   <!-- Modal Ajustes -->
@@ -283,75 +283,9 @@
     }catch(e){}
   })();
   </script>
-  <script>
-(function(){
-  var VER = '1.4.8(a29)';
-  if (!('serviceWorker' in navigator)) return;
-
-  // Expected absolute URL for this scope (no querystring)
-  var expectedUrl = new URL('sw.js', location.href).origin + new URL('sw.js', location.href).pathname;
-
-  // Clear runtime caches on version bump to avoid stale assets controlled by old SW
-  (async function clearCachesOnBump(){
-    try {
-      var prev = localStorage.getItem('app_version');
-      if (prev !== VER && 'caches' in window){
-        var keys = await caches.keys();
-        await Promise.all(keys.map(function(k){ return caches.delete(k); }));
-        localStorage.setItem('app_version', VER);
-      }
-    } catch(_){}
-  })();
-
-  // Single-shot hard reload when a new controller takes over
-  navigator.serviceWorker.addEventListener('controllerchange', function(){
-    if (!window._swReloaded){ window._swReloaded = true; window.location.reload(); }
-  });
-
-  (async function ensureSingleCleanRegistration(){
-    try {
-      var regs = await navigator.serviceWorker.getRegistrations();
-      // Aggressive legacy cleanup: unregister any SW with query string or mismatched URL
-      var didCleanup = false;
-      for (var i=0;i<regs.length;i++){
-        var r0 = regs[i];
-        if (!r0 || !r0.scriptURL) continue;
-        if (r0.scriptURL.indexOf('?') !== -1 || r0.scriptURL !== expectedUrl) {
-          try { await r0.unregister(); didCleanup = true; } catch(_){}
-        }
-      }
-      if (didCleanup) {
-        try {
-          if ('caches' in window) {
-            var keys = await caches.keys();
-            await Promise.all(keys.map(function(k){ return caches.delete(k); }));
-          }
-        } catch(_){}
-        if (navigator.serviceWorker.controller) {
-          // Force a navigation without BFCache to ensure the new registration path
-          location.replace(location.href.split('#')[0]);
-          return;
-        }
-      }
-      // Register the expected SW URL without query strings. Avoid reg.update() here to prevent
-      // "Cannot update a service worker with a requested script URL whose newest worker has a different script URL" on Safari.
-      try {
-        var reg = await navigator.serviceWorker.register(expectedUrl, { updateViaCache: 'none' });
-        function forceActivate(){ try{ reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(_){} }
-        if (reg.waiting) forceActivate();
-        reg.addEventListener('updatefound', function(){
-          var nw = reg.installing; if (!nw) return;
-          nw.addEventListener('statechange', function(){ if (nw.state === 'installed') forceActivate(); });
-        });
-        try { if (reg && reg.scriptURL === expectedUrl) { await reg.update(); } } catch(_){}
-      } catch(_){ /* swallow */ }
-    } catch(_){ /* swallow */ }
-  })();
-})();
-  </script>
-  <script type="module" src="auth.js?v=1.4.8(a29)"></script>
-  <script type="module" src="login.view.js?v=1.4.8(a29)"></script>
-  <script type="module" src="main.js?v=1.4.8(a29)"></script>
+  <script type="module" src="auth.js?v=1.4.8(a18)"></script>
+  <script type="module" src="login.view.js?v=1.4.8(a18)"></script>
+  <script type="module" src="main.js?v=1.4.8(a18)"></script>
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
