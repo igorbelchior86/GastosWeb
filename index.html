@@ -14,8 +14,7 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.8(a18)">
-  <link rel="stylesheet" href="login.css?v=1.4.8(a18)">
+  <link rel="stylesheet" href="style.css?v=1.4.8(a8)">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -69,19 +68,7 @@
       <button id="resetData" class="danger" style="margin-top:12px; display:none" hidden>Limpar tudo</button>
     </div>
     <hr class="divider">
-    <footer class="app-footer"><small id="version">v1.4.8(a18)</small></footer>
-  </div>
-
-  <!-- Modal Ajustes -->
-  <div id="settingsModal" class="bottom-modal backdrop-blur hidden">
-    <div class="bottom-modal-box">
-      <div class="modal-drag"></div>
-      <h2>Ajustes</h2>
-      <button id="closeSettingsModal" class="modal-close-btn" aria-label="Fechar">✕</button>
-      <div class="modal-content">
-        <!-- conteúdo futuro -->
-      </div>
-    </div>
+    <footer class="app-footer"><small id="version">v1.4.8(a8)</small></footer>
   </div>
 
   <!-- Modal Cartões -->
@@ -222,17 +209,11 @@
     </div>
   </div>
 
-  <!-- Ações inferiores: Home/Ajustes em pill e Adicionar separadamente -->
-  <div class="floating-pill" role="tablist" aria-label="Atalhos inferiores" data-selected="home">
-    <div class="pill-highlight" aria-hidden="true"></div>
-    <button type="button" class="pill-option" data-action="home" role="tab" aria-selected="true" aria-label="Home">
-      <span class="pill-icon icon-home"></span>
-    </button>
-    <button type="button" class="pill-option" data-action="settings" role="tab" aria-selected="false" aria-label="Ajustes">
-      <span class="pill-icon icon-gear"></span>
-    </button>
-  </div>
   <button id="openTxModal" class="floating-add-button" title="Nova operação">＋</button>
+  <!-- Botão Home (leva o dia atual ao centro) -->
+  <button id="scrollTodayBtn" class="floating-home-button" title="Hoje">
+    <div class="icon-action icon-home" aria-hidden="true"></div>
+  </button>
 
   <!-- Early skeleton and unhide: runs before main.js to ensure immediate UI -->
   <script>
@@ -283,9 +264,7 @@
     }catch(e){}
   })();
   </script>
-  <script type="module" src="auth.js?v=1.4.8(a18)"></script>
-  <script type="module" src="login.view.js?v=1.4.8(a18)"></script>
-  <script type="module" src="main.js?v=1.4.8(a18)"></script>
+  <script type="module" src="main.js?v=1.4.8(a8)"></script>
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
