@@ -305,7 +305,7 @@ function resolvePathForUser(user){
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a19)';
+const APP_VERSION = '1.4.8(a20)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -3415,7 +3415,7 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
     return banner;
   }
 
-  navigator.serviceWorker.register('sw.js?v=1.4.8(a19)').then(reg => {
+  navigator.serviceWorker.register('sw.js?v=1.4.8(a20)').then(reg => {
     // Only reload when user explicitly accepts the update
     let requestedUpdate = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {

@@ -16,6 +16,7 @@ import {
   getRedirectResult,
   linkWithPopup,
   linkWithRedirect,
+  signInAnonymously,
   signOut as fbSignOut
 } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
 import { firebaseConfig } from './firebase.prod.config.js';
@@ -122,12 +123,24 @@ async function signOut() {
   try { await fbSignOut(auth); } catch (_) {}
 }
 
+async function signInAnon() {
+  try {
+    // Persistence already set above; just sign in anonymously
+    return await signInAnonymously(auth);
+  } catch (err) {
+    console.error('Anonymous sign-in failed:', err);
+    try { document.dispatchEvent(new CustomEvent('auth:error', { detail: { code: err.code, message: err.message } })); } catch (_) {}
+    throw err;
+  }
+}
+
 // Expose tiny facade
 window.Auth = {
   auth,
   onReady(cb) { if (typeof cb === 'function') listeners.add(cb); },
   off(cb) { listeners.delete(cb); },
   signInWithGoogle,
+  signInAnonymously: signInAnon,
   signOut,
   get currentUser() { return auth.currentUser; }
 };
