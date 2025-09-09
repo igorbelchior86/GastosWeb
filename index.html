@@ -14,8 +14,8 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.8(a26)">
-  <link rel="stylesheet" href="login.css?v=1.4.8(a26)">
+  <link rel="stylesheet" href="style.css?v=1.4.8(a27)">
+  <link rel="stylesheet" href="login.css?v=1.4.8(a27)">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -69,7 +69,7 @@
       <button id="resetData" class="danger" style="margin-top:12px; display:none" hidden>Limpar tudo</button>
     </div>
     <hr class="divider">
-  <footer class="app-footer"><small id="version">v1.4.8(a26)</small></footer>
+  <footer class="app-footer"><small id="version">v1.4.8(a27)</small></footer>
   </div>
 
   <!-- Modal Ajustes -->
@@ -285,34 +285,36 @@
   </script>
   <script>
   (function(){
-    var VER = '1.4.8(a26)';
+    var VER = '1.4.8(a27)';
     if ('serviceWorker' in navigator) {
+      // Se já houver um SW registrado com scriptURL diferente, desregistra para evitar o erro do Safari
+      navigator.serviceWorker.getRegistration().then(function(reg){
+        if (reg && reg.scriptURL && !reg.scriptURL.endsWith('/sw.js')) {
+          reg.unregister().then(function(){ location.reload(); });
+        }
+      });
       window.addEventListener('load', function(){
-        navigator.serviceWorker.register('sw.js?v='+encodeURIComponent(VER), { updateViaCache: 'none' })
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
           .then(function(reg){
-            // Força ativação imediata quando um novo SW é instalado
             function forceActivate(){ try{ reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); } catch(_){} }
             if (reg.waiting) forceActivate();
             reg.addEventListener('updatefound', function(){
-              var nw = reg.installing;
-              if (!nw) return;
+              var nw = reg.installing; if (!nw) return;
               nw.addEventListener('statechange', function(){ if (nw.state === 'installed') forceActivate(); });
             });
-            // Garante que navegadores agressivos atualizem o SW
             try{ reg.update(); }catch(_){ }
           })
           .catch(function(_){});
       });
-      // Recarrega quando o novo controlador assumir
       navigator.serviceWorker.addEventListener('controllerchange', function(){
         if (!window._swReloaded){ window._swReloaded = true; window.location.reload(); }
       });
     }
   })();
   </script>
-  <script type="module" src="auth.js?v=1.4.8(a26)"></script>
-  <script type="module" src="login.view.js?v=1.4.8(a26)"></script>
-  <script type="module" src="main.js?v=1.4.8(a26)"></script>
+  <script type="module" src="auth.js?v=1.4.8(a27)"></script>
+  <script type="module" src="login.view.js?v=1.4.8(a27)"></script>
+  <script type="module" src="main.js?v=1.4.8(a27)"></script>
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
