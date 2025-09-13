@@ -6,6 +6,7 @@ import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebase
 import {
   getAuth,
   initializeAuth,
+  browserPopupRedirectResolver,
   setPersistence,
   indexedDBLocalPersistence,
   browserLocalPersistence,
@@ -34,9 +35,15 @@ const standalone = (window.matchMedia && window.matchMedia('(display-mode: stand
 let auth;
 try {
   if (isIOS && standalone) {
-    auth = initializeAuth(app, { persistence: browserLocalPersistence });
+    auth = initializeAuth(app, {
+      persistence: browserLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver
+    });
   } else {
-    auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
+    auth = initializeAuth(app, {
+      persistence: indexedDBLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver
+    });
   }
 } catch (_) {
   // If already initialized elsewhere, fall back to getAuth + runtime setPersistence
