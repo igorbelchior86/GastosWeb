@@ -329,8 +329,8 @@ import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebase
 
 import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
-// Configuração do Firebase de TESTE (arquivo separado)
-import { firebaseConfig } from './firebase.test.config.js';
+// Configuração do Firebase de PRODUÇÃO (arquivo separado)
+import { firebaseConfig } from './firebase.prod.config.js';
 
 // (Web Push removido)
 
