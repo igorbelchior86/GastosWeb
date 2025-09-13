@@ -2,9 +2,10 @@
 // Loads alongside index.html before main.js. Works even if main.js already
 // initialized Firebase (uses getApps/getApp).
 
-import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
+import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
 import {
   getAuth,
+  initializeAuth,
   setPersistence,
   indexedDBLocalPersistence,
   browserLocalPersistence,
@@ -17,7 +18,7 @@ import {
   linkWithPopup,
   linkWithRedirect,
   signOut as fbSignOut
-} from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import { firebaseConfig } from './firebase.prod.config.js';
 
 function getOrInitApp() {
@@ -26,21 +27,22 @@ function getOrInitApp() {
 }
 
 const app = getOrInitApp();
-const auth = getAuth(app);
-// Persistence: in iOS PWA (standalone), IndexedDB can be unreliable after OAuth
-// Use LocalStorage there. Else prefer IndexedDB with fallbacks.
+// Initialize Auth early with the right persistence (more reliable on iOS PWA)
 const ua = (navigator.userAgent || '').toLowerCase();
 const isIOS = /iphone|ipad|ipod/.test(ua);
 const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
+let auth;
 try {
   if (isIOS && standalone) {
-    await setPersistence(auth, browserLocalPersistence);
+    auth = initializeAuth(app, { persistence: browserLocalPersistence });
   } else {
-    await setPersistence(auth, indexedDBLocalPersistence);
+    auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
   }
 } catch (_) {
-  try { await setPersistence(auth, browserLocalPersistence); }
-  catch { await setPersistence(auth, inMemoryPersistence); }
+  // If already initialized elsewhere, fall back to getAuth + runtime setPersistence
+  auth = getAuth(app);
+  try { await setPersistence(auth, (isIOS && standalone) ? browserLocalPersistence : indexedDBLocalPersistence); }
+  catch { try { await setPersistence(auth, browserLocalPersistence); } catch { await setPersistence(auth, inMemoryPersistence); } }
 }
 
 // Configure Google provider
