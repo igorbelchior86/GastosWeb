@@ -726,7 +726,24 @@ function buildSaveToast(tx) {
 
 if (!USE_MOCK) {
   // Start realtime listeners only after user is authenticated
-  const startRealtime = () => {
+  const startRealtime = async () => {
+    // If current PATH is not permitted (e.g., CASA mapped but rules deny),
+    // fallback to personal workspace automatically to avoid boot loop.
+    try {
+      const u = window.Auth && window.Auth.currentUser;
+      if (u) {
+        const testRef = ref(firebaseDb, `${PATH}/startBal`);
+        try {
+          await get(testRef);
+        } catch (err) {
+          if (err && (err.code === 'PERMISSION_DENIED' || err.code === 'permission-denied')) {
+            const fallback = `users/${u.uid}`;
+            if (PATH !== fallback) PATH = fallback;
+          }
+        }
+      }
+    } catch (_) {}
+
     // Live listeners (Realtime DB)
     const txRef    = ref(firebaseDb, `${PATH}/tx`);
     const cardsRef = ref(firebaseDb, `${PATH}/cards`);
