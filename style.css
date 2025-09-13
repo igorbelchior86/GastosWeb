@@ -1,3 +1,414 @@
+/* ===================== HEADER MODO CLARO ===================== */
+html[data-theme="light"] .app-header {
+  background: #fff !important;
+  color: #222;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  border: 1px solid #e0e0e0;
+}
+html[data-theme="light"] .app-header::after {
+  /* Higher-contrast green on white and restore sliding animation */
+  background: linear-gradient(90deg, transparent, #16A34A 35%, transparent 65%) !important;
+  background-repeat: no-repeat !important;          /* avoid tiling that can look static */
+  background-size: 200% 100% !important;   /* was reset by background shorthand */
+  animation: headerBar 8s linear infinite !important; /* ensure it slides in light too */
+  will-change: background-position;                 /* hint smoother animation */
+}
+html[data-theme="light"] .logo-text {
+  color: #000 !important;
+  text-shadow: 0 0 8px #00FF8080, 0 0 2px #00FF8040 !important;
+}
+html[data-theme="light"] .header-seg{
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0;
+  height: 44px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  margin-left: auto;
+  margin-right: 8px;
+}
+html[data-theme="light"] .header-seg .seg-highlight{
+  display: none;
+  position: absolute;
+  top: 2px; bottom: 2px; left: 2px;
+  width: calc(50% - 2px);
+  background: rgba(0,0,0,0.04);
+  border-radius: 20px;
+  will-change: transform;
+  transition: transform .28s cubic-bezier(.5,1.5,.5,1);
+  pointer-events: none;
+}
+html[data-theme="light"] .header-seg[data-selected="cards"] .seg-highlight{ transform: translateX(100%); }
+html[data-theme="light"] .header-seg .seg-option{
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 1;
+}
+html[data-theme="light"] .header-seg .seg-option:focus-visible{ outline: none; box-shadow: 0 0 0 2px rgba(0,207,255,0.12); border-radius: 18px; }
+html[data-theme="light"] .header-seg .seg-option::before{
+  content: '';
+  width: 22px; height: 22px;
+  background-color: #111; /* dark icons on light buttons */
+  mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
+  mask-position: center;  -webkit-mask-position: center;
+  mask-size: 100% 100%;   -webkit-mask-size: 100% 100%;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.12));
+}
+html[data-theme="light"] .header-seg .seg-option.active{
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+  box-shadow: 0 6px 18px rgba(0,207,255,0.12);
+}
+html[data-theme="light"] .header-seg .seg-option.active::before{
+  background-color: #fff; /* white icon on accent */
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.18));
+}
+
+/* ===================== MODO CLARO ===================== */
+html[data-theme="light"] {
+  --bg-main: #f7f7f7;
+  --bg-card: #fff;
+  --txt-main: #222;
+  --txt-muted: #888;
+  --accent: #00cfff;
+  --divider: #e0e0e0;
+}
+
+html[data-theme="light"] html,
+html[data-theme="light"] body {
+  /* Force a light app background when the light theme is enabled.
+     Keep dark-theme defaults untouched by scoping this rule to the
+     html[data-theme="light"] root only. */
+  background-color: var(--bg-main) !important;
+  background-image: none !important;
+  color: var(--txt-main);
+}
+
+/* Ensure the fixed backdrop used for the app background follows the
+   light theme as well (doesn't change the dark default). */
+html[data-theme="light"] #backdrop-base {
+  background-color: var(--bg-main) !important;
+}
+
+/* Light theme: reduce bottom padding so no visible gap remains */
+html[data-theme="light"] .wrapper {
+  padding-bottom: calc(56px + env(safe-area-inset-bottom) + var(--kb-offset-bottom));
+}
+/* Align sticky divider position with the reduced padding in light theme */
+html[data-theme="light"] hr.divider {
+  bottom: calc(56px + env(safe-area-inset-bottom));
+}
+
+html[data-theme="light"] .card,
+html[data-theme="light"] .month-divider,
+html[data-theme="light"] .month-meta {
+  background: var(--bg-card);
+  color: var(--txt-main);
+  border-color: var(--divider);
+}
+
+/* Fix clipped shadows for month headers in light theme only.
+   Allow their immediate containers to show overflow (shadows), and
+   ensure month dividers are painted above neighboring cards so their
+   shadows are visible. This preserves spacing and alignment. */
+html[data-theme="light"] #accordion,
+html[data-theme="light"] #accordion details,
+html[data-theme="light"] details.month {
+  overflow: visible !important;
+}
+
+html[data-theme="light"] summary.month-divider {
+  position: relative !important;
+  z-index: 3; /* float above adjacent siblings so shadow isn't hidden */
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1), 0 8px 22px rgba(0,0,0,0.18);
+}
+
+/* Ensure following day cards don't create a higher stacking context */
+html[data-theme="light"] details.day,
+html[data-theme="light"] .executed-cash,
+html[data-theme="light"] .planned-list > li {
+  position: relative; z-index: 1;
+}
+
+/* Month headers in light theme should be dark/primary text, not accent green */
+html[data-theme="light"] .month-name,
+html[data-theme="light"] summary.month-divider,
+html[data-theme="light"] summary.month-divider .month-name,
+html[data-theme="light"] .month-divider .month-name {
+  color: var(--txt-main) !important;
+  text-shadow: none !important; /* remove neon/green glow used in dark theme */
+}
+
+/* Balance (saldo) text adjustments for light theme only */
+html[data-theme="light"] summary.month-divider::before,
+html[data-theme="light"] summary.month-divider .month-row,
+html[data-theme="light"] summary.month-divider .month-row::after,
+html[data-theme="light"] summary.month-divider .month-meta,
+html[data-theme="light"] summary.month-divider .month-meta::before,
+html[data-theme="light"] summary.month-divider .meta-label,
+html[data-theme="light"] summary.month-divider .meta-value {
+  text-shadow: none !important; /* remove dark-mode neon glow */
+}
+
+html[data-theme="light"] summary.month-divider .meta-label {
+  color: var(--txt-muted) !important;
+  font-weight: 500;
+}
+
+html[data-theme="light"] summary.month-divider .meta-value {
+  color: var(--txt-main) !important;
+  font-weight: 700; /* slightly heavier for clear contrast */
+  font-size: 12pt;
+}
+html[data-theme="light"] summary.month-divider .meta-value,
+html[data-theme="light"] summary.month-divider .month-meta,
+html[data-theme="light"] summary.month-divider .meta-value *,
+html[data-theme="light"] summary.month-divider .meta-value::before,
+html[data-theme="light"] summary.month-divider .meta-value::after,
+html[data-theme="light"] .month-meta .meta-value,
+html[data-theme="light"] .month-meta .meta-value * {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  color: var(--txt-main) !important;
+  overflow: visible !important;
+}
+
+/* Keep the balance aligned to the right as in original layout */
+html[data-theme="light"] summary.month-divider .meta-value {
+  margin-left: auto !important; /* preserve flex alignment */
+}
+
+html[data-theme="light"] .meta-label {
+  color: var(--txt-muted);
+}
+
+html[data-theme="light"] .floating-add-button,
+html[data-theme="light"] .floating-home-button {
+  background-color: rgba(0,0,0,.05);
+  color: var(--accent);
+}
+
+html[data-theme="light"] .toast {
+  background: #fff;
+  color: var(--txt-main);
+  border: 1px solid var(--divider);
+}
+
+/* Day header (expanded) typography fixes for light theme only */
+html[data-theme="light"] summary.day-summary {
+  /* keep the existing background/spacing, only fix text colors */
+  color: var(--txt-main) !important;
+  text-shadow: none !important;
+}
+
+html[data-theme="light"] summary.day-summary > span:first-child {
+  color: var(--txt-muted) !important;
+  font-weight: 500 !important;
+}
+
+html[data-theme="light"] summary.day-summary .day-balance,
+html[data-theme="light"] summary.day-summary > span:last-child {
+  color: var(--txt-main) !important;
+  font-weight: 600 !important;
+}
+
+/* Light theme: ensure executed/planned headers are readable on white */
+html[data-theme="light"] .executed-header,
+html[data-theme="light"] .planned-header {
+  color: var(--txt-main) !important;
+  text-shadow: none !important;
+}
+html[data-theme="light"] .executed-header::after {
+  background: rgba(31,111,72,0.5) !important; /* soft green underline */
+}
+html[data-theme="light"] .planned-header::after {
+  background: var(--blue) !important; /* keep blue but remove glow */
+}
+
+/* Ensure any decorative pseudo-elements don't add neon glow in light mode */
+html[data-theme="light"] summary.day-summary::before,
+html[data-theme="light"] summary.day-summary *::before,
+html[data-theme="light"] summary.day-summary *::after {
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+/* ===================== ACCORDION – LIGHT THEME ===================== */
+/* Month header: lighter borders and dividers on white */
+html[data-theme="light"] summary.month-divider{
+  /* subtle contour to separate from white background */
+  border: 1px solid rgba(0,0,0,0.08) !important;
+}
+html[data-theme="light"] summary.month-divider::before{
+  border-color: rgba(0,0,0,0.14) !important;
+  opacity: 1 !important; /* ensure the border is visible on white */
+}
+html[data-theme="light"] summary.month-divider .month-row::after,
+html[data-theme="light"] .month-header-title::after{
+  background-color: var(--divider) !important;
+}
+
+/* Executed block container and lines */
+html[data-theme="light"] .executed-cash{
+  background: var(--bg-card) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+          backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--divider) !important;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12) !important;
+}
+html[data-theme="light"] .executed-cash .op-line{
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,0.06) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10) !important;
+  color: var(--txt-main) !important;
+}
+
+/* Fine tuning: executed items typography and value colors for light theme */
+html[data-theme="light"] .executed-cash .op-left {
+  color: var(--txt-main) !important; /* description */
+  font-weight: 600;
+}
+html[data-theme="light"] .executed-cash .timestamp {
+  color: var(--txt-muted) !important; /* time */
+  opacity: 1 !important;
+}
+html[data-theme="light"] .executed-cash .op-right .value {
+  color: var(--txt-main) !important; /* default value color (fallback) */
+  font-weight: 700;
+}
+/* Use explicit colors for negative/positive amounts on white background */
+html[data-theme="light"] .executed-cash .op-right .value.negative {
+  color: #dc2626 !important; /* red-600 */
+  background: transparent !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: initial !important;
+}
+html[data-theme="light"] .executed-cash .op-right .value.positive {
+  color: #16a34a !important; /* green-600 */
+  background: transparent !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: initial !important;
+}
+
+/* Invoice card */
+html[data-theme="light"] .invoice{
+  background: var(--bg-card) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+          backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--divider) !important;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12) !important;
+}
+html[data-theme="light"] .invoice > summary{ color: var(--txt-main) !important; }
+html[data-theme="light"] .invoice > summary::before{ background-color:#111 !important; }
+
+/* Light theme: status icons (salary, invoice, recurrence) as black glyphs */
+html[data-theme="light"] .icon-salary,
+html[data-theme="light"] .icon-invoice,
+html[data-theme="light"] .icon-repeat{
+  background-color: #111 !important; /* glyph color via mask */
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.12));
+}
+html[data-theme="light"] .invoice .executed-list li .op-line{
+  background:#fff !important;
+  border:1px solid rgba(0,0,0,0.06) !important;
+  box-shadow:0 1px 4px rgba(0,0,0,0.10) !important;
+  color:var(--txt-main) !important;
+}
+/* Garantir que todos os elementos dentro da fatura no tema claro tenham texto visível */
+html[data-theme="light"] .invoice .executed-list li .op-left span,
+html[data-theme="light"] .invoice .executed-list li .op-right .value,
+html[data-theme="light"] .invoice .executed-list li .timestamp {
+  color: var(--txt-main) !important;
+}
+
+/* Swipe action icons on light bg: darker glyphs */
+html[data-theme="light"] .swipe-actions .icon-action{ background-color:#111 !important; }
+
+/* Sticky month header – light theme glass, colors and shadows */
+html[data-theme="light"] .sticky-month{
+  background: rgba(255,255,255,0.56) !important; /* more translucent */
+  -webkit-backdrop-filter: saturate(180%) blur(34px);
+    backdrop-filter: saturate(180%) blur(34px);
+  border: 1px solid rgba(0,0,0,0.06) !important;
+  /* remove drop shadow below; keep only subtle inner outline */
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18) !important;
+  color: var(--txt-main) !important;           /* no green tint in light */
+  text-shadow: none !important;                /* remove neon glow */
+  /* Let the soft drop shadow render past rounded corners */
+  -webkit-clip-path: inset(-12px round 12px) !important;
+          clip-path: inset(-12px round 12px) !important;
+}
+html[data-theme="light"] .sticky-month .month-row,
+html[data-theme="light"] .sticky-month .month-meta,
+html[data-theme="light"] .sticky-month .meta-label,
+html[data-theme="light"] .sticky-month .meta-value{
+  color: var(--txt-main) !important;
+  text-shadow: none !important;
+}
+html[data-theme="light"] .sticky-month .meta-label{ color: var(--txt-muted) !important; font-weight:500; }
+html[data-theme="light"] .sticky-month .month-row::after{ background-color: var(--divider) !important; }
+/* Light theme: thin month meta separator pipe */
+html[data-theme="light"] summary.month-divider .month-meta::before{
+  color: var(--divider) !important;
+  opacity: 1 !important;
+}
+
+/* Generic swipe rows inside accordion (outside invoice), readable on light bg */
+html[data-theme="light"] .swipe-wrapper .op-line{
+  background: #fff !important;
+  color: var(--txt-main) !important;
+  border: 1px solid rgba(0,0,0,0.06) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10) !important;
+}
+
+/* Planned rows inside accordion: align visuals with executed */
+html[data-theme="light"] .planned-list li .op-line{
+  background: #fff !important;
+  color: var(--txt-main) !important;
+  border: 1px solid rgba(0,0,0,0.06) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10) !important;
+}
+html[data-theme="light"] #accordion .plan-check{ border-color: var(--txt-muted) !important; }
+html[data-theme="light"] #accordion .plan-check:checked{ background: var(--blue) !important; border-color: var(--blue) !important; }
+
+/* Planned values inside accordion: match executed colors on light theme */
+html[data-theme="light"] .planned-list .op-right .value {
+  color: #111;                     /* default/fallback text color */
+  background: none !important;     /* disable gradient text */
+  -webkit-text-fill-color: initial !important;
+  font-weight: 700;                /* match Executados in light */
+}
+html[data-theme="light"] .planned-list .op-right .value.negative {
+  color: #dc2626 !important;       /* red-600, match Executados */
+  background: transparent !important;
+  -webkit-text-fill-color: initial !important;
+}
+html[data-theme="light"] .planned-list .op-right .value.positive {
+  color: #16a34a !important;       /* same green used in Executados */
+  background: transparent !important;
+  -webkit-text-fill-color: initial !important;
+}
+
+/* Adicione outros componentes conforme necessário, sempre prefixando com html[data-theme="light"] */
 /* Planned modal layout (grid without DOM changes)
    Row 1: [Descrição] .......... [Valor]
    Row 2: [Método de pagamento] (left, under descrição)
@@ -42,7 +453,8 @@
   grid-row: 1;
   justify-self: end;
   text-align: right;
-  font-weight: 600;
+  font-weight: 600;   /* match Executados default */
+  font-size: 10pt;    /* match Executados */
 }
 /* Any other child inside .op-right (e.g., "Cartão Amex") becomes the method line under the description */
 #plannedModal .planned-list > li .op-right > :not(.value) {
@@ -297,6 +709,42 @@ hr.divider{
 html.modal-open hr.divider { display: none !important; }
 html.modal-open .app-footer { visibility: hidden; }
 
+/* Floating bottom pill (Home/Ajustes) */
+.floating-pill{
+  position:fixed;
+  left:24px;
+  bottom:calc(12px + env(safe-area-inset-bottom));
+  z-index:1201;
+  display:inline-flex; align-items:center; gap:0;
+  height:50px; padding:6px; /* igual ao botão "+" */
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.15);
+  box-shadow:0 10px 24px rgba(0,0,0,.35), inset 0 -2px 0 rgba(0,0,0,.18);
+  border-radius:32px; /* metade de 64 para a mesma curvatura */
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(160%);
+}
+.floating-pill .pill-option{
+  position:relative;
+  appearance:none; border:none; background:transparent; color:#fff; font-weight:700;
+  height:100%; padding:0 18px; border-radius:32px; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  -webkit-tap-highlight-color: transparent; outline: none;
+}
+.floating-pill .pill-highlight{
+  position:absolute; left:6px; top:6px; height:calc(100% - 12px); width:50%; border-radius:9999px;
+  background:linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.10));
+  box-shadow:0 4px 14px rgba(0,0,0,.35);
+  transition: transform .22s cubic-bezier(.22,1,.36,1), width .22s ease;
+  pointer-events:none;
+}
+.floating-pill[data-selected="settings"] .pill-highlight{ transform: translateX(100%); }
+
+/* Icons for pill */
+.pill-icon{width:22px;height:22px;background:#fff;display:inline-block;}
+.pill-icon.icon-home{mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M12 3l9 8h-3v9h-5v-6H11v6H6v-9H3z"/></svg>') no-repeat center/100%;-webkit-mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M12 3l9 8h-3v9h-5v-6H11v6H6v-9H3z"/></svg>') no-repeat center/100%;}
+.pill-icon.icon-gear{mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M19.14,12.94a7.43,7.43,0,0,0,.05-1l2-1.55a.5.5,0,0,0,.12-.65l-1.9-3.29a.5.5,0,0,0-.6-.22l-2.35.95a7.1,7.1,0,0,0-1.73-1L14.4,3.5a.5.5,0,0,0-.5-.5H10.1a.5.5,0,0,0-.5.5L9.3,5.18a7.1,7.1,0,0,0-1.73,1l-2.35-.95a.5.5,0,0,0-.6.22L2.72,8.74a.5.5,0,0,0,.12.65l2,1.55a7.43,7.43,0,0,0,0,2l-2,1.55a.5.5,0,0,0-.12.65l1.9,3.29a.5.5,0,0,0,.6.22l2.35-.95a7.1,7.1,0,0,0,1.73,1l.3,1.68a.5.5,0,0,0,.5.5h3.8a.5.5,0,0,0,.5-.5l.3-1.68a7.1,7.1,0,0,0,1.73-1l2.35.95a.5.5,0,0,0,.6-.22l1.9-3.29a.5.5,0,0,0-.12-.65ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>') no-repeat center/100%;-webkit-mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M19.14,12.94a7.43,7.43,0,0,0,.05-1l2-1.55a.5.5,0,0,0,.12-.65l-1.9-3.29a.5.5,0,0,0-.6-.22l-2.35.95a7.1,7.1,0,0,0-1.73-1L14.4,3.5a.5.5,0,0,0-.5-.5H10.1a.5.5,0,0,0-.5.5L9.3,5.18a7.1,7.1,0,0,0-1.73,1l-2.35-.95a.5.5,0,0,0-.6.22L2.72,8.74a.5.5,0,0,0,.12.65l2,1.55a7.43,7.43,0,0,0,0,2l-2,1.55a.5.5,0,0,0-.12.65l1.9,3.29a.5.5,0,0,0,.6.22l2.35-.95a7.1,7.1,0,0,0,1.73,1l.3,1.68a.5.5,0,0,0,.5.5h3.8a.5.5,0,0,0,.5-.5l.3-1.68a7.1,7.1,0,0,0,1.73-1l2.35.95a.5.5,0,0,0,.6-.22l1.9-3.29a.5.5,0,0,0-.12-.65ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>') no-repeat center/100%;}
+
 /* Prefer 100svh where supported (stable initial viewport on iOS Safari) */
 @supports (height: 100svh) {
   .wrapper { height: 100svh; }
@@ -384,10 +832,20 @@ input,select,textarea{font-size:16px!important;box-sizing:border-box;}
   display:inline-block;
   width:24px;
   height:24px;
-  background:#fff;
-  filter:drop-shadow(0 1px 2px #0008);
-  -webkit-mask-repeat:no-repeat;
-          mask-repeat:no-repeat;
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.18) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 1;
+  color: #111;
   -webkit-mask-position:center;
           mask-position:center;
   -webkit-mask-size:100%;
@@ -710,6 +1168,9 @@ summary.day-summary{
   background:var(--glass-bg);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.45);
   display:flex;justify-content:space-between;align-items:center;
   transition:transform .2s,box-shadow .2s;font-weight:500!important;color:#333!important;
+  /* Clip any overlay/pseudo-elements to the rounded corners */
+  overflow: hidden;
+  position: relative;
 }
 summary.day-summary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.55);} 
 summary.day-summary::before{
@@ -719,6 +1180,9 @@ summary.day-summary::before{
   font-size:1.2em;
   transition:transform .2s ease;
   top:1px;
+  /* ensure the marker/pseudo doesn't produce sharp corners when overlaid */
+  border-radius: inherit;
+  box-sizing: border-box;
 }
 
 .details.day[open] > summary.day-summary,
@@ -733,6 +1197,29 @@ summary.day-summary .day-balance, summary.day-summary > span:last-child{font-fam
 details.day{border:none!important;border-radius:0!important;padding-left:8px!important;margin:12px 0!important;background:transparent!important;}
 details.day.today summary.day-summary{width:calc(100% - 24px)!important;margin:4px 12px 4px 0!important;padding:8px 12px!important;background:linear-gradient(135deg,rgba(255,255,255,.12) 0%,rgba(255,255,255,.06) 100%)!important;border:4px solid #fff;border-radius:12px!important;box-shadow:0 0 12px 2px rgba(255,255,255,.4);} 
 details.day.negative summary.day-summary{width:calc(100% - 24px)!important;margin:4px 12px 4px 0!important;padding:8px 12px!important;background:var(--glass-bg)!important;box-shadow:0 0 8px 0 rgba(255,64,64,.6)!important;border:2px solid rgba(255,64,64,.5);border-radius:6px!important;}
+
+/* Light theme: mirror the red negative highlight for day headers */
+html[data-theme="light"] details.day.negative summary.day-summary{
+  width: calc(100% - 24px) !important;
+  margin: 4px 12px 4px 0 !important;
+  padding: 8px 12px !important;
+  background: var(--bg-card) !important;
+  /* stronger blood-red highlight for negative days on light bg */
+  box-shadow: 0 0 10px 0 rgba(153, 27, 27, 0.50) !important; /* #991b1b @ 50% */
+  border: 2px solid #991b1b !important;
+  border-radius: 6px !important;
+}
+
+/* Light theme: distinctive highlight for today's day header (mirrors dark intent) */
+html[data-theme="light"] details.day.today summary.day-summary{
+  width: calc(100% - 24px) !important;
+  margin: 4px 12px 4px 0 !important;
+  padding: 8px 12px !important;
+  background: var(--bg-card) !important;
+  border: 3px solid rgba(31, 111, 72, 0.45) !important; /* green accent for clarity */
+  border-radius: 12px !important;
+  box-shadow: 0 0 12px 2px rgba(31, 111, 72, 0.25), 0 8px 24px rgba(0,0,0,0.08) !important;
+}
 details.day:not(.today):not(.negative) summary.day-summary{width:calc(100% - 24px)!important;margin:4px 12px 4px 0!important;padding:8px 12px!important;}
 
 /* Neon bar */
@@ -744,6 +1231,49 @@ details.month:not([open]) > details.day{border-left:none!important;}
 details.month:not([open]) > details.day::before{display:none!important;}
 details.day[data-has="true"] > summary.day-summary::before{color:var(--green-soft)!important;}
 
+/* ===================== DAY HEADER ACCENTS - LIGHT THEME ===================== */
+/* Mirror dark-mode mechanics but use darker, readable shades on white */
+html[data-theme="light"] details.day[data-has="true"]{
+  border-left: 4px solid #1f6f48 !important; /* darker green suited for light bg */
+  border-radius: 3px;
+}
+
+html[data-theme="light"] details.day[data-has="true"] > summary.day-summary::before{
+  color: #1f6f48 !important; /* triangle */
+  filter: drop-shadow(0 2px 6px rgba(31,111,72,0.10)) !important;
+}
+
+html[data-theme="light"] details.day[data-has="true"] > summary.day-summary{
+  /* keep original sizing/padding; only adjust highlight visuals */
+  background: var(--bg-card) !important;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.06), 0 0 10px rgba(31,111,72,0.06) !important;
+}
+
+html[data-theme="light"] summary.day-summary:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 12px rgba(31,111,72,0.08) !important;
+}
+
+/* ensure the rotated/open state triangle stays visible and colored */
+html[data-theme="light"] details.day[open] > summary.day-summary::before{
+  color: #1f6f48 !important;
+  filter: drop-shadow(0 2px 6px rgba(31,111,72,0.12)) !important;
+}
+
+/* Replicate the dark-mode 'open' glow for day headers but toned for light bg */
+html[data-theme="light"] details.day[open] > summary.day-summary,
+html[data-theme="light"] summary.day-summary.active{
+  border: 2px solid rgba(31,111,72,0.14) !important;
+  background: var(--bg-card) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 22px rgba(31,111,72,0.12) !important;
+}
+
+/* Slightly stronger glow when the open summary is hovered (keeps interaction feedback) */
+html[data-theme="light"] details.day[open] > summary.day-summary:hover,
+html[data-theme="light"] summary.day-summary.active:hover{
+  box-shadow: 0 10px 28px rgba(0,0,0,0.10), 0 0 28px rgba(31,111,72,0.14) !important;
+}
+
 .today-row{background:linear-gradient(90deg,#3c3c3e 0%,#4a4a4c 100%);font-weight:600;letter-spacing:-.3px;box-shadow:0 0 6px rgba(255,255,255,.1);border-radius:8px;}
 
 /* ===================== MONTH HEADER / STICKY ===================== */
@@ -753,12 +1283,25 @@ summary.month-divider{
   background:var(--glass-bg-light);backdrop-filter:blur(30px) saturate(180%);
   box-shadow:inset 0 0 0 1px #FFFFFF1A, 0 4px 12px rgba(0,0,0,.45);border-radius:12px;
   font-weight:700;font-size:18pt;text-transform:uppercase;letter-spacing:.5pt;color:#348461;text-shadow:0 0 6px #00FF0040;
+
 }
-summary.month-divider::before{content:'';position:absolute;inset:0;border-radius:12px;border:1px solid #5a5a5a;opacity:.35;pointer-events:none;text-shadow:0 0 6px #00FF0040;}
+summary.month-divider::before{content:'';position:absolute;inset:0;border-radius:12px;border:1px solid #5a5a5a;opacity:.35;pointer-events:none;text-shadow:0 0 6px #00FF0040;box-sizing:border-box;}
+/* Ensure the month divider container clips any overlay pseudo-elements to its rounded corners */
+summary.month-divider{overflow:hidden;}
 summary.month-divider .month-row{display:flex;align-items:center;width:100%;font-weight:700;font-size:18pt;text-transform:uppercase;letter-spacing:.5pt;position:relative;gap:12px;text-shadow:0 0 6px #00FF0040;}
 summary.month-divider .month-row::after{content:"";flex-grow:1;height:1px;background-color:#3e3e40;text-shadow:0 0 6px #00FF0040;}
 .month-header-title{position:relative;display:flex;align-items:center;}
-.month-header-title::after{content:"";flex-grow:1;height:1px;background-color:#3e3e40;margin-left:12px;}
+.month-header-title::after{content:"";flex-grow:1;height:1px;background-color:#3e3e40;margin-left:12px;border-radius:999px;box-sizing:border-box;}
+/* Round the thin divider in month row so its ends are not sharp */
+summary.month-divider .month-row::after{
+  content:"";
+  flex-grow:1;
+  height:1px;
+  background-color:#3e3e40;
+  text-shadow:0 0 6px #00FF0040;
+  border-radius:999px;
+  box-sizing:border-box;
+}
 summary.month-divider .month-meta{display:flex!important;justify-content:space-between;align-items:center;width:100%;font-size:12pt;font-weight:500;text-shadow:0 0 6px #00FF0040;}
 summary.month-divider .month-meta::before{content:'|';margin-right:6px;opacity:.7;text-shadow:0 0 6px #00FF0040;}
 summary.month-divider .meta-label{text-transform:none;font-size:12pt;color:rgba(255,255,255,.7);font-weight:400;text-shadow:0 0 6px #00FF0040;}
@@ -770,6 +1313,7 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   position:fixed;top:80px;left:0;width:100%;padding:0 24px 4px;box-sizing:border-box;font-weight:bold;font-size:14pt;color:#348461;
   background:var(--glass-bg-light);backdrop-filter:blur(30px) saturate(180%);
   box-shadow:inset 0 0 0 1px #FFFFFF1A, 0 4px 12px rgba(0,0,0,.45);z-index:900;display:flex;align-items:flex-end;height:52px;border-radius:12px;
+  overflow: hidden; -webkit-clip-path: inset(0 round 12px); clip-path: inset(0 round 12px);
   opacity:0;transform:translateY(-100%);transition:transform .25s ease,opacity .25s ease;pointer-events:none;text-shadow:0 0 6px #00FF0040;
 }
 .sticky-month.visible{opacity:1;transform:translateY(0);pointer-events:auto;}
@@ -896,6 +1440,12 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   gap:8px;
   flex:1 1 auto;
   min-width:0;
+  font-weight:500;   /* match Executados */
+  font-size:12pt;    /* match Executados */
+}
+.planned-list .op-right .value{
+  font-weight:600;  /* match Executados default */
+  font-size:10pt;   /* match Executados */
 }
 .planned-list .op-left .icon-repeat{
   margin-left:4px;      /* tighter gap from checkbox */
@@ -1085,7 +1635,7 @@ details.invoice[open] > summary::after{
    gap:8px;
    font-weight:500;
    font-size:12pt;
-   color:#fff;
+   color:var(--op-left-color);
    flex:1 1 auto;
    min-width:0;
  }
@@ -1130,7 +1680,7 @@ details.invoice[open] > summary::after{
   gap:8px;
   font-weight:500;
   font-size:12pt;
-  color:#fff;
+  color:var(--op-left-color);
   flex:1 1 auto;
   min-width:0;
 }
@@ -1189,6 +1739,124 @@ details.invoice[open] > summary::after{
     transform .16s cubic-bezier(.22,1,.36,1),
     opacity   .16s ease;
 }
+
+/* ===================== SETTINGS (Ajustes) ===================== */
+#settingsModal .modal-content{padding:0 0 0 0;}
+/* Settings modal – alignment and avatar fallback */
+#settingsModal .settings-card{ padding:14px; }
+#settingsModal .settings-list{ margin-top:12px; }
+#settingsModal .settings-profile{ align-items:center; gap:12px; }
+#settingsModal .settings-names{ min-width:0; }
+#settingsModal .settings-name, 
+#settingsModal .settings-sub{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* Hide IMG alt text when the network image fails to avoid layout shift */
+#settingsModal .settings-avatar img{ font-size:0; line-height:0; display:block; width:100%; height:100%; object-fit:cover; }
+.settings-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:12px;margin:6px 0 14px 0;box-shadow:0 6px 16px rgba(0,0,0,.3);}
+.settings-profile{display:flex;align-items:center;gap:12px;}
+.settings-avatar{width:56px;height:56px;border-radius:50%;background:#333;flex:0 0 auto;overflow:hidden;border:1px solid rgba(255,255,255,.15);}
+.settings-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+.settings-names{display:flex;flex-direction:column;}
+.settings-name{font-weight:800;font-size:1.05rem;color:#fff;}
+.settings-sub{font-size:.9rem;color:#c9c9c9;opacity:.9;}
+.settings-list{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:18px;overflow:hidden;}
+.settings-item{display:flex;align-items:center;justify-content:space-between;padding:14px 14px;border-top:1px solid rgba(255,255,255,.06);} 
+.settings-item:first-child{border-top:none;}
+
+/* Theme selector card (iOS-like group) */
+.settings-theme-card{
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 18px;
+  padding: 0 !important; /* flush selector row */
+  margin: 6px 0 14px 0;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+}
+.settings-theme-card #themeButtons{display:flex;gap:0;}
+.settings-theme-card .theme-header{
+  display:flex;
+  align-items:center;
+  padding:0 12px;
+  height:48px;
+  font-weight:700;
+  color:var(--txt-main);
+}
+.settings-theme-card .theme-row{
+  display:flex;
+  width:100%;
+  height:48px;
+  margin:0 !important;
+  padding:0 !important;
+  box-sizing:border-box;
+  border-top:1px solid rgba(255,255,255,0.03);
+  border-radius:0 0 18px 18px;
+  overflow:hidden; /* clip inner pressed highlight to rounded container */
+}
+.settings-theme-card .theme-row .theme-btn{
+  flex:1 1 0;
+  border:none;
+  margin:0 !important;
+  padding:0 !important;
+  text-align:center;
+  background:transparent;
+  color:var(--txt-main);
+  font-size:1.05rem;
+  position:relative;
+  display:flex; align-items:center; justify-content:center; height:100%;
+  -webkit-tap-highlight-color:transparent;
+}
+.settings-theme-card .theme-row .theme-btn + .theme-btn::before{
+  content:""; position:absolute; left:-0.5px; top:0; bottom:0; width:1px; background:rgba(15,23,34,0.06);
+}
+
+/* Selected state (no jump), pressed state sinks; both keep rounded outer corners */
+.settings-theme-card .theme-row .theme-btn[aria-pressed="true"]{
+  background: linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.04));
+  color:var(--txt-main);
+  box-shadow: 0 6px 18px rgba(2,6,23,0.22) inset;
+  transform:none;
+}
+.settings-theme-card .theme-row .theme-btn:active{
+  transform: translateY(4px);
+  box-shadow: 0 6px 18px rgba(2,6,23,0.22) inset;
+}
+
+/* Ensure outer corners follow the card when pressed/selected */
+.settings-theme-card .theme-row .theme-btn:first-child:is([aria-pressed="true"], :active){
+  border-radius: 18px 0 0 18px !important; /* full left side */
+}
+.settings-theme-card .theme-row .theme-btn:last-child:is([aria-pressed="true"], :active){
+  border-radius: 0 18px 18px 0 !important; /* full right side */
+}
+
+/* Feather under the pressed/selected button, clipped to the row */
+.settings-theme-card .theme-row .theme-btn:is([aria-pressed="true"], :active)::after{
+  content:""; position:absolute; left:0; right:0; bottom:-8px; height:12px;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0.28), rgba(0,0,0,0));
+  filter: blur(8px); pointer-events:none;
+}
+.settings-theme-card .theme-row .theme-btn:first-child:is([aria-pressed="true"], :active)::after{
+  border-radius: 0 0 0 18px;
+}
+.settings-theme-card .theme-row .theme-btn:last-child:is([aria-pressed="true"], :active)::after{
+  border-radius: 0 0 18px 0;
+}
+
+/* Accessible focus ring that follows rounded corners */
+.settings-theme-card .theme-row .theme-btn:focus{ outline: none; }
+.settings-theme-card .theme-row .theme-btn:focus-visible{
+  box-shadow: inset 0 0 0 2px var(--focus-ring, #f59e0b);
+}
+.settings-theme-card .theme-row .theme-btn:first-child:focus-visible{ border-radius: 18px 0 0 18px; }
+.settings-theme-card .theme-row .theme-btn:last-child:focus-visible{ border-radius: 0 18px 18px 0; }
+.settings-item .left{display:inline-flex;align-items:center;gap:10px;color:#fff;font-weight:700;}
+.settings-item .settings-cta{color:#fff;font-weight:800;}
+.settings-item.danger .settings-cta{color:#ff6b6b;}
+.settings-item.danger .settings-icon{background:#ff6b6b;}
+.settings-item .right{color:#cfcfcf;}
+.settings-item.danger .left{color:#ff6b6b;}
+.settings-icon{width:22px;height:22px;background:#fff;display:inline-block;border-radius:6px;}
+.settings-icon.icon-logout{mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M10 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4v-2H6V5h4V3zm9.707 8.293-4-4-1.414 1.414L16.586 11H11v2h5.586l-2.293 2.293 1.414 1.414 4-4a1 1 0 0 0 0-1.414z"/></svg>') no-repeat center/100%;-webkit-mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M10 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4v-2H6V5h4V3zm9.707 8.293-4-4-1.414 1.414L16.586 11H11v2h5.586l-2.293 2.293 1.414 1.414 4-4a1 1 0 0 0 0-1.414z"/></svg>') no-repeat center/100%;}
+.settings-cta{appearance:none;border:none;background:transparent;color:inherit;font:inherit;display:flex;align-items:center;gap:10px;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent;}
 
 /* Restrict fields when paying an invoice */
 #txModal[data-mode="pay-invoice"] .method-switch,
@@ -1479,6 +2147,47 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
   box-shadow:0 3px 8px rgba(0,0,0,.4);
 }
 
+/* Light theme: pseudo-footer buttons tuning (glass, borders, icons, shadows) */
+html[data-theme="light"] .floating-add-button,
+html[data-theme="light"] .floating-home-button{
+  background: rgba(255,255,255,0.78) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(180%) !important;
+          backdrop-filter: blur(12px) saturate(180%) !important;
+  border: 1px solid rgba(0,0,0,0.08) !important;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12) !important;
+  color: var(--accent) !important; /* plus sign uses currentColor */
+}
+html[data-theme="light"] .floating-add-button::before,
+html[data-theme="light"] .floating-home-button::before{
+  border: 1px solid rgba(0,0,0,0.08) !important;
+  opacity: 1 !important; /* visible contour on white */
+}
+/* Softer hover/press without neon glow */
+html[data-theme="light"] .floating-add-button:hover,
+html[data-theme="light"] .floating-home-button:hover{
+  box-shadow: 0 10px 24px rgba(0,0,0,0.16) !important;
+}
+html[data-theme="light"] .floating-add-button:active,
+html[data-theme="light"] .floating-home-button:active{
+  box-shadow: 0 6px 12px rgba(0,0,0,0.12) !important;
+}
+
+/* Light theme: bottom segmented pill (Home/Ajustes) */
+html[data-theme="light"] .floating-pill{
+  background: rgba(255,255,255,0.86) !important;
+  border: 1px solid rgba(0,0,0,0.08) !important;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.16), inset 0 -2px 0 rgba(255,255,255,0.6) !important;
+}
+html[data-theme="light"] .floating-pill .pill-option{
+  color: #111 !important;
+}
+html[data-theme="light"] .floating-pill .pill-highlight{
+  background: linear-gradient(180deg, rgba(0,0,0,0.06), rgba(0,0,0,0.02)) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.10) !important;
+}
+/* Light theme: make masked glyphs dark */
+html[data-theme="light"] .pill-icon{ background:#111 !important; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.12)) !important; }
+
 /* Ajustes quando o teclado estiver aberto (iOS 26):
    apenas eleva os botões, sem mexer no header */
 html[data-vv-kb="1"] .floating-add-button{
@@ -1491,7 +2200,8 @@ html[data-vv-kb="1"] .floating-home-button{
 .floating-home-button::before{content:"";position:absolute;inset:0;border-radius:inherit;border:1px solid #5a5a5a;opacity:.3;pointer-events:none;z-index:1;}
 /* Oculta botões flutuantes quando um modal está aberto (ficariam acima do modal) */
 html.modal-open .floating-add-button,
-html.modal-open .floating-home-button { display: none !important; }
+html.modal-open .floating-home-button,
+html.modal-open .floating-pill { display: none !important; }
 
 .floating-planned-button,.floating-card-button{
   position:absolute;top:18px;width:44px;height:44px;border-radius:50%;background:linear-gradient(to bottom,#00CFFF,#007AFF);
@@ -1500,6 +2210,302 @@ html.modal-open .floating-home-button { display: none !important; }
   animation:pulse 4s ease-in-out infinite;
   clip-path: circle(50% at 50% 50%);
   -webkit-tap-highlight-color: transparent;
+}
+
+/* ===================== LIGHT THEME — TX MODAL ===================== */
+/* Froster light panel with subtle border/shadow; dark text only for TX modal */
+html[data-theme="light"] #txModal .bottom-modal-box {
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.78) 60%), rgba(255,255,255,0.78) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #txModal h2 { color: #111; text-shadow: none; }
+html[data-theme="light"] #txModal .modal-close-btn { color: #111; opacity: .7; }
+html[data-theme="light"] #txModal .modal-close-btn:hover { opacity: 1; }
+html[data-theme="light"] #txModal .modal-drag { background: #cfcfcf; }
+
+/* Inputs/selects/date: clear white fields with gentle focus ring */
+html[data-theme="light"] #txModal .form-grid input,
+html[data-theme="light"] #txModal .form-grid select,
+html[data-theme="light"] #txModal input[type="date"] {
+  background: #fff;
+  color: #111;
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);
+}
+html[data-theme="light"] #txModal .form-grid input:focus,
+html[data-theme="light"] #txModal .form-grid select:focus,
+html[data-theme="light"] #txModal input[type="date"]:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.15);
+}
+html[data-theme="light"] #txModal ::placeholder { color: #6b7280; opacity: 1; }
+
+/* Value +/- toggle in the amount field */
+html[data-theme="light"] #txModal .value-toggle button {
+  background: #f3f4f6;
+  border: 1px solid rgba(0,0,0,0.08);
+  color: #111;
+  box-shadow: none;
+}
+html[data-theme="light"] #txModal .value-toggle button:not(.active) { opacity: .8; }
+html[data-theme="light"] #txModal .value-toggle button[data-type="expense"] { background: #fee2e2; border-color: #fecaca; }
+html[data-theme="light"] #txModal .value-toggle button[data-type="income"] { background: #dcfce7; border-color: #bbf7d0; }
+html[data-theme="light"] #txModal .value-toggle button.active[data-type="expense"] { background: #fecaca; border-color: #ef4444; }
+html[data-theme="light"] #txModal .value-toggle button.active[data-type="income"] { background: #bbf7d0; border-color: #16a34a; }
+
+/* Method segmented control */
+html[data-theme="light"] #txModal .method-switch {
+  background: rgba(0,0,0,0.06);
+  border: 1px solid rgba(0,0,0,0.08);
+}
+html[data-theme="light"] #txModal .method-switch .switch-option { color: #111; }
+html[data-theme="light"] #txModal .method-switch .switch-option.active { color: #111; }
+html[data-theme="light"] #txModal .method-switch .switch-highlight {
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.10);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+/* Card selector list in Cartão mode */
+html[data-theme="light"] #txModal #cardSelector label {
+  background: rgba(255,255,255,0.85);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.08);
+  color: #111;
+}
+html[data-theme="light"] #txModal #cardSelector input[type="radio"] {
+  border-color: #6b7280;
+}
+html[data-theme="light"] #txModal #cardSelector input[type="radio"]:checked {
+  background-color: var(--blue);
+  border-color: var(--blue);
+}
+
+/* CTA button */
+html[data-theme="light"] #txModal #addBtn {
+  background: #16a34a; /* emerald-600 */
+  color: #fff;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 8px 18px rgba(22,163,74,0.22);
+}
+html[data-theme="light"] #txModal #addBtn:hover { filter: brightness(1.05); }
+html[data-theme="light"] #txModal #addBtn:active { filter: brightness(0.98); }
+
+/* Invoice parcel row label */
+html[data-theme="light"] #txModal #invoiceParcelRow { color: #111; }
+
+/* ===================== LIGHT THEME — SETTINGS (AJUSTES) ===================== */
+/* Panel */
+html[data-theme="light"] #settingsModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.80) 60%), rgba(255,255,255,0.80) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #settingsModal h2 { color:#111; text-shadow:none; }
+html[data-theme="light"] #settingsModal .modal-close-btn { color:#111; opacity:.7; }
+html[data-theme="light"] #settingsModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #settingsModal .modal-drag{ background:#cfcfcf; }
+
+/* Cards and list groups */
+html[data-theme="light"] #settingsModal .settings-card,
+html[data-theme="light"] #settingsModal .settings-list{
+  background: rgba(255,255,255,0.85);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.10);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.10);
+}
+html[data-theme="light"] #settingsModal .settings-item{ border-top:1px solid rgba(0,0,0,0.06); }
+html[data-theme="light"] #settingsModal .settings-name{ color:#111; }
+html[data-theme="light"] #settingsModal .settings-sub{ color:#4b5563; opacity:1; }
+html[data-theme="light"] #settingsModal .settings-avatar{ background:#e5e7eb; border-color: rgba(0,0,0,0.10); }
+
+/* Theme segmented control */
+html[data-theme="light"] #settingsModal .settings-theme-card{
+  background: rgba(0,0,0,0.06);
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+}
+html[data-theme="light"] #settingsModal .settings-theme-card .theme-row{ border-top: none; }
+html[data-theme="light"] #settingsModal .settings-theme-card .theme-row .theme-btn{ color:#111; }
+html[data-theme="light"] #settingsModal .settings-theme-card .theme-row .theme-btn + .theme-btn::before{ background: rgba(0,0,0,0.08); }
+html[data-theme="light"] #settingsModal .settings-theme-card .theme-row .theme-btn[aria-pressed="true"]{
+  background:#fff;
+  color:#111;
+  box-shadow: inset 0 3px 8px rgba(0,0,0,0.08);
+}
+html[data-theme="light"] #settingsModal .settings-theme-card .theme-row .theme-btn[aria-pressed="true"]::after{ background: radial-gradient(ellipse at center, rgba(0,0,0,0.10), rgba(0,0,0,0)); }
+
+/* Danger action */
+html[data-theme="light"] #settingsModal .settings-item .settings-cta{ color:#111; }
+html[data-theme="light"] #settingsModal .settings-item.danger .settings-cta{ color:#ef4444; }
+html[data-theme="light"] #settingsModal .settings-item.danger .settings-icon{ background:#ef4444; }
+
+/* ===================== LIGHT THEME — CARD MODAL ===================== */
+/* Panel */
+html[data-theme="light"] #cardModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.80) 60%), rgba(255,255,255,0.80) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #cardModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #cardModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #cardModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #cardModal .modal-drag{ background:#cfcfcf; }
+
+/* Inputs */
+html[data-theme="light"] #cardModal input,
+html[data-theme="light"] #cardModal select{
+  background:#fff;
+  color:#111;
+  border:1px solid rgba(0,0,0,0.12);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);
+}
+html[data-theme="light"] #cardModal input:focus,
+html[data-theme="light"] #cardModal select:focus{
+  outline:none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.15);
+}
+html[data-theme="light"] #cardModal ::placeholder{ color:#6b7280; opacity:1; }
+
+/* CTA */
+html[data-theme="light"] #cardModal #addCardBtn{
+  background:#16a34a; /* emerald-600 */
+  color:#fff;
+  border:1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 8px 18px rgba(22,163,74,0.22);
+}
+html[data-theme="light"] #cardModal #addCardBtn:hover{ filter: brightness(1.05); }
+html[data-theme="light"] #cardModal #addCardBtn:active{ filter: brightness(0.98); }
+
+/* Helper text */
+html[data-theme="light"] #cardModal small{ color:#6b7280; }
+
+/* Card list entries */
+html[data-theme="light"] #cardModal .card-list li .card-line{
+  background:#ffffffec; /* slightly translucent to keep frosted feel */
+  border:1px solid rgba(0,0,0,0.10);
+  border-radius:14px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.08);
+  color:#111;
+}
+html[data-theme="light"] #cardModal .card-list li .card-line .card-name{ color:#111; }
+html[data-theme="light"] #cardModal .card-list li .card-line .card-dates{ color:#374151; }
+
+/* If swipe wrapper is in use inside card modal */
+html[data-theme="light"] #cardModal .swipe-wrapper .card-line{
+  background:#ffffffec;
+  border:1px solid rgba(0,0,0,0.10);
+  border-radius:14px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.08);
+  color:#111;
+}
+/* Ensure detail labels/values are readable on white */
+html[data-theme="light"] #cardModal .card-detail{ color:#111; }
+html[data-theme="light"] #cardModal .card-label{ color:#4b5563; }
+html[data-theme="light"] #cardModal .card-value{ color:#111; }
+html[data-theme="light"] #cardModal .card-content b{ color:#111; }
+
+/* ===================== LIGHT THEME — PLANNED MODAL ===================== */
+/* ===================== LIGHT THEME — CONFIRM MOVE MODAL ===================== */
+html[data-theme="light"] #confirmMoveModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.80) 60%), rgba(255,255,255,0.80) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #confirmMoveModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #confirmMoveModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #confirmMoveModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #confirmMoveModal .modal-drag{ background:#cfcfcf; }
+/* Ensure body text inside confirm modal is dark on light glass */
+html[data-theme="light"] #confirmMoveModal #confirmMoveText{ color:#111 !important; text-shadow:none; }
+
+/* ===================== LIGHT THEME — DELETE RECURRENCE MODAL ===================== */
+html[data-theme="light"] #deleteRecurrenceModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.80) 60%), rgba(255,255,255,0.80) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #deleteRecurrenceModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #deleteRecurrenceModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #deleteRecurrenceModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #deleteRecurrenceModal .modal-drag{ background:#cfcfcf; }
+
+/* ===================== LIGHT THEME — EDIT RECURRENCE MODAL ===================== */
+html[data-theme="light"] #editRecurrenceModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.80) 60%), rgba(255,255,255,0.80) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #editRecurrenceModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #editRecurrenceModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #editRecurrenceModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #editRecurrenceModal .modal-drag{ background:#cfcfcf; }
+
+/* Panel */
+html[data-theme="light"] #plannedModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.80) 60%), rgba(255,255,255,0.80) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #plannedModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #plannedModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #plannedModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #plannedModal .modal-drag{ background:#cfcfcf; }
+
+/* Headings and day labels */
+html[data-theme="light"] #plannedModal .subheader,
+html[data-theme="light"] #plannedModal .planned-date,
+html[data-theme="light"] #plannedModal .modal-content h3{ color:#111; text-shadow:none; }
+
+/* Cards: row visuals (already covered globally for .planned-list) + text colors */
+html[data-theme="light"] #plannedModal .planned-list > li .op-line{
+  background:#fff !important;
+  border:1px solid rgba(0,0,0,0.08) !important;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.08) !important;
+}
+/* Description and method */
+html[data-theme="light"] #plannedModal .planned-list > li .op-left span:not(.method){ color:#111 !important; }
+html[data-theme="light"] #plannedModal .planned-list > li .op-left .method{ color:#6b7280 !important; }
+/* When a checkbox is present, ensure the adjacent description text is dark too */
+html[data-theme="light"] #plannedModal .planned-list .op-left input.plan-check + span { color:#111 !important; }
+
+/* Checkbox style in light */
+html[data-theme="light"] #plannedModal .planned-list .op-left input.plan-check{
+  background:#fff;
+  border-color:#9ca3af;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+}
+html[data-theme="light"] #plannedModal .planned-list .op-left input.plan-check:checked{
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+/* Values: flat colors (override gradient text) */
+html[data-theme="light"] #plannedModal .planned-list .op-right .value{ color:#111; background:none; -webkit-text-fill-color: initial; font-weight:700; }
+html[data-theme="light"] #plannedModal .planned-list .op-right .value.negative{
+  background:none !important; -webkit-text-fill-color: initial !important; color:#dc2626 !important;
+}
+html[data-theme="light"] #plannedModal .planned-list .op-right .value.positive{
+  background:none !important; -webkit-text-fill-color: initial !important; color:#16a34a !important;
 }
 .floating-planned-button{right:90px;}
 .floating-card-button{right:20px;}
@@ -1629,6 +2635,11 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
 #cardModal .card-list li {
   margin-bottom: 12px;
 }
+#cardModal .card-list li {
+  /* ensure children (swipe actions / shadows) are clipped to rounded corners */
+  overflow: hidden;
+  border-radius: 12px; /* match .card-line radius */
+}
 #cardModal .card-list .swipe-wrapper {
   background: transparent !important;
   padding: 0 !important;
@@ -1636,6 +2647,11 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
 #cardModal .card-list .swipe-actions {
   /* keep actions hidden until swipe, no background here */
   background: transparent !important;
+}
+#cardModal .card-list .swipe-wrapper {
+  /* clip any absolutely positioned actions behind the card line */
+  overflow: hidden;
+  border-radius: 12px;
 }
 #cardModal .card-list .card-line {
   background: rgba(42, 44, 44, 0.8);
@@ -1838,7 +2854,41 @@ Opcional: atualizar o header da fatura para mostrar “total líquido” (total 
 #accordion .month-divider .s-meta .skeleton-pill{margin-left:auto;}
 #accordion .day-summary .skeleton-pill{margin-left:auto;}
 
+/* Light theme: use subtle gray shimmer instead of white (better contrast on light bg) */
+html[data-theme="light"] .skeleton{
+  background: linear-gradient(90deg,
+    rgba(0,0,0,0.14),
+    rgba(0,0,0,0.24),
+    rgba(0,0,0,0.14)
+  );
+}
+
+/* Light theme: ensure shimmer is visible inside month headers/meta (overrides earlier resets) */
+html[data-theme="light"] summary.month-divider .skeleton,
+html[data-theme="light"] summary.month-divider .skeleton-pill,
+html[data-theme="light"] summary.month-divider .s-meta .skeleton,
+html[data-theme="light"] summary.month-divider .s-meta .skeleton-pill,
+html[data-theme="light"] .month-meta .skeleton,
+html[data-theme="light"] .month-meta .skeleton-pill,
+html[data-theme="light"] summary.month-divider .meta-value .skeleton,
+html[data-theme="light"] .month-meta .meta-value .skeleton{
+  background: linear-gradient(90deg, rgba(0,0,0,0.14), rgba(0,0,0,0.24), rgba(0,0,0,0.14)) !important;
+  background-size: 200% 100% !important;
+  animation: skeletonShimmer 1.2s ease-in-out infinite !important;
+  color: transparent !important;
+  border-radius: 9999px !important;
+}
+
 /* Hide start-balance box only during skeleton boot */
 html.skeleton-boot #startGroup,
 html.skeleton-boot .start-container,
 html.skeleton-boot #dividerSaldo { display: none !important; }
+
+/* ===================== THEME VARIABLES ===================== */
+:root {
+  --op-left-color: #1e1e1e;
+}
+
+html[data-theme="dark"] {
+  --op-left-color: #ffffff;
+}

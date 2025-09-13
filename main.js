@@ -24,6 +24,17 @@ const confirmMoveYes   = document.getElementById('confirmMoveYes');
 const confirmMoveNo    = document.getElementById('confirmMoveNo');
 const closeConfirmMove = document.getElementById('closeConfirmMove');
 const confirmMoveText  = document.getElementById('confirmMoveText');
+// Settings modal – refs
+const settingsModalEl = document.getElementById('settingsModal');
+const toggleThemeBtn = document.getElementById('toggleThemeBtn');
+if (toggleThemeBtn) {
+  toggleThemeBtn.onclick = () => {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme');
+    html.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
+  };
+}
+const closeSettingsModalBtn = document.getElementById('closeSettingsModal');
 
 // Pay-invoice mode state
 let isPayInvoiceMode = false;
@@ -72,6 +83,101 @@ if (headerSeg) {
         headerSeg.dataset.selected = 'cards';
         openCardBtn.click();
       }
+    }
+  });
+}
+// ---------------- Settings (Ajustes) modal ----------------
+function escHtml(s){
+  return (s==null?"":String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+}
+function renderSettingsModal(){
+  if (!settingsModalEl) return;
+  const box = settingsModalEl.querySelector('.modal-content');
+  if (!box) return;
+  const u = (window.Auth && window.Auth.currentUser) ? window.Auth.currentUser : null;
+  const name  = u && u.displayName ? u.displayName : 'Usuário';
+  const email = u && u.email ? u.email : '';
+  const photo = u && u.photoURL ? u.photoURL : '';
+  box.innerHTML = `
+    <div class="settings-card">
+      <div class="settings-profile">
+        <div class="settings-avatar">
+          <img id="settingsAvatar" alt="" referrerpolicy="no-referrer" decoding="async" loading="lazy"/>
+        </div>
+        <div class="settings-names">
+          <div class="settings-name">${escHtml(name)}</div>
+          <div class="settings-sub">${escHtml(email)}</div>
+        </div>
+      </div>
+    </div>
+
+  <h2 class="settings-title" style="margin:18px 0 8px 0;font-size:1rem;font-weight:700;color:var(--txt-main);">Tema</h2>
+    <div class="settings-card settings-theme-card">
+      <div class="theme-row" id="themeButtons">
+        <button type="button" class="theme-btn" data-theme="light">Claro</button>
+        <button type="button" class="theme-btn" data-theme="dark">Escuro</button>
+        <button type="button" class="theme-btn" data-theme="system">Sistema</button>
+      </div>
+    </div>
+
+    <div class="settings-list">
+      <div class="settings-item danger">
+        <button type="button" id="logoutBtn" class="settings-cta">
+          <span class="settings-icon icon-logout"></span>
+          <span>Sair da conta</span>
+        </button>
+      </div>
+    </div>`;
+  const img = box.querySelector('#settingsAvatar');
+  if (img) {
+    if (photo) {
+      try { img.src = photo.replace(/=s\d+-c.*/, '=s128-c'); } catch(_) { img.src = photo; }
+    } else {
+      img.src = 'icons/icon-180x180.png';
+    }
+    img.onerror = () => { img.onerror = null; img.src = 'icons/icon-180x180.png'; };
+  }
+  const outBtn = box.querySelector('#logoutBtn');
+  if (outBtn) outBtn.onclick = async () => { try { await window.Auth?.signOut(); } catch(_) {} closeSettings(); };
+  // Theme buttons wiring
+  const themeButtons = box.querySelectorAll('.theme-btn');
+  if (themeButtons && themeButtons.length) {
+    const saved = localStorage.getItem('ui:theme') || 'system';
+    // helper to update visuals
+    function updateThemeButtons(active) {
+      themeButtons.forEach(b => {
+        const t = b.dataset.theme;
+        const isActive = t === active;
+        b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
+    // initialize visuals
+    updateThemeButtons(saved === 'system' ? 'system' : saved);
+    themeButtons.forEach(b => {
+      b.addEventListener('click', () => {
+        const v = b.dataset.theme;
+        localStorage.setItem('ui:theme', v);
+        applyThemePreference(v);
+        updateThemeButtons(v);
+      });
+    });
+  }
+}
+function openSettings(){ if (!settingsModalEl) return; renderSettingsModal(); document.documentElement.classList.add('modal-open'); settingsModalEl.classList.remove('hidden'); }
+function closeSettings(){ if (!settingsModalEl) return; settingsModalEl.classList.add('hidden'); document.documentElement.classList.remove('modal-open'); }
+if (closeSettingsModalBtn) closeSettingsModalBtn.addEventListener('click', closeSettings);
+if (settingsModalEl) settingsModalEl.addEventListener('click', (e)=>{ if (e.target === settingsModalEl) closeSettings(); });
+// React to auth state updates and keep the modal content fresh
+try { document.addEventListener('auth:state', renderSettingsModal); } catch(_) {}
+// Bottom floating pill actions
+const bottomPill = document.querySelector('.floating-pill');
+if (bottomPill) {
+  bottomPill.addEventListener('click', (e) => {
+    const btn = e.target.closest('.pill-option');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === 'settings') {
+      openSettings();
     }
   });
 }
@@ -181,14 +287,50 @@ if (plannedList) {
   mo.observe(plannedList, { childList: true, subtree: true });
 }
 
-import { openDB } from 'https://unpkg.com/idb?module';
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
+// ---------------- Theme helpers ----------------
+function getSystemPref() {
+  try {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  } catch (_) { return 'dark'; }
+}
 
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-auth.js";
+function applyThemePreference(pref) {
+  // pref: 'light' | 'dark' | 'system'
+  let resolved = pref === 'system' ? getSystemPref() : pref;
+  const root = document.documentElement;
+  if (resolved === 'light') {
+    root.classList.add('light');
+    root.setAttribute('data-theme', 'light');
+  } else {
+    root.classList.remove('light');
+    root.setAttribute('data-theme', 'dark');
+  }
+}
+
+function initThemeFromStorage(){
+  const saved = localStorage.getItem('ui:theme') || 'system';
+  applyThemePreference(saved);
+  // If system preference changes and user chose 'system', listen and update
+  try {
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    mq.addEventListener && mq.addEventListener('change', () => {
+      const current = localStorage.getItem('ui:theme') || 'system';
+      if (current === 'system') applyThemePreference('system');
+    });
+  } catch (_) {}
+}
+
+// Initialize theme early
+initThemeFromStorage();
+
+
+import { openDB } from 'https://unpkg.com/idb?module';
+import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-app.js";
+
 import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.3.1/firebase-database.js";
 
-// Configuração do Firebase de PRODUÇÃO (arquivo separado)
-import { firebaseConfig } from './firebase.prod.config.js';
+// Configuração do Firebase de TESTE (arquivo separado)
+import { firebaseConfig } from './firebase.test.config.js';
 
 // (Web Push removido)
 
@@ -293,16 +435,27 @@ document.addEventListener('click', (e) => {
 }, true);
 
 let PATH;
+// Casa compartilhada (PROD atual) e e‑mails que devem enxergar esta Casa
+const WID_CASA = 'orcamento365_9b8e04c5';
+const CASA_EMAILS = ['icmbelchior@gmail.com','sarargjesus@gmail.com'];
+function resolvePathForUser(user){
+  if (!user) return null;
+  const email = (user.email || '').toLowerCase();
+  if (CASA_EMAILS.includes(email)) return WID_CASA;
+  return `users/${user.uid}`;
+}
 
 // Flag for mocking data while working on UI.  
 // Switch to `false` to reconnect to production Firebase.
 const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.8(a8)';
+const APP_VERSION = '1.4.8(a21)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
   try {
-    if (!METRICS_ENABLED || USE_MOCK || !firebaseDb) return;
+    // Only log when DB ready and a workspace PATH is known (after auth)
+    if (!METRICS_ENABLED || USE_MOCK || !firebaseDb || !PATH) return;
+    if (window.Auth && !window.Auth.currentUser) return;
     const key = `${PATH}/metrics/${name}/${Date.now()}_${Math.random().toString(36).slice(2)}`;
     set(ref(firebaseDb, key), {
       ...payload,
@@ -323,15 +476,13 @@ let firebaseDb;
 if (!USE_MOCK) {
   // Seleciona config conforme ambiente
   const cfg = firebaseConfig;
-  const app  = initializeApp(cfg);
+  const app  = (getApps().length ? getApp() : initializeApp(cfg));
   const db   = getDatabase(app);
   firebaseDb = db;
 
-  // Mesmo caminho de DB para ambos os ambientes
-  PATH = 'orcamento365_9b8e04c5';
+  // PATH será definido após o login (Casa para e‑mails definidos; pessoal para demais)
 
-  const auth = getAuth(app);
-  await signInAnonymously(auth);
+  // Auth is required; handled by auth.js (Google). No anonymous sign-in.
 
   // Wrapper: save marks as dirty and updates cache if offline
   save = async (k, v) => {
@@ -478,8 +629,8 @@ async function flushQueue() {
 
 
 // Load transactions/cards/balance: now with realtime listeners if not USE_MOCK
-let transactions;
-let cards;
+let transactions = [];
+let cards = [{ name:'Dinheiro', close:0, due:0 }];
 let startBalance;
 const $=id=>document.getElementById(id);
 const tbody=document.querySelector('#dailyTable tbody');
@@ -574,10 +725,12 @@ function buildSaveToast(tx) {
 // ---------------------------------------------------------------------------
 
 if (!USE_MOCK) {
-  // Live listeners (Realtime DB)
-  const txRef    = ref(firebaseDb, `${PATH}/tx`);
-  const cardsRef = ref(firebaseDb, `${PATH}/cards`);
-  const balRef   = ref(firebaseDb, `${PATH}/startBal`);
+  // Start realtime listeners only after user is authenticated
+  const startRealtime = () => {
+    // Live listeners (Realtime DB)
+    const txRef    = ref(firebaseDb, `${PATH}/tx`);
+    const cardsRef = ref(firebaseDb, `${PATH}/cards`);
+    const balRef   = ref(firebaseDb, `${PATH}/startBal`);
 
   // initialize from cache first for instant UI
   transactions = cacheGet('tx', []);
@@ -649,7 +802,7 @@ if (!USE_MOCK) {
       renderPlannedModal();
       fixPlannedAlignment();
       expandPlannedDayLabels();
-}
+    }
   });
 
   // Listen for card changes
@@ -677,6 +830,17 @@ if (!USE_MOCK) {
     initStart();
     renderTable();
   });
+  };
+
+  const readyUser = (window.Auth && window.Auth.currentUser) ? window.Auth.currentUser : null;
+  if (readyUser) { PATH = resolvePathForUser(readyUser); startRealtime(); }
+  else {
+    const h = (e) => {
+      const u = e.detail && e.detail.user;
+      if (u) { document.removeEventListener('auth:state', h); PATH = resolvePathForUser(u); startRealtime(); }
+    };
+    document.addEventListener('auth:state', h);
+  }
 } else {
   // Fallback (mock) — carrega uma vez
   const [liveTx, liveCards, liveBal] = await Promise.all([
@@ -848,6 +1012,8 @@ if (txModal) {
 }
 // Botão Home: centraliza o dia atual, mantendo-o colapsado
 const homeBtn = document.getElementById('scrollTodayBtn');
+//const settingsModalEl = document.getElementById('settingsModal');
+const closeSettingsModal = document.getElementById('closeSettingsModal');
 function scrollTodayIntoView() {
   try {
     const iso = todayISO();
@@ -892,6 +1058,108 @@ function scrollTodayIntoView() {
   } catch (_) {}
 }
 if (homeBtn) homeBtn.addEventListener('click', scrollTodayIntoView);
+
+// Bottom pill: Home/Ajustes
+(function setupBottomPill(){
+  const pill = document.querySelector('.floating-pill');
+  if (!pill) return;
+  const highlight = pill.querySelector('.pill-highlight');
+  const options = pill.querySelectorAll('.pill-option');
+  const setSelected = (key) => {
+    pill.dataset.selected = key;
+    options.forEach(b => b.setAttribute('aria-selected', b.dataset.action === key ? 'true' : 'false'));
+  };
+  const updateHighlight = () => {
+    const sel = pill.querySelector('.pill-option[aria-selected="true"]');
+    if (!sel || !highlight) return;
+    const pr = pill.getBoundingClientRect();
+    const sr = sel.getBoundingClientRect();
+    const x = sr.left - pr.left - 6; // 6px padding left
+    highlight.style.transform = `translateX(${Math.max(0,x)}px)`;
+    highlight.style.width = `${sr.width}px`;
+  };
+  options.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      setSelected(action); updateHighlight();
+      if (action === 'home') {
+        scrollTodayIntoView();
+      } else if (action === 'settings') {
+        // Use openSettings() which renders the theme selector (renderSettingsModal)
+        openSettings();
+        updateModalOpenState();
+      }
+    });
+  });
+  window.addEventListener('resize', updateHighlight);
+  setTimeout(updateHighlight, 60);
+})();
+
+// Settings modal close handlers
+if (closeSettingsModal) closeSettingsModal.onclick = () => { settingsModalEl.classList.add('hidden'); updateModalOpenState(); };
+if (settingsModalEl) settingsModalEl.onclick = (e) => { if (e.target === settingsModalEl) { settingsModalEl.classList.add('hidden'); updateModalOpenState(); } };
+
+// ---------- Settings modal rendering ----------
+function getProfileFromAuth() {
+  try {
+    const u = window.Auth && window.Auth.currentUser;
+    if (!u) return null;
+    return { name: u.displayName || '', email: u.email || '', photo: u.photoURL || '' };
+  } catch { return null; }
+}
+
+function persistProfile(p) { try { cacheSet('profile', p); } catch {} }
+function loadCachedProfile() { try { return cacheGet('profile', null); } catch { return null; } }
+
+function renderSettings() {
+  if (!settingsModalEl) return;
+  const box = settingsModalEl.querySelector('.modal-content');
+  if (!box) return;
+  // Get profile (auth → cache; fallback cache)
+  let prof = getProfileFromAuth();
+  if (prof && prof.email) persistProfile(prof);
+  if (!prof) prof = loadCachedProfile() || { name:'', email:'', photo:'' };
+
+  // Build profile card
+  const avatarImg = prof.photo ? `<img src="${prof.photo}" alt="Avatar"/>` : '';
+  const sub = prof.email || '';
+  const cardHTML = `
+    <div class="settings-card">
+      <div class="settings-profile">
+        <div class="settings-avatar">${avatarImg}</div>
+        <div class="settings-names">
+          <div class="settings-name">${(prof.name||'')}</div>
+          <div class="settings-sub">${sub}</div>
+        </div>
+      </div>
+    </div>`;
+  const listHTML = `
+    <div class="settings-list">
+      <div class="settings-item danger">
+        <button id="logoutBtn" class="settings-cta">
+          <span class="settings-icon icon-logout"></span>
+          <span>Sair da conta</span>
+        </button>
+        <span class="right"></span>
+      </div>
+    </div>`;
+  box.innerHTML = cardHTML + listHTML;
+  const btn = box.querySelector('#logoutBtn');
+  if (btn) btn.onclick = async () => {
+    try { await (window.Auth && window.Auth.signOut ? window.Auth.signOut() : Promise.resolve()); }
+    catch (_) {}
+    // Clear local state minimal
+    try { cacheSet('profile', null); } catch {}
+    settingsModalEl.classList.add('hidden');
+    updateModalOpenState();
+    // UI overlay de login aparece via auth state
+  };
+}
+
+// Re-render settings when auth user changes (to keep profile fresh)
+document.addEventListener('auth:state', () => {
+  try { renderSettings(); } catch {}
+});
 // (Web Push removido)
 // Block background scrolling via touch/wheel sempre que houver um modal aberto
 function anyModalOpen(){ return !!document.querySelector('.bottom-modal:not(.hidden)'); }
@@ -1395,7 +1663,12 @@ const openCardBtn=document.getElementById('openCardModal');
 const cardModal=document.getElementById('cardModal');
 const closeCardModal=document.getElementById('closeCardModal');
 
-function refreshMethods(){met.innerHTML='';cards.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.name;met.appendChild(o);});}
+function refreshMethods(){
+  if (!met) return;
+  met.innerHTML='';
+  const list = Array.isArray(cards) && cards.length ? cards : [{name:'Dinheiro',close:0,due:0}];
+  list.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.name;met.appendChild(o);});
+}
 // --- Card List Rendering (Refatorado) ---
 function createCardSwipeActions(card) {
   const actions = document.createElement('div');
@@ -1469,25 +1742,30 @@ function createCardSwipeActions(card) {
 function createCardContent(card) {
   const content = document.createElement('div');
   content.className = 'card-content card-line';
+  // Desired layout:
+  // [centered] Card name
+  // [calendar icon] Fechamento          DD
+  // [clock icon]    Vencimento         DD
+  // SVGs use currentColor so they render in black/white depending on CSS.
   content.innerHTML = `
-    <b>${card.name}</b>
-    <div class="card-detail">
-      <span class="card-icon">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+    <div class="card-name" style="text-align:center;margin:6px 0; font-weight:700">${escHtml(card.name)}</div>
+    <div class="card-detail" style="display:flex;align-items:center;gap:8px;padding:4px 0;color:currentColor">
+      <span class="card-icon" style="width:20px;display:inline-flex;align-items:center;color:currentColor">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden>
           <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1 .9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1 -.9-2-2-2zm0 16H5V9h14v11z"/>
         </svg>
       </span>
-      <span class="card-label">Fechamento</span>
-      <span class="card-value">${card.close}</span>
+      <span class="card-label" style="flex:0 0 auto">Fechamento</span>
+      <span class="card-value" style="margin-left:auto;font-weight:600">${escHtml(String(card.close))}</span>
     </div>
-    <div class="card-detail">
-      <span class="card-icon">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">
+    <div class="card-detail" style="display:flex;align-items:center;gap:8px;padding:4px 0;color:currentColor">
+      <span class="card-icon" style="width:20px;display:inline-flex;align-items:center;color:currentColor">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden>
           <path d="M12 20c4.41 0 8-3.59 8-8s-3.59-8 -8-8 -8 3.59 -8 8 3.59 8 8 8zm0-14c3.31 0 6 2.69 6 6s-2.69 6 -6 6 -6-2.69 -6-6 2.69-6 6-6zm.5 3H11v5l4.25 2.52 .75-1.23 -3.5-2.04V9z"/>
         </svg>
       </span>
-      <span class="card-label">Vencimento</span>
-      <span class="card-value">${card.due}</span>
+      <span class="card-label" style="flex:0 0 auto">Vencimento</span>
+      <span class="card-value" style="margin-left:auto;font-weight:600">${escHtml(String(card.due))}</span>
     </div>
   `;
   return content;
@@ -1508,21 +1786,36 @@ function createCardListItem(card) {
 }
 
 function renderCardList() {
-  cardList.innerHTML = '';
-  cards
-    .filter(card => card.name !== 'Dinheiro')
-    .forEach(card => {
+  // Resolve list element at call time in case modal DOM is created later.
+  let ul = document.getElementById('cardList') || cardList || null;
+  if (!ul && cardModal) ul = cardModal.querySelector('#cardList');
+  if (!ul) return; // no DOM to render into yet
+
+  try { console.debug && console.debug('renderCardList called, ul=', ul, 'cardsCount=', (cards||[]).length); } catch(_) {}
+
+  ul.innerHTML = '';
+  const visibleCards = cards.filter(card => card.name !== 'Dinheiro');
+  if (!visibleCards.length) {
+    // Show a clear empty state so it's obvious the list is empty (data issue)
+    const emptyLi = document.createElement('li');
+    emptyLi.className = 'card-empty';
+    emptyLi.textContent = 'Nenhum cartão cadastrado';
+    ul.appendChild(emptyLi);
+  } else {
+    visibleCards.forEach(card => {
       const li = createCardListItem(card);
-      cardList.appendChild(li);
+      ul.appendChild(li);
     });
-  // swipe-init for cards is now handled via initSwipe at the end of the file.
+  }
+  // Ensure swipe is initialized for this root (safe guard)
+  try { if (ul) initSwipe(ul, '.swipe-wrapper', '.swipe-actions', '.card-line', 'cardsSwipeInit'); } catch (_) {}
 }
 // Helper: returns true if this record is a detached (single‑edited) occurrence
 function isDetachedOccurrence(tx) {
   return !tx.recurrence && !!tx.parentId;
 }
 
-function makeLine(tx, disableSwipe = false) {
+function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
   // Create swipe wrapper
   const wrap = document.createElement('div');
   wrap.className = 'swipe-wrapper';
@@ -1751,14 +2044,24 @@ function makeLine(tx, disableSwipe = false) {
   const [y, mo, da] = tx.opDate.split('-').map(Number);
   const dateObj = new Date(y, mo - 1, da);
   const dateStr = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-  const methodLabel = tx.method === 'Dinheiro' ? 'Dinheiro' : `Cartão ${tx.method}`;
+  
+  // Melhor indicação visual para operações de cartão
+  let methodLabel = tx.method === 'Dinheiro' ? 'Dinheiro' : `Cartão ${tx.method}`;
+  
+  // Para operações de cartão executadas, indica que também vai para a fatura
+  // MAS APENAS quando NÃO estamos dentro da própria fatura
+  if (tx.method !== 'Dinheiro' && !tx.planned && tx.postDate !== tx.opDate && !isInvoiceContext) {
+    const [, pmm, pdd] = tx.postDate.split('-');
+    methodLabel += ` → Fatura ${pdd}/${pmm}`;
+  }
+  
   if (tx.planned) {
     ts.textContent = `${dateStr} - ${methodLabel}`;
   } else if (tx.opDate === todayISO()) {
     const timeStr = new Date(tx.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
-    ts.textContent = timeStr;
+    ts.textContent = `${timeStr} - ${methodLabel}`;
   } else {
-    ts.textContent = dateStr;
+    ts.textContent = `${dateStr} - ${methodLabel}`;
   }
   d.appendChild(ts);
 
@@ -2346,6 +2649,10 @@ deleteSingleBtn.onclick = () => {
   if (master) {
     master.exceptions = master.exceptions || [];
     if (!master.exceptions.includes(iso)) master.exceptions.push(iso);
+    // Remove any materialized child occurrence for this exact date
+    // This covers cases where the occurrence was previously edited/created
+    // as a standalone item (with parentId) and would otherwise remain visible.
+    transactions = transactions.filter(x => !(x.parentId === master.id && x.opDate === iso));
     showToast('Ocorrência excluída!', 'success');
   } else {
     // fallback: not a recurrence → hard delete
@@ -2509,8 +2816,11 @@ document.addEventListener('click', (e) => {
 
 function renderTable() {
   clearTableContent();
+  const acc = document.getElementById('accordion');
+  if (acc) acc.dataset.state = 'skeleton';
   const groups = groupTransactionsByMonth();
   renderTransactionGroups(groups);
+  if (acc) delete acc.dataset.state;
 }
 
 // Defensive render: avoids silent failures leaving the UI empty
@@ -2570,6 +2880,8 @@ function renderAccordion() {
   const acc = document.getElementById('accordion');
   if (!acc) return;
   const hydrating = acc.dataset && acc.dataset.state === 'skeleton';
+  const noDataYet = (startBalance == null) && (!Array.isArray(transactions) || transactions.length === 0);
+  const keepSkeleton = hydrating || noDataYet; // keep shimmer if still no data
   // Salva quais <details> estão abertos
   const openKeys = Array.from(acc.querySelectorAll('details[open]'))
                         .map(d => d.dataset.key || '');
@@ -2577,7 +2889,7 @@ function renderAccordion() {
   const openInvoices = Array.from(
     acc.querySelectorAll('details.invoice[open]')
   ).map(d => d.dataset.pd);
-  if (!hydrating) acc.innerHTML = '';
+  if (!keepSkeleton) acc.innerHTML = '';
 
   const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const currency = v => v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
@@ -2614,8 +2926,9 @@ function renderAccordion() {
       note = `<small class="note">Restante - R$ ${remaining.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</small>`;
     }
 
+    // Usa hífen simples para coincidir com a expectativa do usuário: "Fatura - Nome do Cartão"
     invSum.innerHTML = `
-      <span class="invoice-label">Fatura – ${cardName}</span>
+      <span class="invoice-label">Fatura - ${cardName}</span>
       <span class="invoice-total"><span class="amount${struck ? ' struck' : ''}">${formattedTotal}</span>${note}</span>
     `;
     return invSum;
@@ -2697,7 +3010,8 @@ function renderAccordion() {
         // planejada → aparece no dia lançado (opDate)
         list.push(t);
       } else {
-        // executada → NÃO aparece no dia; vai só para a fatura (postDate)
+        // executada → aparece no dia do lançamento E também na fatura (dupla visibilidade)
+        list.push(t);
       }
     } else {
       // DINHEIRO → aparece sempre no opDate (planejada ou executada)
@@ -2726,7 +3040,14 @@ function renderAccordion() {
             recurrence: ''
           });
         } else {
-          // executada → NÃO aparece no dia; vai só para a fatura no postDate
+          // executada → aparece no dia do lançamento E também na fatura (dupla visibilidade)
+          list.push({
+            ...master,
+            opDate: iso,
+            postDate: pd,
+            planned: false,
+            recurrence: ''
+          });
         }
       } else {
       // DINHEIRO recorrente → sempre aparece no opDate (planejada/executada)
@@ -2755,7 +3076,7 @@ function renderAccordion() {
     const nomeMes = new Date(2025, mIdx).toLocaleDateString('pt-BR', { month: 'long' });
     // Build or reuse month container
     let mDet;
-    if (hydrating) {
+    if (keepSkeleton) {
       mDet = acc.querySelector(`details.month[data-key="m-${mIdx}"]`) || document.createElement('details');
       mDet.className = 'month';
       mDet.dataset.key = `m-${mIdx}`;
@@ -2769,15 +3090,22 @@ function renderAccordion() {
         mSum.className = 'month-divider';
         mDet.prepend(mSum);
       }
-      // Update header content (month name; meta updated later)
-      mSum.innerHTML = `
-        <div class="month-row">
-          <span class="month-name">${nomeMes.toUpperCase()}</span>
-        </div>
-        <div class="month-meta">
-          <span class="meta-label"></span>
-          <span class="meta-value"></span>
-        </div>`;
+      // Update month name without clobbering any pre-seeded skeleton pill
+      const hadSkeleton = !!mSum.querySelector('.skeleton');
+      if (noDataYet && hadSkeleton) {
+        const nameEl = mSum.querySelector('.month-name');
+        if (nameEl) nameEl.textContent = nomeMes.toUpperCase();
+      } else {
+        // Build minimal structure (values filled later below)
+        mSum.innerHTML = `
+          <div class="month-row">
+            <span class="month-name">${nomeMes.toUpperCase()}</span>
+          </div>
+          <div class="month-meta">
+            <span class="meta-label"></span>
+            <span class="meta-value"></span>
+          </div>`;
+      }
     } else {
       mDet = document.createElement('details');
       mDet.className = 'month';
@@ -2821,14 +3149,17 @@ function renderAccordion() {
       metaValue = currency(monthActual + monthPlanned);
     }
 
-    mSum.innerHTML = `
-      <div class="month-row">
-        <span class="month-name">${nomeMes.toUpperCase()}</span>
-      </div>
-      <div class="month-meta">
-        <span class="meta-label">${metaLabel}</span>
-        <span class="meta-value">${metaValue}</span>
-      </div>`;
+    // Only render values when we actually have some data
+    if (!noDataYet) {
+      mSum.innerHTML = `
+        <div class="month-row">
+          <span class="month-name">${nomeMes.toUpperCase()}</span>
+        </div>
+        <div class="month-meta">
+          <span class="meta-label">${metaLabel}</span>
+          <span class="meta-value">${metaValue}</span>
+        </div>`;
+    }
 
     if (!hydrating) mDet.appendChild(mSum);
 
@@ -2927,7 +3258,7 @@ const dayTotal = cashImpact + cardImpact;
       if (iso === today) dDet.classList.add('today');
       let dSum = dDet.querySelector('summary.day-summary');
       if (!dSum) { dSum = document.createElement('summary'); dSum.className = 'day-summary'; }
-      const saldoFormatado = runningBalance < 0
+  const saldoFormatado = runningBalance < 0
         ? `R$ -${Math.abs(runningBalance).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
         : `R$ ${runningBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
       const baseLabel = `${String(d).padStart(2,'0')} - ${dow.charAt(0).toUpperCase() + dow.slice(1)}`;
@@ -2941,10 +3272,16 @@ const dayTotal = cashImpact + cardImpact;
       if (hasSalary)  labelParts.push('<span class="icon-salary"></span>');
 
       const labelWithDue = labelParts.join('');
-      dSum.innerHTML = `<span>${labelWithDue}</span><span class="day-balance" style="margin-left:auto">${saldoFormatado}</span>`;
+  dSum.innerHTML = `<span>${labelWithDue}</span><span class="day-balance" style="margin-left:auto">${noDataYet ? '' : saldoFormatado}</span>`;
       if (runningBalance < 0) dDet.classList.add('negative');
       // Replace or append summary
       if (!hydrating) dDet.appendChild(dSum); else if (!dDet.contains(dSum)) dDet.prepend(dSum);
+
+      // In hydration mode, clear dynamic day sections to avoid duplication across renders
+      if (hydrating) {
+        (dDet.querySelectorAll && dDet.querySelectorAll('.planned-cash, .executed-cash'))
+          .forEach(n => n.remove());
+      }
 
       // Seção de planejados (apenas se houver planejados)
       const plannedOps = dayTx
@@ -2955,11 +3292,39 @@ const dayTotal = cashImpact + cardImpact;
           return (a.ts || '').localeCompare(b.ts || '');
         });
 
-      // === INVOICE UI (vencendo hoje) ===
-      // Remove restos de render anteriores
-      if (!hydrating) { (dDet.querySelectorAll && dDet.querySelectorAll('details.invoice').forEach(n => n.remove())); }
+  // === INVOICE UI (vencendo hoje) ===
+  // Sempre remover restos anteriores (mesmo em hydrating) para evitar duplicação
+  // Limpeza mais robusta das faturas antigas
+  try {
+    const existingInvoices = dDet.querySelectorAll('details.invoice');
+    existingInvoices.forEach(n => {
+      if (n && n.parentNode) {
+        n.parentNode.removeChild(n);
+      }
+    });
+  } catch (e) {
+    // Fallback: remove todos os filhos details que tenham classe invoice
+    const children = Array.from(dDet.children || []);
+    children.forEach(child => {
+      if (child.tagName === 'DETAILS' && child.classList && child.classList.contains('invoice')) {
+        try { child.remove(); } catch (ex) {}
+      }
+    });
+  }
 
-      if (!hydrating) Object.keys(invoicesByCard).forEach(cardName => {
+  // Renderiza sempre (também em hydrating) para garantir que o header apareça já no primeiro paint
+  // Track de faturas já criadas para este dia para evitar duplicação
+  const createdInvoicesForDay = new Set();
+  
+  Object.keys(invoicesByCard).forEach(cardName => {
+        // Verifica se já foi criada uma fatura para este cartão neste dia
+        const invoiceKey = `${cardName}_${iso}`;
+        if (createdInvoicesForDay.has(invoiceKey)) {
+          console.warn(`⚠️ Tentativa de criar fatura duplicada para ${cardName} em ${iso} - ignorando`);
+          return; // pula esta iteração
+        }
+        createdInvoicesForDay.add(invoiceKey);
+        
         const det = document.createElement('details');
         det.className = 'invoice swipe-wrapper';
         det.dataset.pd = iso; // YYYY-MM-DD (vencimento)
@@ -2969,6 +3334,11 @@ const dayTotal = cashImpact + cardImpact;
         // Cabeçalho padrão da fatura
         const invHeader = createCardInvoiceHeader(cardName, invoiceTotals[cardName] || 0, iso);
         det.appendChild(invHeader);
+        
+        // Log de debug para monitorar criação de faturas
+        if (typeof console !== 'undefined' && console.debug) {
+          console.debug(`📋 Fatura criada: ${cardName} em ${iso} com ${invoicesByCard[cardName].length} transações`);
+        }
 
         // Ações do swipe como irmã de <details>, para não serem ocultadas quando colapsado
         const headerActions = document.createElement('div');
@@ -3011,7 +3381,7 @@ const dayTotal = cashImpact + cardImpact;
         // Itens da fatura (apenas visual; o saldo usa somente o total)
         invoicesByCard[cardName]
           .filter(t => !t.planned)
-          .forEach(t => det.appendChild(makeLine(t)));
+          .forEach(t => det.appendChild(makeLine(t, false, true)));
         dDet.appendChild(det);
       });
       if (plannedOps.length) {
@@ -3035,29 +3405,30 @@ const dayTotal = cashImpact + cardImpact;
       }
 
 
-      // Seção de executados em dinheiro (apenas se houver)
-      const cashExec = dayTx.filter(t => t.method.toLowerCase() === 'dinheiro' && !t.planned);
-      if (cashExec.length) {
-        const executedCash = document.createElement('div');
-        executedCash.className = 'executed-cash';
+      // Seção de executados (dinheiro E cartão)
+      const allExec = dayTx.filter(t => !t.planned);
+      if (allExec.length) {
+        const executedSection = document.createElement('div');
+        executedSection.className = 'executed-cash';
         const execHeader = document.createElement('div');
         execHeader.className = 'executed-header';
         execHeader.textContent = 'Executados:';
-        executedCash.appendChild(execHeader);
+        executedSection.appendChild(execHeader);
         const execList = document.createElement('ul');
         execList.className = 'executed-list';
 
-        cashExec.forEach(t => {
+        allExec.forEach(t => {
           const li = document.createElement('li');
           li.appendChild(makeLine(t));
           execList.appendChild(li);
         });
 
-        executedCash.appendChild(execList);
-        dDet.appendChild(executedCash);
+        executedSection.appendChild(execList);
+        dDet.appendChild(executedSection);
       }
 
-      mDet.appendChild(dDet);
+  // Avoid re-appending existing day nodes during hydration (prevents reordering/reflow)
+  if (!hydrating || !dDet.parentElement) mDet.appendChild(dDet);
     }
 
 // --- Atualiza o preview do mês com base no último dia visível ---
@@ -3067,8 +3438,10 @@ const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado'
     // Atualiza o summary do mês (cabeçalho do accordion)
     const labelEl = mSum.querySelector('.meta-label');
     const valueEl = mSum.querySelector('.meta-value');
-    if (labelEl) labelEl.textContent = headerPreviewLabel + ':';
-    if (valueEl) valueEl.textContent = currency(monthEndBalanceForHeader);
+    if (!noDataYet) {
+      if (labelEl) labelEl.textContent = headerPreviewLabel + ':';
+      if (valueEl) valueEl.textContent = currency(monthEndBalanceForHeader);
+    }
 
     // (month summary já foi adicionado no topo; não adicionar novamente)
     if (!hydrating || !mDet.parentElement) acc.appendChild(mDet);
@@ -3081,7 +3454,7 @@ const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado'
       metaLine = document.createElement('div');
       metaLine.className = 'month-meta';
     }
-    metaLine.innerHTML = `<span>| ${previewLabel}</span><strong>${currency(monthEndBalanceForHeader)}</strong>`;
+  metaLine.innerHTML = noDataYet ? '' : `<span>| ${previewLabel}</span><strong>${currency(monthEndBalanceForHeader)}</strong>`;
     // Clique em "Saldo final" também expande/colapsa o mês
     metaLine.addEventListener('click', () => {
       mDet.open = !mDet.open;
@@ -3089,7 +3462,7 @@ const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado'
 
     // Se o mês estiver fechado (collapsed), exibe metaLine abaixo de mDet
     if (!mDet.open) {
-      if (!isMetaLine(mDet.nextSibling)) acc.appendChild(metaLine);
+      if (!noDataYet && !isMetaLine(mDet.nextSibling)) acc.appendChild(metaLine);
     } else {
       // se estiver aberto, garanta que a linha meta não fique sobrando
       if (isMetaLine(mDet.nextSibling)) acc.removeChild(mDet.nextSibling);
@@ -3147,7 +3520,7 @@ setStartBtn.addEventListener('click', () => {
 });
 
 addCardBtn.onclick=addCard;addBtn.onclick=addTx;
-openCardBtn.onclick = () => { cardModal.classList.remove('hidden'); updateModalOpenState(); };
+openCardBtn.onclick = () => { cardModal.classList.remove('hidden'); updateModalOpenState(); setTimeout(() => { try { renderCardList(); } catch(_) {} }, 0); };
 closeCardModal.onclick = () => { cardModal.classList.add('hidden'); updateModalOpenState(); };
 cardModal.onclick = e => { if (e.target === cardModal) { cardModal.classList.add('hidden'); updateModalOpenState(); } };
 
@@ -3218,38 +3591,42 @@ cardModal.onclick = e => { if (e.target === cardModal) { cardModal.classList.add
     updateEndSpacer();
   } catch (_) {}
 
-  const [liveTx, liveCards, liveBal] = await Promise.all([
-    load('tx', []),
-    load('cards', cards),
-    load('startBal', startBalance)
-  ]);
+  if (typeof PATH === 'string') {
+    try {
+      const [liveTx, liveCards, liveBal] = await Promise.all([
+        load('tx', []),
+        load('cards', cards),
+        load('startBal', startBalance)
+      ]);
 
-  const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
-  const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
+      const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
+      const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
 
-  // Converte objeto → array se necessário
-  const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
+      // Converte objeto → array se necessário
+      const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
 
-  if (hasLiveTx) {
-    // Sanitize and persist if needed (one-time migration path on boot)
-    const s = sanitizeTransactions(fixedTx);
-    if (JSON.stringify(s.list) !== JSON.stringify(transactions)) {
-      transactions = s.list;
-      cacheSet('tx', transactions);
-      if (s.changed) { try { save('tx', transactions); } catch (_) {} }
-      renderTable();
-    }
-  }
-  if (hasLiveCards && JSON.stringify(liveCards) !== JSON.stringify(cards)) {
-    cards = liveCards;
-    if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
-    cacheSet('cards', cards);
-    refreshMethods(); renderCardList(); renderTable();
-  }
-  if (liveBal !== startBalance) {
-    startBalance = liveBal;
-    cacheSet('startBal', startBalance);
-    initStart(); renderTable();
+      if (hasLiveTx) {
+        // Sanitize and persist if needed (one-time migration path on boot)
+        const s = sanitizeTransactions(fixedTx);
+        if (JSON.stringify(s.list) !== JSON.stringify(transactions)) {
+          transactions = s.list;
+          cacheSet('tx', transactions);
+          if (s.changed) { try { save('tx', transactions); } catch (_) {} }
+          renderTable();
+        }
+      }
+      if (hasLiveCards && JSON.stringify(liveCards) !== JSON.stringify(cards)) {
+        cards = liveCards;
+        if(!cards.some(c=>c.name==='Dinheiro'))cards.unshift({name:'Dinheiro',close:0,due:0});
+        cacheSet('cards', cards);
+        refreshMethods(); renderCardList(); renderTable();
+      }
+      if (liveBal !== startBalance) {
+        startBalance = liveBal;
+        cacheSet('startBal', startBalance);
+        initStart(); renderTable();
+      }
+    } catch (_) { /* ignore boot fetch when not logged yet */ }
   }
   // exibe versão
   const verEl = document.getElementById('version');
@@ -3283,18 +3660,25 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
     return banner;
   }
 
-  navigator.serviceWorker.register('sw.js').then(reg => {
-    // Reload once when the new SW takes control
-    let refreshing = false;
+  navigator.serviceWorker.register('sw.js?v=1.4.8(a19)').then(reg => {
+    // Only reload when user explicitly accepts the update
+    let requestedUpdate = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
+      if (!requestedUpdate) return;
+      try { window.location.reload(); } catch (_) {}
     });
+
+    const promptUpdate = (postMsgTarget) => {
+      const banner = showUpdateBanner(() => {
+        requestedUpdate = true;
+        try { postMsgTarget && postMsgTarget.postMessage({ type: 'SKIP_WAITING' }); } catch (_) {}
+      });
+      return banner;
+    };
 
     // If an update is already waiting, show prompt
     if (reg.waiting) {
-      showUpdateBanner(() => reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }));
+      promptUpdate(reg.waiting);
     }
 
     // Detect updates while the page is open
@@ -3304,7 +3688,7 @@ if (!USE_MOCK && 'serviceWorker' in navigator) {
       sw.addEventListener('statechange', () => {
         if (sw.state === 'installed' && navigator.serviceWorker.controller) {
           // New version ready → let user choose when to update
-          showUpdateBanner(() => sw.postMessage({ type: 'SKIP_WAITING' }));
+          promptUpdate(sw);
         }
       });
     });
@@ -3356,6 +3740,11 @@ function preparePlannedList() {
       const iso = typeof formatToISO === 'function' ? formatToISO(d) : d.toISOString().slice(0,10);
       if (!occursOn(master, iso)) continue;
 
+      // Respect explicit exceptions on the master rule
+      if (master.exceptions && Array.isArray(master.exceptions) && master.exceptions.includes(iso)) continue;
+      // Respect recurrenceEnd: occurrences on or after recurrenceEnd should not be projected
+      if (master.recurrenceEnd && iso >= master.recurrenceEnd) continue;
+
       // evita duplicata se já houver planejado nesse dia
       const dup = (plannedByDate[iso] || []).some(t =>
         (t.parentId && t.parentId === master.id) ||
@@ -3363,6 +3752,17 @@ function preparePlannedList() {
          Math.abs(Number(t.val||0))===Math.abs(Number(master.val||0)))
       );
       if (dup) continue;
+
+      // If there is already a recorded transaction (planned or executed) for this date
+      // that matches this master (by parentId or desc/method/val), skip projection.
+      const exists = transactions.some(t =>
+        t && t.opDate === iso && (
+          (t.parentId && t.parentId === master.id) ||
+          ((t.desc||'')===(master.desc||'') && (t.method||'')===(master.method||'') &&
+           Math.abs(Number(t.val||0))===Math.abs(Number(master.val||0)))
+        )
+      );
+      if (exists) continue;
 
       add({
         ...master,
@@ -3417,7 +3817,7 @@ if (!window.plannedHandlersInit) {
 }
 // Initialize swipe for operations (op-line)
 initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.op-line', 'opsSwipeInit');
-// Initialize swipe for card list (card-line)
-initSwipe(cardList,      '.swipe-wrapper', '.swipe-actions', '.card-line', 'cardsSwipeInit');
+// Initialize swipe for card list (card-line) only if the list root exists
+if (cardList) initSwipe(cardList, '.swipe-wrapper', '.swipe-actions', '.card-line', 'cardsSwipeInit');
 // Initialize swipe for invoice headers (summary)
 initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.invoice-header-line', 'invoiceSwipeInit');
