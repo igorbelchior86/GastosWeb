@@ -82,6 +82,33 @@ function hookAuth() {
   const update = (user) => {
     console.log('LoginView: Auth state update -', user ? user.email : 'signed out');
     
+    // iOS PWA: Don't immediately show login if we're checking for redirect result
+    const ua = navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua);
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
+    
+    if (isIOS && standalone && (!user || user.isAnonymous)) {
+      const wasRedirectLogin = (() => {
+        try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
+      })();
+      
+      // Also check if auth is currently checking for redirect
+      const isCheckingRedirect = window.Auth && window.Auth.isCheckingRedirect;
+      
+      if (wasRedirectLogin || isCheckingRedirect) {
+        console.log('LoginView: Waiting for redirect result, delaying login show...');
+        // Give more time for redirect to complete before showing login
+        setTimeout(() => {
+          const currentUser = window.Auth && window.Auth.currentUser;
+          if (!currentUser || currentUser.isAnonymous) {
+            console.log('LoginView: Redirect wait timeout, showing login');
+            show();
+          }
+        }, 2000);
+        return; // Don't show login immediately
+      }
+    }
+    
     if (!user || user.isAnonymous) {
       show();
     } else {

@@ -113,14 +113,17 @@ async function completeRedirectIfAny() {
 let redirectPromise = null;
 let redirectCheckCount = 0;
 const MAX_REDIRECT_CHECKS = 5;
+let isCheckingRedirect = false;
 
 async function checkRedirectWithRetry() {
+  isCheckingRedirect = true;
   redirectCheckCount++;
   console.log(`iOS PWA: Redirect check attempt ${redirectCheckCount}/${MAX_REDIRECT_CHECKS}`);
   
   const result = await completeRedirectIfAny();
   if (result && result.user) {
     console.log('iOS PWA: Redirect successful on attempt', redirectCheckCount);
+    isCheckingRedirect = false;
     return result;
   }
   
@@ -129,6 +132,7 @@ async function checkRedirectWithRetry() {
     setTimeout(() => checkRedirectWithRetry(), 500);
   } else {
     console.log('iOS PWA: Max redirect checks reached, giving up');
+    isCheckingRedirect = false;
   }
   
   return result;
@@ -191,6 +195,7 @@ window.Auth = {
   signInWithGoogle,
   signOut,
   get currentUser() { return auth.currentUser; },
+  get isCheckingRedirect() { return isCheckingRedirect; },
   // iOS PWA helper to wait for redirect completion
   async waitForRedirect() {
     if (redirectPromise) {
