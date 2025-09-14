@@ -26,7 +26,7 @@
   <template id="add-button-template">
     <button class="add-button">Adicionar</button>
   </template>
-  <header class="app-header">
+  <header class="app-header" style="display: none;">
     <div class="logo-title">
       <span class="logo-text">Gastos+</span>
     </div>
@@ -43,7 +43,7 @@
     <button id="openCardModal" class="floating-card-button legacy-hidden" title="Gerenciar cartões">💳</button>
   </header>
 
-  <div class="wrapper app-hidden main-panel">
+  <div class="wrapper app-hidden main-panel" style="display: none;">
 
     <!-- Saldo inicial -->
     <div id="startGroup" class="start-container">
@@ -224,7 +224,7 @@
   </div>
 
   <!-- Ações inferiores: Home/Ajustes em pill e Adicionar separadamente -->
-  <div class="floating-pill" role="tablist" aria-label="Atalhos inferiores" data-selected="home">
+  <div class="floating-pill" role="tablist" aria-label="Atalhos inferiores" data-selected="home" style="display: none;">
     <div class="pill-highlight" aria-hidden="true"></div>
     <button type="button" class="pill-option" data-action="home" role="tab" aria-selected="true" aria-label="Home">
       <span class="pill-icon icon-home"></span>
@@ -233,7 +233,7 @@
       <span class="pill-icon icon-gear"></span>
     </button>
   </div>
-  <button id="openTxModal" class="floating-add-button" title="Nova operação">＋</button>
+  <button id="openTxModal" class="floating-add-button" title="Nova operação" style="display: none;">＋</button>
 
   <!-- Early skeleton and unhide: runs before main.js to ensure immediate UI -->
   <script>

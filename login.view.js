@@ -68,6 +68,7 @@ function show() {
   const el = ensureOverlay();
   el.classList.remove('hidden');
   requestAnimationFrame(() => el.classList.add('visible'));
+  console.log('LoginView: Login shown');
 }
 
 function hide() {
@@ -75,6 +76,7 @@ function hide() {
   if (!el) return;
   el.classList.remove('visible');
   setTimeout(() => el.classList.add('hidden'), 180);
+  console.log('LoginView: Login hidden');
 }
 
 // React to auth state
@@ -82,37 +84,12 @@ function hookAuth() {
   const update = (user) => {
     console.log('LoginView: Auth state update -', user ? user.email : 'signed out');
     
-    // iOS PWA: Don't immediately show login if we're checking for redirect result
-    const ua = navigator.userAgent.toLowerCase();
-    const isIOS = /iphone|ipad|ipod/.test(ua);
-    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
-    
-    if (isIOS && standalone && (!user || user.isAnonymous)) {
-      const wasRedirectLogin = (() => {
-        try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
-      })();
-      
-      // Also check if auth is currently checking for redirect
-      const isCheckingRedirect = window.Auth && window.Auth.isCheckingRedirect;
-      
-      if (wasRedirectLogin || isCheckingRedirect) {
-        console.log('LoginView: Waiting for redirect result, delaying login show...');
-        // Give more time for redirect to complete before showing login
-        setTimeout(() => {
-          const currentUser = window.Auth && window.Auth.currentUser;
-          if (!currentUser || currentUser.isAnonymous) {
-            console.log('LoginView: Redirect wait timeout, showing login');
-            show();
-          }
-        }, 2000);
-        return; // Don't show login immediately
-      }
-    }
-    
     if (!user || user.isAnonymous) {
       show();
+      // Hide main app when no user
+      hideMainApp();
     } else {
-      // User authenticated - reset button state
+      // User authenticated - reset button state and show main app
       const btn = document.querySelector('#googleBtn');
       if (btn) {
         btn.disabled = false;
@@ -122,6 +99,8 @@ function hookAuth() {
         `;
       }
       hide();
+      // Show main app after successful auth
+      showMainApp();
     }
   };
   
@@ -141,6 +120,35 @@ function hookAuth() {
   }
 }
 
+// App visibility management
+function hideMainApp() {
+  const wrapper = document.querySelector('.wrapper');
+  const header = document.querySelector('header');
+  const floatingPill = document.querySelector('.floating-pill');
+  const floatingAddButton = document.querySelector('.floating-add-button');
+  
+  if (wrapper) wrapper.style.display = 'none';
+  if (header) header.style.display = 'none';
+  if (floatingPill) floatingPill.style.display = 'none';
+  if (floatingAddButton) floatingAddButton.style.display = 'none';
+  
+  console.log('LoginView: Main app hidden');
+}
+
+function showMainApp() {
+  const wrapper = document.querySelector('.wrapper');
+  const header = document.querySelector('header');
+  const floatingPill = document.querySelector('.floating-pill');
+  const floatingAddButton = document.querySelector('.floating-add-button');
+  
+  if (wrapper) wrapper.style.display = '';
+  if (header) header.style.display = '';
+  if (floatingPill) floatingPill.style.display = '';
+  if (floatingAddButton) floatingAddButton.style.display = '';
+  
+  console.log('LoginView: Main app shown');
+}
+
 // Offline hint: disable button when navigator.offLine
 function hookOnline() {
   const setState = () => {
@@ -156,9 +164,10 @@ function hookOnline() {
 }
 
 // Public API
-window.LoginView = { show, hide };
+window.LoginView = { show, hide, showMainApp, hideMainApp };
 
-// Boot
+// Boot - Hide main app by default and show login
+hideMainApp(); // Hide app immediately on load
 hookAuth();
 hookOnline();
 
@@ -169,47 +178,6 @@ const standalone = (window.matchMedia && window.matchMedia('(display-mode: stand
 
 if (isIOS && standalone) {
   console.log('LoginView: iOS PWA detected, setting up enhanced auth monitoring');
-  
-  // Check if we're returning from a redirect
-  const wasRedirectLogin = (() => {
-    try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
-  })();
-  
-  if (wasRedirectLogin) {
-    console.log('LoginView: Detected return from redirect, hiding login and waiting for auth...');
-    hide(); // Hide login initially while we wait for auth result
-    
-    // Show loading state if login view is visible
-    const btn = document.querySelector('#googleBtn');
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = `
-        <span class="g-badge" aria-hidden>⟳</span>
-        <span>Processando...</span>
-      `;
-    }
-    
-    // Wait longer for auth state when returning from redirect
-    setTimeout(() => {
-      const currentUser = window.Auth && window.Auth.currentUser;
-      if (!currentUser) {
-        console.log('LoginView: Auth timeout after redirect, showing login again');
-        try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
-        show();
-        // Reset button
-        const btn = document.querySelector('#googleBtn');
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = `
-            <span class="g-badge" aria-hidden>G</span>
-            <span>Continuar com Google</span>
-          `;
-        }
-      } else {
-        console.log('LoginView: Auth successful after redirect');
-      }
-    }, 5000); // Wait 5 seconds for auth after redirect
-  }
   
   // Listen for auth errors specifically
   document.addEventListener('auth:error', (e) => {
@@ -224,18 +192,6 @@ if (isIOS && standalone) {
     }
     show();
   });
-  
-  // Additional check after a delay to catch late auth states
-  setTimeout(() => {
-    const currentUser = window.Auth && window.Auth.currentUser;
-    if (!currentUser) {
-      console.log('LoginView: iOS PWA late check - no user found, ensuring login view is shown');
-      show();
-    } else {
-      console.log('LoginView: iOS PWA late check - user found:', currentUser.email);
-      hide();
-    }
-  }, 3000);
 }
 
 // Error helper

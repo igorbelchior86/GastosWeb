@@ -919,58 +919,20 @@ if (!USE_MOCK) {
   } else {
     console.log('Waiting for auth state...');
     
-    // iOS PWA: Check if we should wait for redirect completion first
-    const ua = navigator.userAgent.toLowerCase();
-    const isIOS = /iphone|ipad|ipod/.test(ua);
-    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
-    
-    if (isIOS && standalone && window.Auth && window.Auth.isCheckingRedirect) {
-      console.log('iOS PWA: Waiting for redirect check to complete before starting listeners...');
-      
-      // Wait for redirect check to complete
-      const waitForRedirectCheck = () => {
-        if (!window.Auth.isCheckingRedirect) {
-          console.log('iOS PWA: Redirect check completed, proceeding with auth listeners');
-          setupAuthListener();
-        } else {
-          setTimeout(waitForRedirectCheck, 200);
-        }
-      };
-      
-      setTimeout(waitForRedirectCheck, 100);
-    } else {
-      setupAuthListener();
-    }
-    
-    function setupAuthListener() {
-      const h = (e) => {
-        const u = e.detail && e.detail.user;
-        console.log('Auth state event received:', u ? u.email : 'signed out');
-        if (u) { 
-          document.removeEventListener('auth:state', h); 
-          PATH = resolvePathForUser(u); 
-          console.log('Starting realtime with PATH:', PATH);
-          startRealtime(); 
-        } else {
-          console.log('User signed out, clearing PATH');
-          PATH = null;
-        }
-      };
-      document.addEventListener('auth:state', h);
-      
-      // iOS PWA: Extra safety check after a delay
-      if (isIOS && standalone) {
-        setTimeout(() => {
-          const currentUser = window.Auth && window.Auth.currentUser;
-          if (currentUser && !PATH) {
-            console.log('iOS PWA: Late user detection, starting realtime');
-            document.removeEventListener('auth:state', h);
-            PATH = resolvePathForUser(currentUser);
-            startRealtime();
-          }
-        }, 2000);
+    const h = (e) => {
+      const u = e.detail && e.detail.user;
+      console.log('Auth state event received:', u ? u.email : 'signed out');
+      if (u) { 
+        document.removeEventListener('auth:state', h); 
+        PATH = resolvePathForUser(u); 
+        console.log('Starting realtime with PATH:', PATH);
+        startRealtime(); 
+      } else {
+        console.log('User signed out, clearing PATH');
+        PATH = null;
       }
-    }
+    };
+    document.addEventListener('auth:state', h);
   }
 } else {
   // Fallback (mock) — carrega uma vez

@@ -109,37 +109,9 @@ async function completeRedirectIfAny() {
   return null;
 }
 
-// Enhanced iOS PWA redirect handling with retries
-let redirectPromise = null;
-let redirectCheckCount = 0;
-const MAX_REDIRECT_CHECKS = 5;
-let isCheckingRedirect = false;
-
-async function checkRedirectWithRetry() {
-  isCheckingRedirect = true;
-  redirectCheckCount++;
-  console.log(`iOS PWA: Redirect check attempt ${redirectCheckCount}/${MAX_REDIRECT_CHECKS}`);
-  
-  const result = await completeRedirectIfAny();
-  if (result && result.user) {
-    console.log('iOS PWA: Redirect successful on attempt', redirectCheckCount);
-    isCheckingRedirect = false;
-    return result;
-  }
-  
-  if (redirectCheckCount < MAX_REDIRECT_CHECKS) {
-    // Retry after a short delay
-    setTimeout(() => checkRedirectWithRetry(), 500);
-  } else {
-    console.log('iOS PWA: Max redirect checks reached, giving up');
-    isCheckingRedirect = false;
-  }
-  
-  return result;
-}
-
+// Simple redirect handling - just check once
 if (isIOS && standalone) {
-  redirectPromise = checkRedirectWithRetry();
+  completeRedirectIfAny();
 } else {
   completeRedirectIfAny();
 }
@@ -161,6 +133,16 @@ async function signInWithGoogle() {
     
     if (useRedirect) {
       console.log('iOS PWA: Starting signInWithRedirect');
+      
+      // iOS PWA: Force a full page navigation to ensure proper redirect handling
+      if (isIOS && standalone) {
+        // Store current URL to return to after auth
+        try { 
+          sessionStorage.setItem('preAuthUrl', window.location.href); 
+          sessionStorage.setItem('authInProgress', '1');
+        } catch(_) {}
+      }
+      
       return await signInWithRedirect(auth, provider);
     }
     
@@ -194,85 +176,33 @@ window.Auth = {
   off(cb) { listeners.delete(cb); },
   signInWithGoogle,
   signOut,
-  get currentUser() { return auth.currentUser; },
-  get isCheckingRedirect() { return isCheckingRedirect; },
-  // iOS PWA helper to wait for redirect completion
-  async waitForRedirect() {
-    if (redirectPromise) {
-      console.log('iOS PWA: Waiting for redirect completion...');
-      try {
-        const result = await redirectPromise;
-        redirectPromise = null;
-        return result;
-      } catch (err) {
-        console.error('iOS PWA: Error waiting for redirect:', err);
-        redirectPromise = null;
-      }
-    }
-    
-    // Additional check if no promise but we detect we're in a redirect scenario
-    const wasRedirectLogin = (() => {
-      try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
-    })();
-    
-    if (wasRedirectLogin && !auth.currentUser) {
-      console.log('iOS PWA: Manual redirect check due to pending redirect flag');
-      return await completeRedirectIfAny();
-    }
-    
-    return null;
-  }
+  get currentUser() { return auth.currentUser; }
 };
 
 // Enhanced iOS PWA startup sequence
 if (isIOS && standalone) {
   console.log('iOS PWA: Enhanced startup sequence initiated');
   
-  // Check if we're returning from a redirect
-  const wasRedirectLogin = (() => {
-    try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
+  // Check if we were in auth process
+  const authInProgress = (() => {
+    try { return sessionStorage.getItem('authInProgress') === '1'; } catch { return false; }
   })();
   
-  if (wasRedirectLogin) {
-    console.log('iOS PWA: Detected return from redirect login, monitoring for auth result...');
+  if (authInProgress) {
+    console.log('iOS PWA: Detected auth completion, checking user state...');
+    try { sessionStorage.removeItem('authInProgress'); } catch {}
     
-    // Monitor auth state changes for up to 10 seconds after redirect
-    let authCheckCount = 0;
-    const maxAuthChecks = 20; // 10 seconds with 500ms intervals
-    
-    const checkAuthAfterRedirect = () => {
-      authCheckCount++;
+    // Give auth state a moment to settle
+    setTimeout(() => {
       const currentUser = auth.currentUser;
-      
       if (currentUser) {
-        console.log('iOS PWA: User authenticated after redirect:', currentUser.email);
+        console.log('iOS PWA: Auth successful, user logged in:', currentUser.email);
         try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
-        return;
-      }
-      
-      if (authCheckCount < maxAuthChecks) {
-        setTimeout(checkAuthAfterRedirect, 500);
       } else {
-        console.log('iOS PWA: Auth timeout after redirect, clearing flag');
-        try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
+        console.log('iOS PWA: No user found after auth completion');
       }
-    };
-    
-    // Start monitoring
-    setTimeout(checkAuthAfterRedirect, 100);
+    }, 500);
   }
-  
-  // Give extra time for iOS PWA to complete redirect and establish connection
-  setTimeout(() => {
-    if (!auth.currentUser) {
-      console.log('iOS PWA: No user after extended startup, checking redirect result again');
-      completeRedirectIfAny().then(result => {
-        if (result) {
-          console.log('iOS PWA: Late redirect result found');
-        }
-      });
-    }
-  }, 1500);
 }
 
 document.dispatchEvent(new CustomEvent('auth:init'));
