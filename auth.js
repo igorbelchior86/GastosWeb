@@ -94,6 +94,10 @@ function isStandalone() {
 async function completeRedirectIfAny() {
   try { 
     console.log('iOS PWA: Checking for redirect result...');
+    console.log('iOS PWA: Current URL:', window.location.href);
+    console.log('iOS PWA: URL params:', window.location.search);
+    console.log('iOS PWA: URL hash:', window.location.hash);
+    
     const result = await getRedirectResult(auth);
     if (result && result.user) {
       console.log('iOS PWA: Redirect auth successful for', result.user.email);
@@ -118,6 +122,7 @@ async function completeRedirectIfAny() {
     }
   } catch (err) {
     console.error('iOS PWA: Redirect result error:', err);
+    console.error('iOS PWA: Redirect error details:', { code: err.code, message: err.message });
     // Clear redirect flag on error
     try { sessionStorage.removeItem('wasRedirectLogin'); } catch(_) {}
   }
@@ -144,6 +149,20 @@ async function signInWithGoogle() {
       // Link anonymous session to Google to preserve any local data
       if (useRedirect) return await linkWithRedirect(u, provider);
       return await linkWithPopup(u, provider);
+    }
+    
+    // EXPERIMENTAL: Try popup first even on PWA for iOS
+    if (isIOS && standalone) {
+      console.log('iOS PWA: Attempting popup first before redirect fallback...');
+      try {
+        const result = await signInWithPopup(auth, provider);
+        console.log('iOS PWA: Popup succeeded!', result.user.email);
+        try { sessionStorage.removeItem('wasRedirectLogin'); } catch(_) {}
+        return result;
+      } catch (popupErr) {
+        console.log('iOS PWA: Popup failed, falling back to redirect:', popupErr.code);
+        // Continue to redirect logic below
+      }
     }
     
     if (useRedirect) {
