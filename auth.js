@@ -91,12 +91,15 @@ function isStandalone() {
 
 async function completeRedirectIfAny() {
   try { 
+    console.log('iOS PWA: Checking for redirect result...');
     const result = await getRedirectResult(auth);
     if (result && result.user) {
       console.log('iOS PWA: Redirect auth successful for', result.user.email);
       // Clear redirect flag
       try { sessionStorage.removeItem('wasRedirectLogin'); } catch(_) {}
       return result;
+    } else {
+      console.log('iOS PWA: No redirect result found');
     }
   } catch (err) {
     console.error('iOS PWA: Redirect result error:', err);
@@ -106,10 +109,33 @@ async function completeRedirectIfAny() {
   return null;
 }
 
-// Enhanced iOS PWA redirect handling
+// Enhanced iOS PWA redirect handling with retries
 let redirectPromise = null;
+let redirectCheckCount = 0;
+const MAX_REDIRECT_CHECKS = 5;
+
+async function checkRedirectWithRetry() {
+  redirectCheckCount++;
+  console.log(`iOS PWA: Redirect check attempt ${redirectCheckCount}/${MAX_REDIRECT_CHECKS}`);
+  
+  const result = await completeRedirectIfAny();
+  if (result && result.user) {
+    console.log('iOS PWA: Redirect successful on attempt', redirectCheckCount);
+    return result;
+  }
+  
+  if (redirectCheckCount < MAX_REDIRECT_CHECKS) {
+    // Retry after a short delay
+    setTimeout(() => checkRedirectWithRetry(), 500);
+  } else {
+    console.log('iOS PWA: Max redirect checks reached, giving up');
+  }
+  
+  return result;
+}
+
 if (isIOS && standalone) {
-  redirectPromise = completeRedirectIfAny();
+  redirectPromise = checkRedirectWithRetry();
 } else {
   completeRedirectIfAny();
 }
@@ -169,10 +195,26 @@ window.Auth = {
   async waitForRedirect() {
     if (redirectPromise) {
       console.log('iOS PWA: Waiting for redirect completion...');
-      const result = await redirectPromise;
-      redirectPromise = null;
-      return result;
+      try {
+        const result = await redirectPromise;
+        redirectPromise = null;
+        return result;
+      } catch (err) {
+        console.error('iOS PWA: Error waiting for redirect:', err);
+        redirectPromise = null;
+      }
     }
+    
+    // Additional check if no promise but we detect we're in a redirect scenario
+    const wasRedirectLogin = (() => {
+      try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
+    })();
+    
+    if (wasRedirectLogin && !auth.currentUser) {
+      console.log('iOS PWA: Manual redirect check due to pending redirect flag');
+      return await completeRedirectIfAny();
+    }
+    
     return null;
   }
 };
@@ -180,6 +222,41 @@ window.Auth = {
 // Enhanced iOS PWA startup sequence
 if (isIOS && standalone) {
   console.log('iOS PWA: Enhanced startup sequence initiated');
+  
+  // Check if we're returning from a redirect
+  const wasRedirectLogin = (() => {
+    try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
+  })();
+  
+  if (wasRedirectLogin) {
+    console.log('iOS PWA: Detected return from redirect login, monitoring for auth result...');
+    
+    // Monitor auth state changes for up to 10 seconds after redirect
+    let authCheckCount = 0;
+    const maxAuthChecks = 20; // 10 seconds with 500ms intervals
+    
+    const checkAuthAfterRedirect = () => {
+      authCheckCount++;
+      const currentUser = auth.currentUser;
+      
+      if (currentUser) {
+        console.log('iOS PWA: User authenticated after redirect:', currentUser.email);
+        try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
+        return;
+      }
+      
+      if (authCheckCount < maxAuthChecks) {
+        setTimeout(checkAuthAfterRedirect, 500);
+      } else {
+        console.log('iOS PWA: Auth timeout after redirect, clearing flag');
+        try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
+      }
+    };
+    
+    // Start monitoring
+    setTimeout(checkAuthAfterRedirect, 100);
+  }
+  
   // Give extra time for iOS PWA to complete redirect and establish connection
   setTimeout(() => {
     if (!auth.currentUser) {

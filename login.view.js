@@ -34,7 +34,10 @@ function ensureOverlay() {
     
     if (isIOS && standalone) {
       console.log('iOS PWA: Starting Google sign-in...');
-      btn.textContent = 'Redirecionando...';
+      btn.innerHTML = `
+        <span class="g-badge" aria-hidden>⟳</span>
+        <span>Redirecionando...</span>
+      `;
     }
     
     try { 
@@ -47,7 +50,10 @@ function ensureOverlay() {
     }
     catch (e) {
       btn.disabled = false;
-      btn.textContent = 'Continuar com Google';
+      btn.innerHTML = `
+        <span class="g-badge" aria-hidden>G</span>
+        <span>Continuar com Google</span>
+      `;
       console.error('Login error:', e);
       
       // Show inline error
@@ -136,6 +142,47 @@ const standalone = (window.matchMedia && window.matchMedia('(display-mode: stand
 
 if (isIOS && standalone) {
   console.log('LoginView: iOS PWA detected, setting up enhanced auth monitoring');
+  
+  // Check if we're returning from a redirect
+  const wasRedirectLogin = (() => {
+    try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
+  })();
+  
+  if (wasRedirectLogin) {
+    console.log('LoginView: Detected return from redirect, hiding login and waiting for auth...');
+    hide(); // Hide login initially while we wait for auth result
+    
+    // Show loading state if login view is visible
+    const btn = document.querySelector('#googleBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `
+        <span class="g-badge" aria-hidden>⟳</span>
+        <span>Processando...</span>
+      `;
+    }
+    
+    // Wait longer for auth state when returning from redirect
+    setTimeout(() => {
+      const currentUser = window.Auth && window.Auth.currentUser;
+      if (!currentUser) {
+        console.log('LoginView: Auth timeout after redirect, showing login again');
+        try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
+        show();
+        // Reset button
+        const btn = document.querySelector('#googleBtn');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `
+            <span class="g-badge" aria-hidden>G</span>
+            <span>Continuar com Google</span>
+          `;
+        }
+      } else {
+        console.log('LoginView: Auth successful after redirect');
+      }
+    }, 5000); // Wait 5 seconds for auth after redirect
+  }
   
   // Listen for auth errors specifically
   document.addEventListener('auth:error', (e) => {
