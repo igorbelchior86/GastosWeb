@@ -43,7 +43,7 @@ function ensureOverlay() {
     try { 
       await window.Auth?.signInWithGoogle(); 
       
-      // For iOS PWA redirect, the button will be re-enabled by auth state change
+      // For iOS PWA, button will be re-enabled by auth state change
       if (!(isIOS && standalone)) {
         btn.disabled = false;
       }
@@ -56,20 +56,9 @@ function ensureOverlay() {
       `;
       console.error('Login error:', e);
       
-      // iOS PWA specific error handling
-      if (isIOS && standalone && e.code === 'auth/popup-blocked') {
-        const msg = 'Popup bloqueado. Clique novamente ou abra no Safari.';
-        showError(el, msg);
-        
-        // Add Safari fallback button
-        setTimeout(() => {
-          addSafariFallback(el);
-        }, 1000);
-      } else {
-        // Show inline error
-        const msg = (e && e.code) ? e.code.replace('auth/','Auth: ') : 'Falha no login';
-        showError(el, msg);
-      }
+      // Show inline error
+      const msg = (e && e.code) ? e.code.replace('auth/','Auth: ') : 'Falha no login';
+      showError(el, msg);
     }
   });
   return el;
@@ -203,28 +192,6 @@ if (isIOS && standalone) {
     }
     show();
   });
-}
-
-// Add Safari fallback button for iOS PWA
-function addSafariFallback(root) {
-  if (root.querySelector('.safari-fallback')) return; // Already exists
-  
-  const fallbackBtn = document.createElement('button');
-  fallbackBtn.className = 'login-google safari-fallback';
-  fallbackBtn.style.marginTop = '10px';
-  fallbackBtn.style.background = '#007AFF';
-  fallbackBtn.innerHTML = `
-    <span style="color: white;">🌐</span>
-    <span>Abrir no Safari</span>
-  `;
-  
-  fallbackBtn.addEventListener('click', () => {
-    // Open the app URL in Safari
-    const appUrl = window.location.origin + window.location.pathname;
-    window.open(appUrl, '_blank');
-  });
-  
-  root.querySelector('.login-actions').appendChild(fallbackBtn);
 }
 
 // Error helper
