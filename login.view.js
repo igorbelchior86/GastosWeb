@@ -26,9 +26,30 @@ function ensureOverlay() {
   const btn = el.querySelector('#googleBtn');
   if (btn) btn.addEventListener('click', async () => {
     btn.disabled = true;
-    try { await window.Auth?.signInWithGoogle(); }
+    
+    // iOS PWA specific handling
+    const ua = navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua);
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
+    
+    if (isIOS && standalone) {
+      console.log('iOS PWA: Starting Google sign-in...');
+      btn.textContent = 'Redirecionando...';
+    }
+    
+    try { 
+      await window.Auth?.signInWithGoogle(); 
+      
+      // For iOS PWA redirect, the button will be re-enabled by auth state change
+      if (!(isIOS && standalone)) {
+        btn.disabled = false;
+      }
+    }
     catch (e) {
       btn.disabled = false;
+      btn.textContent = 'Continuar com Google';
+      console.error('Login error:', e);
+      
       // Show inline error
       const msg = (e && e.code) ? e.code.replace('auth/','Auth: ') : 'Falha no login';
       showError(el, msg);
@@ -53,8 +74,24 @@ function hide() {
 // React to auth state
 function hookAuth() {
   const update = (user) => {
-    if (!user || user.isAnonymous) show(); else hide();
+    console.log('LoginView: Auth state update -', user ? user.email : 'signed out');
+    
+    if (!user || user.isAnonymous) {
+      show();
+    } else {
+      // User authenticated - reset button state
+      const btn = document.querySelector('#googleBtn');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `
+          <span class="g-badge" aria-hidden>G</span>
+          <span>Continuar com Google</span>
+        `;
+      }
+      hide();
+    }
   };
+  
   if (window.Auth && typeof window.Auth.onReady === 'function') {
     window.Auth.onReady(update);
     update(window.Auth.currentUser);
@@ -91,6 +128,41 @@ window.LoginView = { show, hide };
 // Boot
 hookAuth();
 hookOnline();
+
+// iOS PWA specific: Additional auth state check after page load
+const ua = navigator.userAgent.toLowerCase();
+const isIOS = /iphone|ipad|ipod/.test(ua);
+const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
+
+if (isIOS && standalone) {
+  console.log('LoginView: iOS PWA detected, setting up enhanced auth monitoring');
+  
+  // Listen for auth errors specifically
+  document.addEventListener('auth:error', (e) => {
+    console.error('LoginView: Auth error received:', e.detail);
+    const btn = document.querySelector('#googleBtn');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `
+        <span class="g-badge" aria-hidden>G</span>
+        <span>Continuar com Google</span>
+      `;
+    }
+    show();
+  });
+  
+  // Additional check after a delay to catch late auth states
+  setTimeout(() => {
+    const currentUser = window.Auth && window.Auth.currentUser;
+    if (!currentUser) {
+      console.log('LoginView: iOS PWA late check - no user found, ensuring login view is shown');
+      show();
+    } else {
+      console.log('LoginView: iOS PWA late check - user found:', currentUser.email);
+      hide();
+    }
+  }, 3000);
+}
 
 // Error helper
 function showError(root, text){

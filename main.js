@@ -434,6 +434,38 @@ document.addEventListener('click', (e) => {
   }
 }, true);
 
+// Debug info for iOS PWA troubleshooting
+const ua = navigator.userAgent.toLowerCase();
+const isIOSDebug = /iphone|ipad|ipod/.test(ua);
+const standaloneDebug = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
+
+if (isIOSDebug && standaloneDebug) {
+  console.log('🔧 iOS PWA Debug Info:');
+  console.log('- User Agent:', navigator.userAgent);
+  console.log('- Display Mode:', window.matchMedia ? window.matchMedia('(display-mode: standalone)').matches : 'unknown');
+  console.log('- Navigator Standalone:', navigator.standalone);
+  console.log('- Firebase Config:', firebaseConfig ? 'loaded' : 'missing');
+  console.log('- Auth State:', window.Auth ? 'initialized' : 'pending');
+  
+  // Monitor auth state changes
+  document.addEventListener('auth:state', (e) => {
+    const user = e.detail && e.detail.user;
+    console.log('🔧 iOS PWA Auth State:', user ? {
+      email: user.email,
+      uid: user.uid,
+      emailVerified: user.emailVerified
+    } : 'signed out');
+  });
+  
+  // Monitor network status
+  const logNetworkStatus = () => {
+    console.log('🔧 iOS PWA Network:', navigator.onLine ? 'online' : 'offline');
+  };
+  logNetworkStatus();
+  window.addEventListener('online', logNetworkStatus);
+  window.addEventListener('offline', logNetworkStatus);
+}
+
 let PATH;
 // Casa compartilhada (PROD atual) e e‑mails que devem enxergar esta Casa
 const WID_CASA = 'orcamento365_9b8e04c5';
@@ -441,8 +473,14 @@ const CASA_EMAILS = ['icmbelchior@gmail.com','sarargjesus@gmail.com'];
 function resolvePathForUser(user){
   if (!user) return null;
   const email = (user.email || '').toLowerCase();
-  if (CASA_EMAILS.includes(email)) return WID_CASA;
-  return `users/${user.uid}`;
+  console.log('Resolving path for user:', email);
+  if (CASA_EMAILS.includes(email)) {
+    console.log('User mapped to shared workspace:', WID_CASA);
+    return WID_CASA;
+  }
+  const personalPath = `users/${user.uid}`;
+  console.log('User mapped to personal workspace:', personalPath);
+  return personalPath;
 }
 
 // Flag for mocking data while working on UI.  
@@ -727,22 +765,46 @@ function buildSaveToast(tx) {
 if (!USE_MOCK) {
   // Start realtime listeners only after user is authenticated
   const startRealtime = async () => {
-    // If current PATH is not permitted (e.g., CASA mapped but rules deny),
-    // fallback to personal workspace automatically to avoid boot loop.
+    console.log('Starting realtime listeners for PATH:', PATH);
+    
+    // Enhanced iOS PWA: Wait for redirect completion if needed
+    const ua = navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua);
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
+    
+    if (isIOS && standalone && window.Auth && window.Auth.waitForRedirect) {
+      console.log('iOS PWA: Waiting for redirect completion before starting listeners');
+      await window.Auth.waitForRedirect();
+    }
+    
+    // Enhanced permission check with better fallback for iOS PWA
     try {
       const u = window.Auth && window.Auth.currentUser;
-      if (u) {
+      if (u && PATH) {
+        console.log('Testing access to PATH:', PATH, 'for user:', u.email);
         const testRef = ref(firebaseDb, `${PATH}/startBal`);
         try {
           await get(testRef);
+          console.log('Access confirmed to PATH:', PATH);
         } catch (err) {
+          console.error('Access denied to PATH:', PATH, 'Error:', err);
           if (err && (err.code === 'PERMISSION_DENIED' || err.code === 'permission-denied')) {
             const fallback = `users/${u.uid}`;
-            if (PATH !== fallback) PATH = fallback;
+            console.log('Falling back to personal workspace:', fallback);
+            if (PATH !== fallback) {
+              PATH = fallback;
+              console.log('PATH updated to fallback:', PATH);
+              // For iOS PWA, add small delay to ensure auth state is stable
+              if (isIOS && standalone) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            }
           }
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.error('Error during PATH verification:', err);
+    }
 
     // Live listeners (Realtime DB)
     const txRef    = ref(firebaseDb, `${PATH}/tx`);
@@ -850,13 +912,43 @@ if (!USE_MOCK) {
   };
 
   const readyUser = (window.Auth && window.Auth.currentUser) ? window.Auth.currentUser : null;
-  if (readyUser) { PATH = resolvePathForUser(readyUser); startRealtime(); }
-  else {
+  if (readyUser) { 
+    console.log('User already ready:', readyUser.email);
+    PATH = resolvePathForUser(readyUser); 
+    startRealtime(); 
+  } else {
+    console.log('Waiting for auth state...');
     const h = (e) => {
       const u = e.detail && e.detail.user;
-      if (u) { document.removeEventListener('auth:state', h); PATH = resolvePathForUser(u); startRealtime(); }
+      console.log('Auth state event received:', u ? u.email : 'signed out');
+      if (u) { 
+        document.removeEventListener('auth:state', h); 
+        PATH = resolvePathForUser(u); 
+        console.log('Starting realtime with PATH:', PATH);
+        startRealtime(); 
+      } else {
+        console.log('User signed out, clearing PATH');
+        PATH = null;
+      }
     };
     document.addEventListener('auth:state', h);
+    
+    // iOS PWA: Extra safety check after a delay
+    const ua = navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua);
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || ('standalone' in navigator && navigator.standalone);
+    
+    if (isIOS && standalone) {
+      setTimeout(() => {
+        const currentUser = window.Auth && window.Auth.currentUser;
+        if (currentUser && !PATH) {
+          console.log('iOS PWA: Late user detection, starting realtime');
+          document.removeEventListener('auth:state', h);
+          PATH = resolvePathForUser(currentUser);
+          startRealtime();
+        }
+      }, 2000);
+    }
   }
 } else {
   // Fallback (mock) — carrega uma vez
