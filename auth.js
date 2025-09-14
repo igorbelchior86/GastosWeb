@@ -63,9 +63,11 @@ const emit = (user) => { listeners.forEach(fn => { try { fn(user); } catch {} })
 // Enhanced auth state handling for iOS PWA
 onAuthStateChanged(auth, (user) => {
   console.log('Auth state changed:', user ? user.email : 'signed out');
-  if (user) {
-    // Ensure persistence is maintained for iOS PWA
-    if (isIOS && standalone) {
+  
+  if (isIOS && standalone) {
+    console.log('iOS PWA: Auth state change -', user ? 'signed in' : 'signed out');
+    
+    if (user) {
       console.log('iOS PWA: User authenticated, ensuring persistence');
       try {
         // Force persistence to be set again for iOS PWA reliability
@@ -100,6 +102,19 @@ async function completeRedirectIfAny() {
       return result;
     } else {
       console.log('iOS PWA: No redirect result found');
+      
+      // For iOS PWA, check if auth state changed without getRedirectResult
+      if (isIOS && standalone) {
+        const wasRedirectLogin = (() => {
+          try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
+        })();
+        
+        if (wasRedirectLogin && auth.currentUser) {
+          console.log('iOS PWA: User found via auth state, treating as successful redirect');
+          try { sessionStorage.removeItem('wasRedirectLogin'); } catch(_) {}
+          return { user: auth.currentUser };
+        }
+      }
     }
   } catch (err) {
     console.error('iOS PWA: Redirect result error:', err);
@@ -140,8 +155,14 @@ async function signInWithGoogle() {
         try { 
           sessionStorage.setItem('preAuthUrl', window.location.href); 
           sessionStorage.setItem('authInProgress', '1');
+          console.log('iOS PWA: Auth flags set, starting redirect...');
+          console.log('iOS PWA: Current URL:', window.location.href);
+          console.log('iOS PWA: Provider config:', provider.providerId);
         } catch(_) {}
       }
+      
+      // Add a small delay to ensure session storage is written
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       return await signInWithRedirect(auth, provider);
     }
@@ -159,10 +180,48 @@ async function signInWithGoogle() {
     }
   } catch (err) {
     console.error('Google sign‑in failed:', err);
+    console.error('Error details:', { code: err.code, message: err.message, stack: err.stack });
     try { sessionStorage.removeItem('wasRedirectLogin'); } catch(_) {}
     try { document.dispatchEvent(new CustomEvent('auth:error', { detail: { code: err.code, message: err.message } })); } catch (_) {}
     throw err;
   }
+}
+
+// Enhanced waitForRedirect with better iOS PWA handling
+async function waitForRedirect() {
+  if (!isIOS || !standalone) return Promise.resolve();
+  
+  const wasRedirectLogin = (() => {
+    try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
+  })();
+  
+  if (!wasRedirectLogin) return Promise.resolve();
+  
+  console.log('iOS PWA: Waiting for redirect completion...');
+  
+  return new Promise((resolve) => {
+    let attempts = 0;
+    const maxAttempts = 20; // 4 seconds total
+    
+    const checkAuth = () => {
+      attempts++;
+      const currentUser = auth.currentUser;
+      
+      if (currentUser) {
+        console.log('iOS PWA: Auth detected, redirect complete');
+        try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
+        resolve();
+      } else if (attempts >= maxAttempts) {
+        console.log('iOS PWA: Redirect timeout, proceeding anyway');
+        try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
+        resolve();
+      } else {
+        setTimeout(checkAuth, 200);
+      }
+    };
+    
+    checkAuth();
+  });
 }
 
 async function signOut() {
@@ -176,6 +235,7 @@ window.Auth = {
   off(cb) { listeners.delete(cb); },
   signInWithGoogle,
   signOut,
+  waitForRedirect,
   get currentUser() { return auth.currentUser; }
 };
 
@@ -188,20 +248,34 @@ if (isIOS && standalone) {
     try { return sessionStorage.getItem('authInProgress') === '1'; } catch { return false; }
   })();
   
-  if (authInProgress) {
+  const wasRedirectLogin = (() => {
+    try { return sessionStorage.getItem('wasRedirectLogin') === '1'; } catch { return false; }
+  })();
+  
+  if (authInProgress || wasRedirectLogin) {
     console.log('iOS PWA: Detected auth completion, checking user state...');
     try { sessionStorage.removeItem('authInProgress'); } catch {}
     
-    // Give auth state a moment to settle
-    setTimeout(() => {
+    // Multiple checks for auth state
+    const checkAuthState = (attempt = 1) => {
       const currentUser = auth.currentUser;
+      console.log(`iOS PWA: Auth check attempt ${attempt}, user:`, currentUser?.email || 'none');
+      
       if (currentUser) {
         console.log('iOS PWA: Auth successful, user logged in:', currentUser.email);
         try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
+        // Force auth state change event
+        notifyAuthChange(currentUser);
+      } else if (attempt < 5) {
+        // Retry with exponential backoff
+        setTimeout(() => checkAuthState(attempt + 1), attempt * 200);
       } else {
-        console.log('iOS PWA: No user found after auth completion');
+        console.log('iOS PWA: No user found after auth completion, auth likely failed');
+        try { sessionStorage.removeItem('wasRedirectLogin'); } catch {}
       }
-    }, 500);
+    };
+    
+    checkAuthState();
   }
 }
 
