@@ -17,6 +17,26 @@ html[data-theme="light"] .logo-text {
   color: #000 !important;
   text-shadow: 0 0 8px #00FF8080, 0 0 2px #00FF8040 !important;
 }
+
+html[data-theme="light"] .year-indicator {
+  color: #000;
+}
+
+/* Year selector light theme */
+html[data-theme="light"] .year-item {
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #111;
+}
+
+html[data-theme="light"] .year-item:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme="light"] .year-item:active {
+  background: rgba(0, 0, 0, 0.18);
+}
+
 html[data-theme="light"] .header-seg{
   position: relative;
   display: inline-flex;
@@ -327,11 +347,14 @@ html[data-theme="light"] .icon-repeat{
   background-color: #111 !important; /* glyph color via mask */
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.12));
 }
+/* Invoice list should be flat in light theme too — no per-item cards/borders. 
+   Keep card-like borders for other lists (executed/planned blocks) but
+   override them inside the invoice so items render as a single, unbroken list. */
 html[data-theme="light"] .invoice .executed-list li .op-line{
-  background:#fff !important;
-  border:1px solid rgba(0,0,0,0.06) !important;
-  box-shadow:0 1px 4px rgba(0,0,0,0.10) !important;
-  color:var(--txt-main) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--txt-main) !important;
 }
 /* Garantir que todos os elementos dentro da fatura no tema claro tenham texto visível */
 html[data-theme="light"] .invoice .executed-list li .op-left span,
@@ -406,6 +429,23 @@ html[data-theme="light"] .planned-list .op-right .value.positive {
   color: #16a34a !important;       /* same green used in Executados */
   background: transparent !important;
   -webkit-text-fill-color: initial !important;
+}
+
+/* Light theme: País / Moeda modal styles */
+html[data-theme="light"] #currencyProfileModal .bottom-modal-box {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--divider) !important;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.08) !important;
+}
+html[data-theme="light"] #currencyProfileModal .modal-content {
+  background: transparent !important;
+}
+html[data-theme="light"] #currencyProfileModal h2,
+html[data-theme="light"] #currencyProfileModal #currencyProfileList li {
+  color: var(--txt-main) !important;
+}
+html[data-theme="light"] #currencyProfileModal #currencyProfileList li {
+  border-bottom: 1px solid rgba(0,0,0,0.06) !important;
 }
 
 /* Adicione outros componentes conforme necessário, sempre prefixando com html[data-theme="light"] */
@@ -665,6 +705,10 @@ border-radius: 0 !important;
   bottom: 0;
   background-color: #1e1e1e;
   z-index: -1;
+  
+  /* iOS 26 fix: Ensure backdrop extends fully behind browser chrome */
+  width: 100vw;
+  height: 100vh; /* Will be overridden by @supports rules above */
 }
 .app-hidden{visibility:hidden;}
 .hidden{opacity:0!important;pointer-events:none!important;}
@@ -678,6 +722,13 @@ body{display:block;}
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain; /* evita bounce do body */
+  
+  /* iOS 26 fix: Ensure content respects safe areas on all sides */
+  padding-left: constant(safe-area-inset-left);
+  padding-left: env(safe-area-inset-left);
+  padding-right: constant(safe-area-inset-right);
+  padding-right: env(safe-area-inset-right);
+  
   /* espaço do header fixo */
   padding-top: calc(80px + constant(safe-area-inset-top));
   padding-top: calc(80px + env(safe-area-inset-top));
@@ -688,12 +739,12 @@ body{display:block;}
 
 /* Spacer real no final do conteúdo do acordeão: mantém
    o último dia visível acima do pseudo‑footer SEM depender
-   de reflows disparados pelo botão Home 
+   de reflows disparados pelo botão Home */
 #accordion::after{
   content: '';
   display: block;
-  height: calc(10px + env(safe-area-inset-bottom));
-}*/
+  height: calc(120px + env(safe-area-inset-bottom));
+}
 
 /* Divider no rodapé do conteúdo: sem grande espaçamento extra */
 hr.divider{
@@ -709,10 +760,17 @@ hr.divider{
 html.modal-open hr.divider { display: none !important; }
 html.modal-open .app-footer { visibility: hidden; }
 
+/* Ensure the divider below the start group is hidden in dark/default mode
+  but remains visible when the app is explicitly in light theme. Use
+  a highly specific selector and !important to override accidental resets. */
+html:not([data-theme="light"]) #dividerSaldo { display: none !important; }
+html[data-theme="light"] #dividerSaldo { display: block !important; }
+
 /* Floating bottom pill (Home/Ajustes) */
 .floating-pill{
   position:fixed;
-  left:24px;
+  left: calc(24px + constant(safe-area-inset-left));
+  left: calc(24px + env(safe-area-inset-left));
   bottom:calc(12px + env(safe-area-inset-bottom));
   z-index:1201;
   display:inline-flex; align-items:center; gap:0;
@@ -748,6 +806,82 @@ html.modal-open .app-footer { visibility: hidden; }
 /* Prefer 100svh where supported (stable initial viewport on iOS Safari) */
 @supports (height: 100svh) {
   .wrapper { height: 100svh; }
+}
+
+/* iOS 26+ PWA optimization: use large viewport to match browser behavior 
+   
+   Background: iOS PWAs behave differently than Safari browser regarding viewport handling.
+   Safari browser extends content behind dynamic chrome (address bar), but PWAs don't.
+   
+   Solution:
+   - PWA (standalone): Use 100lvh (large viewport) to extend behind chrome like browser
+   - Safari browser: Use 100lvh as well to extend behind address bar consistently
+   
+   This ensures consistent behavior between PWA and browser on iOS 26+.
+   Fallback to 100svh for older iOS versions that don't support lvh/dvh.
+*/
+@supports (height: 100lvh) {
+  /* PWA mode: Use large viewport to extend behind chrome */
+  @media (display-mode: standalone) {
+    .wrapper { 
+      height: 100lvh; /* Large viewport height for PWA to extend behind chrome */
+    }
+    
+    /* Ensure safe areas are properly handled in PWA mode */
+    body {
+      /* Force layout recalculation to ensure safe-area-inset values are available */
+      min-height: 100lvh;
+    }
+    
+    /* Ensure backdrops extend fully in PWA */
+    #backdrop-base,
+    .bottom-modal {
+      height: 100lvh;
+      width: 100vw;
+    }
+  }
+  
+  /* Safari browser: Also use large viewport to extend behind address bar */
+  @media not (display-mode: standalone) {
+    .wrapper { 
+      height: 100lvh; /* Large viewport for Safari to extend behind address bar */
+    }
+    
+    /* Ensure proper layout in Safari browser */
+    body {
+      min-height: 100lvh;
+    }
+    
+    /* Ensure backdrops extend fully in Safari browser */
+    #backdrop-base,
+    .bottom-modal {
+      height: 100lvh;
+      width: 100vw;
+    }
+  }
+}
+
+/* iOS Safari fallback: Force large viewport even if @supports fails */
+@media screen and (-webkit-min-device-pixel-ratio: 2) {
+  .wrapper {
+    /* Try to detect iOS Safari and force the large viewport */
+    height: 100lvh !important;
+  }
+  
+  body {
+    min-height: 100lvh !important;
+  }
+  
+  /* Fix modal backdrops and backdrop-base to extend fully */
+  #backdrop-base,
+  .bottom-modal {
+    height: 100lvh !important;
+    width: 100vw !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+  }
 }
 input,select,textarea{font-size:16px!important;box-sizing:border-box;}
 .value{white-space:nowrap;}
@@ -906,7 +1040,13 @@ summary.day-summary .icon-invoice::before{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  padding:0 20px;
+  
+  /* iOS 26 fix: Respect safe areas on left/right sides */
+  padding-left: calc(20px + constant(safe-area-inset-left));
+  padding-left: calc(20px + env(safe-area-inset-left));
+  padding-right: calc(20px + constant(safe-area-inset-right));
+  padding-right: calc(20px + env(safe-area-inset-right));
+  
   box-sizing:border-box;
   overflow:hidden;
   backdrop-filter:saturate(180%) blur(30px);
@@ -1000,6 +1140,82 @@ summary.day-summary .icon-invoice::before{
 }
 .logo-title{display:flex;align-items:center;gap:8px;margin-right:auto;}
 .logo-text{font-weight:700;font-size:32pt;letter-spacing:.5pt;color:#fff;text-shadow:0 0 6px #00FF0040;margin-right:auto;}
+
+/* Year selector button */
+.logo-text-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.logo-text-btn:hover {
+  opacity: 0.9;
+}
+
+.logo-text-btn:active {
+  opacity: 0.8;
+}
+
+.year-indicator {
+  font-size: 16px;
+  opacity: 0.8;
+  transition: transform 0.2s ease;
+}
+
+.logo-text-btn:hover .year-indicator {
+  transform: translateY(1px);
+}
+
+/* Year list modal */
+.year-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.year-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--txt-main);
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.year-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.year-item:active {
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(0.98);
+}
+
+.year-item.current {
+  background: var(--green);
+  color: #000;
+  font-weight: 700;
+}
+
+.year-item.current:hover {
+  background: var(--green);
+  opacity: 0.9;
+}
+
 .app-footer{
   text-align:center;
   font-size:.75rem;
@@ -1035,6 +1251,10 @@ summary.day-summary .icon-invoice::before{
   padding: 12px 18px;
   margin-bottom: 18px;
 }
+/* Hide start-container by default to prevent flash; main.js will show it via inline style when appropriate */
+.start-container { display: none; }
+/* Hide divider below start section by default to prevent flash; main.js will toggle it */
+#dividerSaldo { display: none; }
 .start-container .modal-title {
   font-family: 'SF Pro Display', system-ui;
   font-weight: 700;
@@ -1094,6 +1314,107 @@ summary.day-summary .icon-invoice::before{
   background: var(--glass-bg) !important;             /* rgba(42,42,44,.80) + radial highlight */
   border: 1px solid rgba(255,255,255,.08);
   box-shadow: inset 0 0 0 1px #FFFFFF1A, 0 6px 20px rgba(0,0,0,.45);
+}
+/* Ensure year selector modal starts above floating pseudo-footer/buttons */
+#yearModal .bottom-modal-box {
+  margin-bottom: calc(88px + env(safe-area-inset-bottom));
+  max-height: 50vh; /* keep it half-screen like requested */
+  width: calc(100% - 16px);
+  max-width: 720px;
+}
+
+/* Make modal content scrollable so the year list can be centered reliably */
+#yearModal .modal-content {
+  max-height: calc(50vh - 72px); /* account for header and drag handle */
+  overflow: auto;
+}
+
+.year-list {
+  /* ensure the year list itself can scroll if content overflows */
+  overflow: auto;
+  max-height: calc(50vh - 120px);
+  padding: 8px 0;
+}
+
+/* ===================== YEAR MODAL - LIGHT THEME (optional) ===================== */
+/* Preserve the existing dark styling by default. If a light variant is
+   required, add the attribute `data-theme="light"` on the `#yearModal`
+   element; the following rules will only apply then. This avoids
+   overriding the current dark appearance. */
+/* Apply the light variant when either the modal has data-theme="light"
+   or the entire page is in light mode (html[data-theme="light"]). */
+#yearModal[data-theme="light"], html[data-theme="light"] #yearModal {
+  color: #111; /* base text color for light variant */
+}
+#yearModal[data-theme="light"] .bottom-modal-box,
+html[data-theme="light"] #yearModal .bottom-modal-box {
+  background: #ffffff; /* solid white card for clear contrast */
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+  color: #111;
+}
+#yearModal[data-theme="light"] .modal-drag,
+html[data-theme="light"] #yearModal .modal-drag { background: #e6e6e6; }
+#yearModal[data-theme="light"] h2,
+html[data-theme="light"] #yearModal h2 { color: #111; }
+#yearModal[data-theme="light"] .modal-close-btn,
+html[data-theme="light"] #yearModal .modal-close-btn { color: #111; }
+
+/* Year items: light cards with subtle borders and dark numbers */
+#yearModal[data-theme="light"] .year-list,
+html[data-theme="light"] #yearModal .year-list { background: transparent; }
+#yearModal[data-theme="light"] .year-item,
+html[data-theme="light"] #yearModal .year-item {
+  background: #f7f7f7;
+  border: 1px solid rgba(0,0,0,0.06);
+  color: #111;
+  box-shadow: none;
+}
+#yearModal[data-theme="light"] .year-item:hover,
+html[data-theme="light"] #yearModal .year-item:hover { background: #f0f0f0; }
+#yearModal[data-theme="light"] .year-item.current,
+html[data-theme="light"] #yearModal .year-item.current {
+  background: #e6ffe6; /* subtle pale green to match app accent */
+  color: #003300;
+  font-weight: 800;
+}
+
+/* Ensure the modal content scrollbars are styled lightly (where supported) */
+#yearModal[data-theme="light"] .modal-content::-webkit-scrollbar,
+html[data-theme="light"] #yearModal .modal-content::-webkit-scrollbar { width: 10px; }
+#yearModal[data-theme="light"] .modal-content::-webkit-scrollbar-thumb,
+html[data-theme="light"] #yearModal .modal-content::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 8px; }
+
+/* Keep floating buttons unaffected by z-index but ensure modal appears above them */
+#yearModal { z-index: 1500; }
+
+/* ===================== LIGHT THEME — START (Saldo inicial) CARD ===================== */
+html[data-theme="light"] .start-container{
+  background: #ffffff; /* white card */
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+}
+html[data-theme="light"] .start-container .modal-title{ color:#111; }
+html[data-theme="light"] .currency-input{
+  background: #f3f4f6; /* light input */
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.04);
+  color:#111;
+}
+html[data-theme="light"] .currency-input::placeholder{ color: rgba(17,17,17,0.45); }
+html[data-theme="light"] .currency-input:-ms-input-placeholder{ color: rgba(17,17,17,0.45); }
+html[data-theme="light"] .currency-input::-ms-input-placeholder{ color: rgba(17,17,17,0.45); }
+html[data-theme="light"] #startGroup .start-input-row #setStartBtn{
+  background:#16a34a; color:#fff; border:none; box-shadow: 0 6px 12px rgba(22,163,74,0.12);
+}
+
+
+/* Hide the "Limpar tudo" (reset) buttons visually while keeping functionality intact */
+#resetData,
+#resetDataFloat {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 /* If you have any .card or .summary etc using transparent, override: */
@@ -1374,6 +1695,26 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   min-width:0;
 }
 .executed-cash .timestamp{margin:0;font-weight:400;font-size:8pt;color:#bbbbbb;align-self:flex-start;}
+/* Place timestamp under description for Planned list */
+.planned-cash .timestamp{ margin:0; font-weight:400; font-size:8pt; color: var(--timestamp); }
+/* Layout for description + recurrence icon on one row */
+.op-left .left-text{ display:flex; flex-direction:column; min-width:0; }
+.op-left .left-title{ display:flex; align-items:center; gap:6px; min-width:0; }
+.op-left .left-title .invoice-payment-badge{
+  display:inline-flex;
+  align-items:center;
+  padding:2px 6px;
+  border-radius:999px;
+  background:rgba(0, 123, 255, 0.18);
+  color:var(--blue);
+  font-size:0.65rem;
+  font-weight:600;
+  letter-spacing:0.03em;
+  text-transform:uppercase;
+}
+html[data-theme="light"] .op-left .left-title .invoice-payment-badge{
+  background:rgba(0, 86, 179, 0.12);
+}
 .executed-cash .op-right{
   display:flex;
   align-items:center;
@@ -1385,7 +1726,7 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
 
 /* Checkbox (planejados) */
 #plannedModal .planned-cash input[type="checkbox"], #plannedModal .planned-cash .plan-check{
-  width:24px;height:24px;border:2px solid var(--txt-muted);border-radius:50%;background:transparent;-webkit-appearance:none;appearance:none;cursor:pointer;position:relative;
+  width:24px;height:24px;border:2px solid var(--txt-muted);border-radius:6px;background:transparent;-webkit-appearance:none;appearance:none;cursor:pointer;position:relative;
 }
 #plannedModal .planned-cash input[type="checkbox"]:checked, #plannedModal .planned-cash .plan-check:checked{background-color:var(--blue);border-color:var(--blue);} 
 
@@ -1395,7 +1736,7 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   width: 24px;
   height: 24px;
   border: 2px solid var(--txt-muted);
-  border-radius: 50%;
+  border-radius: 6px;
   background: transparent;
   appearance: none;
   -webkit-appearance: none;
@@ -1420,7 +1761,7 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   width: 24px;
   height: 24px;
   border: 2px solid var(--txt-muted);
-  border-radius: 50%;
+  border-radius: 6px;
   background: transparent;
   -webkit-appearance: none;
           appearance: none;
@@ -1654,16 +1995,17 @@ details.invoice[open] > summary::after{
 
 /* --- ALIGNMENTS INSIDE CARD INVOICE OPERATIONS ---------------------------------- */
 /* Garantir: descrição à esquerda, valor numérico à direita, timestamp abaixo da descrição */
+.invoice .executed-list { list-style: none; padding: 0; margin: 0 0 32px 0; }
+.invoice .executed-list li { list-style: none; padding: 0; margin: 0; }
 .invoice .executed-list li .op-line{
   display: flex;
   flex-direction: column;
-  justify-content: center;  /* center vertically like Planned/Executed */
   gap: 2px;
-  height: 64px;
-  padding: 0 12px;
-  background: var(--card-bg);
-  border-radius: 8px;
-  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  height: auto;
+  padding: 0 12px 12px 12px;          /* small horizontal indent + slightly larger spacing below each item */
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
   color: #fff;
   box-sizing: border-box;
 }
@@ -1696,14 +2038,37 @@ details.invoice[open] > summary::after{
   font-weight: 400;
   font-size: 8pt;
   color: var(--timestamp);
-  margin: 0 0 0 0;
+  margin: 0;
   display: block;
 }
+
+/* Group date heading inside invoice */
+.invoice .invoice-group-date{
+  margin: 16px 0 4px 0; /* slightly more space after the header divider */
+  font-weight: 700;
+  font-size: .95rem;
+  color: var(--txt-main);
+}
+.invoice .invoice-divider{ height:1px; background: rgba(255,255,255,.12); margin: 6px 0 0 0; }
+.invoice .invoice-divider.thin{ opacity:.9; }
+.invoice .invoice-divider.bold{ height:2px; opacity:.9; }
+
+/* Light theme adjustments for new flat invoice list */
+/* Ensure invoice list items stay flat on light backgrounds */
+html[data-theme="light"] .invoice .executed-list li .op-line{
+  color: #111 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+html[data-theme="light"] .invoice .invoice-divider{ background: var(--divider) !important; opacity: 1; }
+html[data-theme="light"] .invoice .invoice-group-date{ color: #111; }
 
 /* Ensure the swipe wrapper fills the entire card width so the value can reach the right edge */
 .invoice .executed-list li .swipe-wrapper {
   flex: 1 1 100%;
-  width: 100%;
+  width: calc(100% - 24px); /* account for left+right padding on .op-line so swipe area aligns visually */
+  margin-left: 12px;        /* keep swipe area aligned with the indented content */
 }
 
 /* ===================== MODAL ===================== */
@@ -1848,6 +2213,26 @@ details.invoice[open] > summary::after{
 }
 .settings-theme-card .theme-row .theme-btn:first-child:focus-visible{ border-radius: 18px 0 0 18px; }
 .settings-theme-card .theme-row .theme-btn:last-child:focus-visible{ border-radius: 0 18px 18px 0; }
+
+/* Version section styles */
+.version-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+}
+
+.version-number {
+  color: var(--txt-main);
+  font-size: 0.9rem;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+/* Make the version row visually match other settings-item rows */
+#settingsModal .settings-item .version-number{ font-weight:700; font-size:1rem; color:var(--txt-main); opacity:0.9; }
+#settingsModal .settings-item .settings-cta{ padding:0; }
+
 .settings-item .left{display:inline-flex;align-items:center;gap:10px;color:#fff;font-weight:700;}
 .settings-item .settings-cta{color:#fff;font-weight:800;}
 .settings-item.danger .settings-cta{color:#ff6b6b;}
@@ -2113,7 +2498,11 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
 
 /* ===================== FLOATING BUTTONS ===================== */
 .floating-add-button{
-  position:fixed;bottom:calc(12px + env(safe-area-inset-bottom));right:24px;z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
+  position:fixed;
+  bottom:calc(12px + env(safe-area-inset-bottom));
+  right: calc(24px + constant(safe-area-inset-right));
+  right: calc(24px + env(safe-area-inset-right));
+  z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
   backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);
   border:none;box-shadow:0 4px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:32px;font-weight:600;cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;box-sizing:border-box;
   animation:pulse 4s ease-in-out infinite;
@@ -2123,7 +2512,11 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
 }
 /* Espelho do botão flutuante de adicionar: leva ao dia atual */
 .floating-home-button{
-  position:fixed;bottom:calc(12px + env(safe-area-inset-bottom));left:24px;z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
+  position:fixed;
+  bottom:calc(12px + env(safe-area-inset-bottom));
+  left: calc(24px + constant(safe-area-inset-left));
+  left: calc(24px + env(safe-area-inset-left));
+  z-index:1201;overflow:hidden;width:64px;height:64px;border-radius:50%;background-color:rgba(255,255,255,.05);
   backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);
   border:none;box-shadow:0 4px 10px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:32px;font-weight:600;cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;box-sizing:border-box;
   animation:pulse 4s ease-in-out infinite;
@@ -2343,6 +2736,12 @@ html[data-theme="light"] #settingsModal .settings-theme-card .theme-row .theme-b
 }
 html[data-theme="light"] #settingsModal .settings-theme-card .theme-row .theme-btn[aria-pressed="true"]::after{ background: radial-gradient(ellipse at center, rgba(0,0,0,0.10), rgba(0,0,0,0)); }
 
+/* Version section light theme */
+html[data-theme="light"] .version-number {
+  color: #111;
+  opacity: 0.7;
+}
+
 /* Danger action */
 html[data-theme="light"] #settingsModal .settings-item .settings-cta{ color:#111; }
 html[data-theme="light"] #settingsModal .settings-item.danger .settings-cta{ color:#ef4444; }
@@ -2431,6 +2830,37 @@ html[data-theme="light"] #confirmMoveModal .modal-close-btn:hover{ opacity:1; }
 html[data-theme="light"] #confirmMoveModal .modal-drag{ background:#cfcfcf; }
 /* Ensure body text inside confirm modal is dark on light glass */
 html[data-theme="light"] #confirmMoveModal #confirmMoveText{ color:#111 !important; text-shadow:none; }
+
+/* ===================== LIGHT THEME — CONFIRM LOGOUT MODAL ===================== */
+html[data-theme="light"] #confirmLogoutModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.80) 60%), rgba(255,255,255,0.80) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #confirmLogoutModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #confirmLogoutModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #confirmLogoutModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #confirmLogoutModal .modal-drag{ background:#cfcfcf; }
+html[data-theme="light"] #confirmLogoutModal #confirmLogoutText{ color:#111 !important; text-shadow:none; }
+
+/* ===================== LIGHT THEME — CONFIRM RESET MODAL (added) ===================== */
+html[data-theme="light"] #confirmResetModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.92) 60%), rgba(255,255,255,0.92) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.12);
+}
+html[data-theme="light"] #confirmResetModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #confirmResetModal .modal-close-btn{ color:#111; opacity:.8; }
+html[data-theme="light"] #confirmResetModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #confirmResetModal .modal-drag{ background:#dcdcdc; }
+html[data-theme="light"] #confirmResetModal #confirmResetText{ color:#111 !important; text-shadow:none; }
+html[data-theme="light"] #confirmResetModal #confirmResetYes{ background:#ef4444; color:#fff; border:1px solid rgba(0,0,0,0.06); }
+html[data-theme="light"] #confirmResetModal #confirmResetNo{ background:#fff; color:#6b7280; border:1px solid rgba(0,0,0,0.06); }
+
 
 /* ===================== LIGHT THEME — DELETE RECURRENCE MODAL ===================== */
 html[data-theme="light"] #deleteRecurrenceModal .bottom-modal-box{
@@ -2796,6 +3226,28 @@ summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0
   background: #f5f5f5;
   color: #888;
 }
+.danger-btn {
+  background: #ff6b6b !important;
+  color: #fff !important;
+}
+.danger-btn:hover { background: #ff5252 !important; }
+.reset-data-btn {
+  padding: 12px 14px;
+  width: 100%;
+  border-radius: 12px;
+  background: #c53030;
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+}
+.reset-data-btn:hover { background: #b02222; }
+/* Ensure dialog warning text is readable on dark and light themes */
+#confirmResetModal .form-grid p,
+#confirmLogoutModal .form-grid p {
+  color: var(--txt-main) !important;
+  opacity: 0.95 !important;
+}
 /* Parcelas: colapsa/expande suavemente */
 #parcelasBlock {
   max-height: 0;
@@ -2891,4 +3343,8 @@ html.skeleton-boot #dividerSaldo { display: none !important; }
 
 html[data-theme="dark"] {
   --op-left-color: #ffffff;
+}
+
+html[data-theme="dark"] .year-indicator {
+  color: #ffffff;
 }

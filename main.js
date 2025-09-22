@@ -1,9 +1,233 @@
+import { fmtCurrency, fmtNumber, parseCurrency, escHtml } from './js/utils/format-utils.js';
+import {
+  DEFAULT_PROFILE,
+  LEGACY_PROFILE_ID,
+  PROFILE_DATA_KEYS,
+  PROFILE_CACHE_KEYS,
+  getRuntimeProfile,
+  getCurrencyName,
+  getCurrentProfileId,
+  scopedCacheKey,
+  scopedDbSegment
+} from './js/utils/profile-utils.js';
+import { cacheGet, cacheSet, cacheRemove, cacheClearProfile } from './js/utils/cache-utils.js';
+import {
+  appState,
+  setStartBalance,
+  setStartDate,
+  setStartSet,
+  setBootHydrated
+} from './js/state/app-state.js';
+
+const state = appState;
+
+let startInputRef = null;
+
+const hydrationTargets = new Map();
+let hydrationInProgress = true;
+let reopenPlannedAfterEdit = false;
+const sameId = (a, b) => String(a ?? '') === String(b ?? '');
+
+function resetHydration() {
+  hydrationInProgress = true;
+  hydrationTargets.clear();
+  try { document.documentElement.classList.add('skeleton-boot'); } catch (_) {}
+}
+
+function registerHydrationTarget(key, enabled) {
+  if (!enabled || !key) return;
+  hydrationTargets.set(key, false);
+}
+
+function markHydrationTargetReady(key) {
+  if (!key || !hydrationTargets.has(key)) return;
+  hydrationTargets.set(key, true);
+  maybeCompleteHydration();
+}
+
+function maybeCompleteHydration() {
+  if (!hydrationInProgress) return;
+  for (const status of hydrationTargets.values()) {
+    if (status === false) return;
+  }
+  completeHydration();
+}
+
+function completeHydration() {
+  if (!hydrationInProgress) return;
+  hydrationInProgress = false;
+  hydrationTargets.clear();
+  ensureStartSetFromBalance({ persist: true });
+  try { refreshMethods(); } catch (_) {}
+  try { renderCardList(); } catch (_) {}
+  try { initStart(); } catch (_) {}
+  try { safeRenderTable(); } catch (_) {}
+  try { document.documentElement.classList.remove('skeleton-boot'); } catch (_) {}
+}
+
+function isHydrating() {
+  return hydrationInProgress;
+}
+
+resetHydration();
+
+const INITIAL_CASH_CARD = { name: 'Dinheiro', close: 0, due: 0 };
+let transactions = [];
+let cards = [INITIAL_CASH_CARD];
+// Flag for mocking data while working on UI.
+// Switch to `false` to reconnect to production Firebase.
+const USE_MOCK = false;              // conectar ao Firebase (TESTE via config import)
+
+// Year selector state
+let VIEW_YEAR = new Date().getFullYear(); // Ano atual padrão
+
 // Recorrência: Exclusão e Edição de recorrência
 let pendingDeleteTxId = null;
 let pendingDeleteTxIso = null;
 let pendingEditTxId = null;
 let pendingEditTxIso = null;
 let pendingEditMode = null;
+
+let profileListeners = [];
+let startRealtimeFn = null;
+
+function cleanupProfileListeners() {
+  if (!profileListeners || !profileListeners.length) return;
+  profileListeners.forEach(unsub => {
+    try { typeof unsub === 'function' && unsub(); }
+    catch (err) { console.warn('Listener cleanup failed', err); }
+  });
+  profileListeners = [];
+}
+
+function safeFmtCurrency(value, options) {
+  try { return fmtCurrency(value, options); } catch (_) {}
+  const profile = getRuntimeProfile();
+  const decimals = options?.maximumFractionDigits ?? options?.minimumFractionDigits ?? (profile.decimalPlaces ?? DEFAULT_PROFILE.decimalPlaces);
+  try {
+    const nf = new Intl.NumberFormat(profile.locale || DEFAULT_PROFILE.locale, {
+      style: 'currency',
+      currency: profile.currency || DEFAULT_PROFILE.currency,
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
+    return nf.format(Number(value) || 0);
+  } catch (_) {
+    return `${profile.currency || DEFAULT_PROFILE.currency} ${(Number(value) || 0).toFixed(decimals)}`;
+  }
+}
+
+function safeFmtNumber(value, options = {}) {
+  try { return fmtNumber(value, options); } catch (_) {}
+  const profile = getRuntimeProfile();
+  const minimumFractionDigits = options.minimumFractionDigits ?? 0;
+  const maximumFractionDigits = options.maximumFractionDigits ?? Math.max(minimumFractionDigits, profile.decimalPlaces ?? DEFAULT_PROFILE.decimalPlaces);
+  try {
+    const nf = new Intl.NumberFormat(profile.locale || DEFAULT_PROFILE.locale, {
+      minimumFractionDigits,
+      maximumFractionDigits,
+      useGrouping: options.useGrouping !== false
+    });
+    return nf.format(Number(value) || 0);
+  } catch (_) {
+    return (Number(value) || 0).toFixed(Math.max(0, maximumFractionDigits));
+  }
+}
+
+function profileRef(key) {
+  if (!firebaseDb || !PATH) return null;
+  const segment = scopedDbSegment(key);
+  return ref(firebaseDb, `${PATH}/${segment}`);
+}
+
+function safeParseCurrency(raw) {
+  try { return parseCurrency(raw); } catch (_) {}
+  if (typeof raw === 'number') return raw;
+  if (!raw) return 0;
+  return Number(String(raw).replace(/[^0-9+\-.,]/g, '').replace(/\./g, '').replace(/,/g, '.')) || 0;
+}
+
+function normalizeTransactionRecord(t) {
+  if (!t) return t;
+  return {
+    ...t,
+    method: (t.method && t.method.toLowerCase() === 'dinheiro') ? 'Dinheiro' : t.method,
+    recurrence: t.recurrence ?? '',
+    installments: t.installments ?? 1,
+    parentId: t.parentId ?? null
+  };
+}
+
+function ensureCashCard(list) {
+  const cardsList = Array.isArray(list) ? list.filter(Boolean).map(c => ({ ...c })) : [];
+  if (!cardsList.some(c => c && c.name === 'Dinheiro')) {
+    cardsList.unshift({ name: 'Dinheiro', close: 0, due: 0 });
+  }
+  return cardsList;
+}
+
+function hydrateStateFromCache(options = {}) {
+  const { render = true } = options;
+  const cachedTx = cacheGet('tx', []);
+  transactions = (cachedTx || [])
+    .filter(Boolean)
+    .map(normalizeTransactionRecord);
+  sortTransactions();
+
+  cards = ensureCashCard(cacheGet('cards', [{ name: 'Dinheiro', close: 0, due: 0 }]));
+  state.startBalance = cacheGet('startBal', null);
+  state.startDate = cacheGet('startDate', null);
+  state.startSet = cacheGet('startSet', false);
+
+  if (state.startDate == null && (state.startBalance === 0 || state.startBalance === '0')) {
+    state.startBalance = null;
+    try { cacheSet('startBal', null); } catch (_) {}
+  }
+
+  syncStartInputFromState();
+
+  state.bootHydrated = true;
+
+  ensureStartSetFromBalance();
+
+  if (render && !isHydrating()) {
+    try { initStart(); } catch (_) {}
+    try { if (typeof refreshMethods === 'function') refreshMethods(); } catch (_) {}
+    try { if (typeof renderCardList === 'function') renderCardList(); } catch (_) {}
+    try { if (typeof renderTable === 'function') renderTable(); } catch (_) {}
+    try {
+      if (plannedModal && !plannedModal.classList.contains('hidden')) {
+        if (typeof renderPlannedModal === 'function') renderPlannedModal();
+        if (typeof fixPlannedAlignment === 'function') fixPlannedAlignment();
+        if (typeof expandPlannedDayLabels === 'function') expandPlannedDayLabels();
+      }
+    } catch (_) {}
+  }
+  updatePendingBadge();
+}
+
+const keyboardDeferredTasks = new Set();
+
+function scheduleAfterKeyboard(fn) {
+  if (typeof fn !== 'function') return;
+  try {
+    if (document.documentElement?.dataset?.vvKb === '1') {
+      keyboardDeferredTasks.add(fn);
+      return;
+    }
+  } catch (_) {}
+  fn();
+}
+
+function flushKeyboardDeferredTasks() {
+  if (!keyboardDeferredTasks.size) return;
+  const tasks = Array.from(keyboardDeferredTasks);
+  keyboardDeferredTasks.clear();
+  tasks.forEach(fn => {
+    try { fn(); }
+    catch (err) { console.error('Deferred keyboard task failed', err); }
+  });
+}
 // Modal Excluir Recorrência - refs
 const deleteRecurrenceModal = document.getElementById('deleteRecurrenceModal');
 const closeDeleteRecurrenceModal = document.getElementById('closeDeleteRecurrenceModal');
@@ -24,6 +248,12 @@ const confirmMoveYes   = document.getElementById('confirmMoveYes');
 const confirmMoveNo    = document.getElementById('confirmMoveNo');
 const closeConfirmMove = document.getElementById('closeConfirmMove');
 const confirmMoveText  = document.getElementById('confirmMoveText');
+// Modal Confirmar sair da conta - refs
+const confirmLogoutModal = document.getElementById('confirmLogoutModal');
+const confirmLogoutYes   = document.getElementById('confirmLogoutYes');
+const confirmLogoutNo    = document.getElementById('confirmLogoutNo');
+const closeConfirmLogout = document.getElementById('closeConfirmLogout');
+const confirmLogoutText  = document.getElementById('confirmLogoutText');
 // Settings modal – refs
 const settingsModalEl = document.getElementById('settingsModal');
 const toggleThemeBtn = document.getElementById('toggleThemeBtn');
@@ -48,6 +278,7 @@ function askMoveToToday() {
   return new Promise(resolve => {
     const cleanup = () => {
       confirmMoveModal.classList.add('hidden');
+      updateModalOpenState();
       // Remove temporary listeners
       confirmMoveYes.onclick = null;
       confirmMoveNo.onclick = null;
@@ -59,6 +290,29 @@ function askMoveToToday() {
     if (closeConfirmMove) closeConfirmMove.onclick = () => { cleanup(); resolve(false); };
     confirmMoveModal.onclick = (e) => { if (e.target === confirmMoveModal) { cleanup(); resolve(false); } };
     confirmMoveModal.classList.remove('hidden');
+    updateModalOpenState();
+  });
+}
+
+function askConfirmLogout() {
+  if (!confirmLogoutModal || !confirmLogoutYes || !confirmLogoutNo) {
+    return Promise.resolve(window.confirm('Deseja mesmo desconectar?'));
+  }
+  return new Promise(resolve => {
+    const cleanup = () => {
+      confirmLogoutModal.classList.add('hidden');
+      updateModalOpenState();
+      confirmLogoutYes.onclick = null;
+      confirmLogoutNo.onclick = null;
+      if (closeConfirmLogout) closeConfirmLogout.onclick = null;
+      confirmLogoutModal.onclick = null;
+    };
+    confirmLogoutYes.onclick = () => { cleanup(); resolve(true); };
+    confirmLogoutNo.onclick  = () => { cleanup(); resolve(false); };
+    if (closeConfirmLogout) closeConfirmLogout.onclick = () => { cleanup(); resolve(false); };
+    confirmLogoutModal.onclick = (e) => { if (e.target === confirmLogoutModal) { cleanup(); resolve(false); } };
+    confirmLogoutModal.classList.remove('hidden');
+    updateModalOpenState();
   });
 }
 // Elements for Planejados modal
@@ -87,9 +341,6 @@ if (headerSeg) {
   });
 }
 // ---------------- Settings (Ajustes) modal ----------------
-function escHtml(s){
-  return (s==null?"":String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
-}
 function renderSettingsModal(){
   if (!settingsModalEl) return;
   const box = settingsModalEl.querySelector('.modal-content');
@@ -111,12 +362,34 @@ function renderSettingsModal(){
       </div>
     </div>
 
-  <h2 class="settings-title" style="margin:18px 0 8px 0;font-size:1rem;font-weight:700;color:var(--txt-main);">Tema</h2>
+  <h2 class="settings-title" style="margin:18px 0 8px 0;font-size:1rem;font-weight:700;color:var(--txt-main);">Personalização</h2>
     <div class="settings-card settings-theme-card">
       <div class="theme-row" id="themeButtons">
         <button type="button" class="theme-btn" data-theme="light">Claro</button>
         <button type="button" class="theme-btn" data-theme="dark">Escuro</button>
         <button type="button" class="theme-btn" data-theme="system">Sistema</button>
+      </div>
+      <div style="margin-top:4px;padding:0;">
+        <div id="currencyProfileRow" class="settings-row" style="display:flex;align-items:center;justify-content:space-between;padding:14px;border-radius:10px;background:var(--card-bg);box-shadow:var(--card-shadow);cursor:pointer;">
+          <div id="currencyProfileLabel" style="font-weight:600;color:var(--txt-main);font-size:15px;">Brasil (BRL)</div>
+          <div style="color:var(--txt-muted);font-size:18px;">›</div>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="settings-title" style="margin:18px 0 8px 0;font-size:1rem;font-weight:700;color:var(--txt-main);">Sobre</h2>
+    <div class="settings-list">
+      <div class="settings-item">
+        <div class="left">
+          <span class="version-number">${APP_VERSION}</span>
+        </div>
+        <div class="right"></div>
+      </div>
+
+      <div class="settings-item danger">
+        <button type="button" id="resetDataBtn" class="settings-cta">
+          <span>Apagar Todos os Dados</span>
+        </button>
       </div>
     </div>
 
@@ -138,7 +411,12 @@ function renderSettingsModal(){
     img.onerror = () => { img.onerror = null; img.src = 'icons/icon-180x180.png'; };
   }
   const outBtn = box.querySelector('#logoutBtn');
-  if (outBtn) outBtn.onclick = async () => { try { await window.Auth?.signOut(); } catch(_) {} closeSettings(); };
+  if (outBtn) outBtn.onclick = async () => {
+    const ok = await askConfirmLogout();
+    if (!ok) return;
+    try { await window.Auth?.signOut(); } catch(_) {}
+    closeSettings();
+  };
   // Theme buttons wiring
   const themeButtons = box.querySelectorAll('.theme-btn');
   if (themeButtons && themeButtons.length) {
@@ -162,13 +440,149 @@ function renderSettingsModal(){
       });
     });
   }
+
+  // Currency/profile row wiring (opens a modal list)
+  const profileRow = box.querySelector('#currencyProfileRow');
+  if (profileRow && window.CURRENCY_PROFILES) {
+    const updateRowLabel = () => {
+      const cur = localStorage.getItem('ui:profile') || Object.keys(window.CURRENCY_PROFILES)[0];
+      const p = window.CURRENCY_PROFILES[cur] || Object.values(window.CURRENCY_PROFILES)[0];
+      const left = profileRow.querySelector('#currencyProfileLabel');
+      if (left) {
+        left.textContent = p ? p.name : '—';
+        left.style.setProperty('color', 'var(--txt-main)', 'important');
+        left.style.setProperty('opacity', '1', 'important');
+      }
+    };
+    updateRowLabel();
+    profileRow.addEventListener('click', () => {
+      const modal = document.getElementById('currencyProfileModal');
+      const list = document.getElementById('currencyProfileList');
+      if (!modal || !list) return;
+      // populate list
+      list.innerHTML = '';
+      Object.keys(window.CURRENCY_PROFILES).forEach(k => {
+        const p = window.CURRENCY_PROFILES[k];
+        const li = document.createElement('li');
+        li.style.padding = '12px 10px';
+        li.style.borderBottom = '1px solid rgba(255,255,255,0.04)';
+        li.style.cursor = 'pointer';
+  // make sure list text is high-contrast and visible in all themes
+  li.style.fontSize = '16px';
+  li.style.fontWeight = '600';
+  li.style.background = 'transparent';
+  // use setProperty with priority to override strict theme rules if needed
+  li.style.setProperty('color', 'var(--txt-main)', 'important');
+  li.style.setProperty('opacity', '1', 'important');
+  li.style.setProperty('mix-blend-mode', 'normal', 'important');
+        li.style.userSelect = 'none';
+        li.textContent = p.name;
+        li.dataset.profileId = p.id;
+        li.addEventListener('click', () => {
+          modal.classList.add('hidden');
+          updateModalOpenState();
+          if (typeof closeSettings === 'function') {
+            closeSettings();
+          }
+          applyCurrencyProfile(p.id, { notify: true });
+          updateRowLabel();
+        });
+        // touch / hover feedback
+        li.addEventListener('pointerenter', () => { li.style.background = 'rgba(255,255,255,0.02)'; });
+        li.addEventListener('pointerleave', () => { li.style.background = 'transparent'; });
+        list.appendChild(li);
+      });
+      modal.classList.remove('hidden');
+      updateModalOpenState();
+    });
+  }
+
+  // wire currency profile modal close
+  const closeCurrencyProfileModal = document.getElementById('closeCurrencyProfileModal');
+  const currencyProfileModalEl = document.getElementById('currencyProfileModal');
+  if (closeCurrencyProfileModal && currencyProfileModalEl) {
+    closeCurrencyProfileModal.addEventListener('click', () => { currencyProfileModalEl.classList.add('hidden'); updateModalOpenState(); });
+    currencyProfileModalEl.addEventListener('click', (e) => { if (e.target === currencyProfileModalEl) { currencyProfileModalEl.classList.add('hidden'); updateModalOpenState(); } });
+  }
+
+  // Reset button inside settings modal
+  const localResetBtn = box.querySelector('#resetDataBtn');
+  if (localResetBtn) {
+    localResetBtn.addEventListener('click', () => {
+      const confirmModal = document.getElementById('confirmResetModal');
+      if (confirmModal) {
+        confirmModal.classList.remove('hidden');
+        updateModalOpenState();
+      } else {
+        // fallback: call existing function directly
+        try { performResetAllData(true); } catch (e) { console.error(e); }
+      }
+    });
+  }
+
+  // Wire confirmation modal buttons if modal exists in DOM
+  const confirmResetModal = document.getElementById('confirmResetModal');
+  const confirmResetYes = document.getElementById('confirmResetYes');
+  const confirmResetNo = document.getElementById('confirmResetNo');
+  const closeConfirmReset = document.getElementById('closeConfirmReset');
+  if (confirmResetModal) {
+    if (confirmResetYes) confirmResetYes.onclick = async () => {
+      // proceed without extra confirm (we already asked via modal)
+      confirmResetModal.classList.add('hidden');
+      updateModalOpenState();
+      try { await performResetAllData(false); } catch (e) { console.error(e); }
+    };
+    if (confirmResetNo) confirmResetNo.onclick = () => { confirmResetModal.classList.add('hidden'); updateModalOpenState(); };
+    if (closeConfirmReset) closeConfirmReset.onclick = () => { confirmResetModal.classList.add('hidden'); updateModalOpenState(); };
+    confirmResetModal.onclick = (e) => { if (e.target === confirmResetModal) { confirmResetModal.classList.add('hidden'); updateModalOpenState(); } };
+  }
 }
-function openSettings(){ if (!settingsModalEl) return; renderSettingsModal(); document.documentElement.classList.add('modal-open'); settingsModalEl.classList.remove('hidden'); }
-function closeSettings(){ if (!settingsModalEl) return; settingsModalEl.classList.add('hidden'); document.documentElement.classList.remove('modal-open'); }
+function openSettings(){ if (!settingsModalEl) return; renderSettingsModal(); settingsModalEl.classList.remove('hidden'); updateModalOpenState(); }
+function closeSettings(){ if (!settingsModalEl) return; settingsModalEl.classList.add('hidden'); updateModalOpenState(); }
 if (closeSettingsModalBtn) closeSettingsModalBtn.addEventListener('click', closeSettings);
 if (settingsModalEl) settingsModalEl.addEventListener('click', (e)=>{ if (e.target === settingsModalEl) closeSettings(); });
 // React to auth state updates and keep the modal content fresh
 try { document.addEventListener('auth:state', renderSettingsModal); } catch(_) {}
+
+// Year selector event listeners
+const yearSelector = document.getElementById('yearSelector');
+const yearModal = document.getElementById('yearModal');
+const closeYearModalBtn = document.getElementById('closeYearModal');
+
+if (yearSelector) {
+  // Keep click behavior (open modal)
+  yearSelector.addEventListener('click', openYearModal);
+
+  // Keyboard navigation: ArrowLeft / ArrowRight change year without opening modal
+  yearSelector.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      selectYear(VIEW_YEAR - 1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      selectYear(VIEW_YEAR + 1);
+    }
+  });
+
+  // Wheel support: scroll to change year (vertical wheel only)
+  yearSelector.addEventListener('wheel', (e) => {
+    if (e.deltaY === 0 || e.ctrlKey || e.metaKey || e.altKey) return;
+    e.preventDefault();
+    if (e.deltaY < 0) selectYear(VIEW_YEAR + 1);
+    else if (e.deltaY > 0) selectYear(VIEW_YEAR - 1);
+  }, { passive: false });
+}
+
+if (closeYearModalBtn) {
+  closeYearModalBtn.addEventListener('click', closeYearModal);
+}
+
+if (yearModal) {
+  yearModal.addEventListener('click', (e) => {
+    if (e.target === yearModal) closeYearModal();
+  });
+}
+
 // Bottom floating pill actions
 const bottomPill = document.querySelector('.floating-pill');
 if (bottomPill) {
@@ -323,13 +737,109 @@ function initThemeFromStorage(){
 // Initialize theme early
 initThemeFromStorage();
 
+/**
+ * Apply a currency/profile by id.
+ * - sets window.APP_PROFILE
+ * - creates window.APP_FMT Intl.NumberFormat for currency
+ * - persists choice to localStorage
+ * - toggles UI bits controlled by profile.features (e.g., invoice parcel)
+ */
+function applyCurrencyProfile(profileId, options = {}){
+  const { notify = false } = options;
+  if (!window.CURRENCY_PROFILES) return;
+  const p = window.CURRENCY_PROFILES[profileId] || Object.values(window.CURRENCY_PROFILES)[0];
+  if (!p) return;
+  resetHydration();
+  window.APP_PROFILE = p;
+  const profileDecimals = Number.isFinite(p.decimalPlaces) ? p.decimalPlaces : 2;
+  try{
+    window.APP_FMT = new Intl.NumberFormat(p.locale, { style: 'currency', currency: p.currency, minimumFractionDigits: profileDecimals, maximumFractionDigits: profileDecimals });
+  }catch(e){
+    window.APP_FMT = { format: v => (Number(v).toFixed(profileDecimals) + ' ' + p.currency) };
+  }
+  try{
+    window.APP_NUM = new Intl.NumberFormat(p.locale, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: Math.max(profileDecimals, 2)
+    });
+  }catch(e){
+    window.APP_NUM = { format: v => Number(v ?? 0).toFixed(profileDecimals) };
+  }
+  localStorage.setItem('ui:profile', p.id);
+
+  // toggle invoice parcel row if present
+  const invoiceRow = document.getElementById('invoiceParcelRow');
+  if (invoiceRow){
+    if (p.features && p.features.invoiceParcel === false){
+      invoiceRow.style.display = 'none';
+    } else {
+      invoiceRow.style.display = '';
+    }
+  }
+
+  // update placeholders that show currency examples
+  const startInput = document.querySelector('.start-container .currency-input');
+  if (startInput){
+    const decimals = Number.isFinite(p.decimalPlaces) ? p.decimalPlaces : (DEFAULT_PROFILE.decimalPlaces ?? 2);
+    try {
+      const placeholderFmt = new Intl.NumberFormat(p.locale || DEFAULT_PROFILE.locale, {
+        style: 'currency',
+        currency: p.currency || DEFAULT_PROFILE.currency,
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      });
+      startInput.placeholder = placeholderFmt.format(0);
+    } catch (_) {
+      const cur = p.currency || DEFAULT_PROFILE.currency;
+      startInput.placeholder = `${cur} ${(0).toFixed(decimals)}`;
+    }
+    syncStartInputFromState();
+  }
+
+  const newStartDate = cacheGet('startDate', null);
+  const newStartBalanceRaw = cacheGet('startBal', null);
+  state.startDate = newStartDate;
+  state.startBalance = (newStartDate == null && (newStartBalanceRaw === 0 || newStartBalanceRaw === '0'))
+    ? null
+    : newStartBalanceRaw;
+  state.startSet = cacheGet('startSet', false);
+  ensureStartSetFromBalance({ persist: false });
+  syncStartInputFromState();
+
+  if (notify && typeof showToast === 'function') {
+    const label = p && p.name ? p.name : (profileId || 'perfil');
+    showToast(`Moeda ajustada para ${label}`, 'success', 3600);
+  }
+
+  cleanupProfileListeners();
+  const runAfterBoot = () => {
+    try { hydrateStateFromCache(); } catch (err) { console.error('Failed to hydrate cache for profile', err); }
+    if (typeof renderTxModal === 'function') {
+      try { renderTxModal(); } catch (e) { console.error('renderTxModal failed after profile change', e); }
+    }
+    if (!USE_MOCK && typeof startRealtimeFn === 'function' && PATH) {
+      startRealtimeFn().catch(err => {
+        console.error('Failed to restart realtime after profile change', err);
+      });
+    }
+  };
+  if (typeof queueMicrotask === 'function') queueMicrotask(runAfterBoot);
+  else Promise.resolve().then(runAfterBoot);
+}
+
+// Apply saved profile on load (if profiles are available)
+try{
+  const savedProfile = localStorage.getItem('ui:profile') || (window.CURRENCY_PROFILES ? Object.keys(window.CURRENCY_PROFILES)[0] : null);
+  if (savedProfile) applyCurrencyProfile(savedProfile);
+}catch(e){}
+
 
 import { openDB } from 'https://unpkg.com/idb?module';
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
 
 import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
-// Configuração do Firebase de PRODUÇÃO (arquivo separado)
+// Configuração do Firebase de TESTE (arquivo separado)
 import { firebaseConfig } from './firebase.prod.config.js';
 
 // (Web Push removido)
@@ -342,6 +852,15 @@ const cacheDB = await openDB('gastos-cache', 1, {
 });
 async function idbGet(k) { try { return await cacheDB.get('kv', k); } catch { return undefined; } }
 async function idbSet(k, v) { try { await cacheDB.put('kv', v, k); } catch {} }
+async function idbRemove(k) { try { await cacheDB.delete('kv', k); } catch {} }
+
+if (typeof window !== 'undefined') {
+  window.APP_CACHE_BACKING = {
+    idbGet,
+    idbSet,
+    idbRemove
+  };
+}
 
 /**
  * Initialize swipe-to-reveal actions on elements.
@@ -447,6 +966,38 @@ if (isIOSDebug && standaloneDebug) {
   console.log('- Firebase Config:', firebaseConfig ? 'loaded' : 'missing');
   console.log('- Auth State:', window.Auth ? 'initialized' : 'pending');
   
+  // iOS 26 viewport debugging
+  console.log('📱 iOS 26 Viewport Info:');
+  console.log('- window.innerHeight:', window.innerHeight);
+  console.log('- window.outerHeight:', window.outerHeight);
+  console.log('- screen.height:', screen.height);
+  console.log('- visualViewport:', window.visualViewport ? {
+    height: window.visualViewport.height,
+    width: window.visualViewport.width,
+    offsetTop: window.visualViewport.offsetTop
+  } : 'not supported');
+  
+  // Check safe area support
+  const testDiv = document.createElement('div');
+  testDiv.style.cssText = 'position: fixed; top: env(safe-area-inset-top); left: env(safe-area-inset-left); visibility: hidden;';
+  document.body.appendChild(testDiv);
+  const computedStyle = getComputedStyle(testDiv);
+  console.log('- Safe area insets:', {
+    top: computedStyle.top,
+    left: computedStyle.left,
+    supported: computedStyle.top !== 'env(safe-area-inset-top)'
+  });
+  document.body.removeChild(testDiv);
+  
+  // Check viewport unit support
+  const viewportSupport = {
+    vh: CSS.supports('height', '100vh'),
+    svh: CSS.supports('height', '100svh'),
+    dvh: CSS.supports('height', '100dvh'),
+    lvh: CSS.supports('height', '100lvh')
+  };
+  console.log('- Viewport units support:', viewportSupport);
+  
   // Monitor auth state changes
   document.addEventListener('auth:state', (e) => {
     const user = e.detail && e.detail.user;
@@ -483,10 +1034,7 @@ function resolvePathForUser(user){
   return personalPath;
 }
 
-// Flag for mocking data while working on UI.  
-// Switch to `false` to reconnect to production Firebase.
-const USE_MOCK = false;              // conectar ao Firebase PROD
-const APP_VERSION = '1.4.9';
+const APP_VERSION = 'v1.4.9(a60)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -530,40 +1078,32 @@ if (!USE_MOCK) {
       if (k === 'tx') cacheSet('tx', v);
       if (k === 'cards') cacheSet('cards', v);
       if (k === 'startBal') cacheSet('startBal', v);
+      if (k === 'startSet') cacheSet('startSet', v);
       return; // no remote write while offline
     }
-    return set(ref(db, `${PATH}/${k}`), v);
+    const remoteKey = scopedDbSegment(k);
+    return set(ref(db, `${PATH}/${remoteKey}`), v);
   };
   load = async (k, d) => {
-    const s = await get(ref(db, `${PATH}/${k}`));
+    const remoteKey = scopedDbSegment(k);
+    const s = await get(ref(db, `${PATH}/${remoteKey}`));
     return s.exists() ? s.val() : d;
   };
 } else {
   // Modo MOCK (LocalStorage)
   PATH = 'mock_365';
-  save = (k, v) => localStorage.setItem(`${PATH}_${k}`, JSON.stringify(v));
-  load = async (k, d) =>
-    JSON.parse(localStorage.getItem(`${PATH}_${k}`)) ?? d;
+  save = (k, v) => {
+    const scoped = scopedCacheKey(k);
+    localStorage.setItem(`${PATH}_${scoped}`, JSON.stringify(v));
+  };
+  load = async (k, d) => {
+    const scoped = scopedCacheKey(k);
+    const raw = localStorage.getItem(`${PATH}_${scoped}`);
+    if (raw != null) return JSON.parse(raw);
+    return d;
+  };
 }
 
-
-// Cache local (LocalStorage+IDB) p/ boot instantâneo, com fallback/hydrate
-const cacheGet  = (k, d) => {
-  try {
-    const ls = localStorage.getItem(`cache_${k}`);
-    if (ls != null) return JSON.parse(ls);
-  } catch {}
-  // Fallback: fetch from IDB asynchronously and warm localStorage
-  (async () => {
-    const v = await idbGet(`cache_${k}`);
-    if (v !== undefined) localStorage.setItem(`cache_${k}`, JSON.stringify(v));
-  })();
-  return d;
-};
-const cacheSet  = (k, v) => {
-  localStorage.setItem(`cache_${k}`, JSON.stringify(v));
-  idbSet(`cache_${k}`, v);
-};
 
 // ---------------- Offline queue helpers (generalized) ----------------
 // We track which collections are "dirty" while offline: 'tx', 'cards', 'startBal'.
@@ -576,7 +1116,7 @@ function updatePendingBadge() {
 
 // Marks a collection as dirty so we know to flush it later.
 function markDirty(kind) {
-  const allowed = ['tx','cards','startBal'];
+  const allowed = ['tx','cards','startBal','startSet'];
   if (!allowed.includes(kind)) return;
   const q = cacheGet('dirtyQueue', []);
   if (!q.includes(kind)) q.push(kind);
@@ -635,7 +1175,8 @@ async function flushQueue() {
   try {
     if (q.includes('tx'))       await save('tx', transactions);
     if (q.includes('cards'))    await save('cards', cards);
-    if (q.includes('startBal')) await save('startBal', startBalance);
+    if (q.includes('startBal')) await save('startBal', state.startBalance);
+    if (q.includes('startSet')) await save('startSet', state.startSet);
   } catch (err) {
     console.error('flushQueue failed:', err);
     // Put back flags so we retry later (union of previous + current)
@@ -667,9 +1208,10 @@ async function flushQueue() {
 
 
 // Load transactions/cards/balance: now with realtime listeners if not USE_MOCK
-let transactions = [];
-let cards = [{ name:'Dinheiro', close:0, due:0 }];
-let startBalance;
+setStartBalance(null);
+setStartDate(null);
+setStartSet(false);
+setBootHydrated(false);
 const $=id=>document.getElementById(id);
 const tbody=document.querySelector('#dailyTable tbody');
 const wrapperEl = document.querySelector('.wrapper');
@@ -719,6 +1261,45 @@ function sanitizeTransactions(list) {
   return { list: out, changed };
 }
 
+// Revalida postDate e normaliza método de cartão para dados legados
+function recomputePostDates() {
+  if (!Array.isArray(cards) || !cards.length) return false;
+  let changed = false;
+  const norm = (s) => (s==null?'' : String(s)).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  const nonCash = cards.filter(c => c && c.name !== 'Dinheiro');
+  const singleCardName = nonCash.length === 1 ? nonCash[0].name : null;
+
+  const inferCardForTx = (tx) => {
+    const m = tx.method || '';
+    const mNorm = norm(m);
+    if (mNorm === 'dinheiro') return null; // dinheiro não precisa mapear
+    // se já corresponde a um cartão existente, retorna o nome canônico
+    const found = cards.find(c => c && norm(c.name) === mNorm);
+    if (found) return found.name;
+    // tenta inferir pelo postDate esperado: qual cartão gera esse postDate a partir do opDate?
+    if (tx.opDate && tx.postDate) {
+      const candidates = nonCash.filter(c => post(tx.opDate, c.name) === tx.postDate);
+      if (candidates.length === 1) return candidates[0].name;
+    }
+    // fallback seguro: se usuário só tem um cartão, assume-o apenas se método vier vazio/genérico
+    if (singleCardName && (!m || mNorm === 'cartao' || mNorm === 'cartão')) return singleCardName;
+    return null; // ambíguo: não altera
+  };
+
+  transactions = (transactions || []).map(t => {
+    if (!t) return t;
+    const nt = { ...t };
+    const inferred = inferCardForTx(nt);
+    if (inferred && nt.method !== inferred) { nt.method = inferred; changed = true; }
+    const isCash = norm(nt.method) === 'dinheiro';
+    const isKnownCard = !isCash && cards.some(c => c && c.name === nt.method);
+    const desired = isCash ? nt.opDate : (isKnownCard ? post(nt.opDate, nt.method) : nt.postDate);
+    if (desired && nt.postDate !== desired) { nt.postDate = desired; changed = true; }
+    return nt;
+  });
+  return changed;
+}
+
 // --- Toast helper ---
 const showToast = (msg, type = 'error', duration = 3000) => {
   const t = document.getElementById('toast');
@@ -735,7 +1316,7 @@ const showToast = (msg, type = 'error', duration = 3000) => {
 function buildSaveToast(tx) {
   try {
     const valueNum = typeof tx.val === 'number' ? tx.val : Number((tx.val || '0').toString().replace(/[^0-9.-]/g, ''));
-    const formattedVal = valueNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const formattedVal = safeFmtCurrency(valueNum);
     const isCard = tx.method && tx.method !== 'Dinheiro';
     const hasOpDate = !!tx.opDate;
     const renderIso = tx.postDate || (hasOpDate && tx.method ? post(tx.opDate, tx.method) : null);
@@ -766,7 +1347,9 @@ if (!USE_MOCK) {
   // Start realtime listeners only after user is authenticated
   const startRealtime = async () => {
     console.log('Starting realtime listeners for PATH:', PATH);
-    
+    cleanupProfileListeners();
+    resetHydration();
+
     // Enhanced iOS PWA: Wait for redirect completion if needed
     const ua = navigator.userAgent.toLowerCase();
     const isIOS = /iphone|ipad|ipod/.test(ua);
@@ -782,7 +1365,7 @@ if (!USE_MOCK) {
       const u = window.Auth && window.Auth.currentUser;
       if (u && PATH) {
         console.log('Testing access to PATH:', PATH, 'for user:', u.email);
-        const testRef = ref(firebaseDb, `${PATH}/startBal`);
+        const testRef = ref(firebaseDb, `${PATH}/${scopedDbSegment('startBal')}`);
         try {
           await get(testRef);
           console.log('Access confirmed to PATH:', PATH);
@@ -807,38 +1390,31 @@ if (!USE_MOCK) {
     }
 
     // Live listeners (Realtime DB)
-    const txRef    = ref(firebaseDb, `${PATH}/tx`);
-    const cardsRef = ref(firebaseDb, `${PATH}/cards`);
-    const balRef   = ref(firebaseDb, `${PATH}/startBal`);
+    const txRef    = profileRef('tx');
+    const cardsRef = profileRef('cards');
+    const balRef   = profileRef('startBal');
+    const startSetRef = profileRef('startSet');
+
+    const listeners = [];
+
+    registerHydrationTarget('tx', !!txRef);
+    registerHydrationTarget('cards', !!cardsRef);
+    registerHydrationTarget('startBal', !!balRef);
+    registerHydrationTarget('startSet', !!startSetRef);
 
   // initialize from cache first for instant UI
-  transactions = cacheGet('tx', []);
-  transactions = (transactions || [])
-    .filter(t => t) // ignora null/undefined
-    .map(t => ({
-      ...t,
-      method: (t.method && t.method.toLowerCase() === 'dinheiro') ? 'Dinheiro' : t.method,
-      recurrence: t.recurrence ?? '',
-      installments: t.installments ?? 1,
-      parentId: t.parentId ?? null
-    }));
-  sortTransactions();
-  cards = cacheGet('cards', [{name:'Dinheiro',close:0,due:0}]);
-  startBalance = cacheGet('startBal', null);
+  hydrateStateFromCache();
+
+    maybeCompleteHydration();
 
   // Listen for tx changes (LWW merge per item)
-  onValue(txRef, (snap) => {
+  if (txRef) listeners.push(onValue(txRef, (snap) => {
+    try {
     const raw  = snap.val() ?? [];
     const incoming = Array.isArray(raw) ? raw : Object.values(raw);
 
     // normalize helper
-    const norm = (t) => ({
-      ...t,
-      method: (t.method && t.method.toLowerCase() === 'dinheiro') ? 'Dinheiro' : t.method,
-      recurrence: t.recurrence ?? '',
-      installments: t.installments ?? 1,
-      parentId: t.parentId ?? null
-    });
+    const norm = normalizeTransactionRecord;
 
     const remote = (incoming || [])
       .filter(t => t)
@@ -869,9 +1445,11 @@ if (!USE_MOCK) {
     // Sanitize legacy/malformed items
     const s = sanitizeTransactions(transactions);
     transactions = s.list;
+    // Revalida postDate/método se cartões já conhecidos
+    const fixed = recomputePostDates();
     cacheSet('tx', transactions);
-    if (s.changed) {
-      // Persist sanitized data back to server (best-effort)
+    if (s.changed || fixed) {
+      // Persist best-effort somente quando algo mudou localmente
       try { save('tx', transactions); } catch (_) {}
     }
     sortTransactions();
@@ -882,40 +1460,83 @@ if (!USE_MOCK) {
       fixPlannedAlignment();
       expandPlannedDayLabels();
     }
-  });
+    } finally {
+      markHydrationTargetReady('tx');
+    }
+  }));
 
   // Listen for card changes
-  onValue(cardsRef, (snap) => {
+  if (cardsRef) listeners.push(onValue(cardsRef, (snap) => {
     const raw  = snap.val() ?? [];
     const next = Array.isArray(raw) ? raw : Object.values(raw);
-    if (JSON.stringify(next) === JSON.stringify(cards)) return;
+    try {
+      if (JSON.stringify(next) === JSON.stringify(cards)) {
+        markHydrationTargetReady('cards');
+        return;
+      }
 
-    cards = next;
-    if (!cards.some(c => c.name === 'Dinheiro')) {
-      cards.unshift({ name: 'Dinheiro', close: 0, due: 0 });
+      cards = next;
+      if (!cards.some(c => c.name === 'Dinheiro')) {
+        cards.unshift({ name: 'Dinheiro', close: 0, due: 0 });
+      }
+      cacheSet('cards', cards);
+      // Revalida transações à luz do cadastro de cartões atual
+      const fixed = recomputePostDates();
+      if (fixed) { try { save('tx', transactions); } catch (_) {} cacheSet('tx', transactions); }
+      refreshMethods();
+      renderCardList();
+      renderTable();
+    } finally {
+      markHydrationTargetReady('cards');
     }
-    cacheSet('cards', cards);
-    refreshMethods();
-    renderCardList();
-    renderTable();
-  });
+  }));
 
   // Listen for balance changes
-  onValue(balRef, (snap) => {
+  if (balRef) listeners.push(onValue(balRef, (snap) => {
     const val = snap.exists() ? snap.val() : null;
-    if (val === startBalance) return;
-    startBalance = val;
-    cacheSet('startBal', startBalance);
-    initStart();
-    renderTable();
-  });
+    if (val === state.startBalance) {
+      markHydrationTargetReady('startBal');
+      return;
+    }
+    try {
+      state.startBalance = val;
+      cacheSet('startBal', state.startBalance);
+      syncStartInputFromState();
+      ensureStartSetFromBalance();
+      initStart();
+      renderTable();
+    } finally {
+      markHydrationTargetReady('startBal');
+    }
+  }));
+  // Listen for persisted startSet flag changes so remote clears/sets propagate
+  if (startSetRef) listeners.push(onValue(startSetRef, (snap) => {
+    const val = snap.exists() ? !!snap.val() : false;
+    if (val === state.startSet) {
+      markHydrationTargetReady('startSet');
+      return;
+    }
+    try {
+      state.startSet = val;
+      try { cacheSet('startSet', state.startSet); } catch(_) {}
+      initStart();
+      renderTable();
+    } finally {
+      markHydrationTargetReady('startSet');
+    }
+  }));
+
+  profileListeners = listeners;
   };
+  startRealtimeFn = startRealtime;
 
   const readyUser = (window.Auth && window.Auth.currentUser) ? window.Auth.currentUser : null;
   if (readyUser) { 
     console.log('User already ready:', readyUser.email);
     PATH = resolvePathForUser(readyUser); 
-    startRealtime(); 
+    startRealtimeFn && startRealtimeFn(); 
+    // Recalcula a altura do header para usuário já logado
+    setTimeout(() => recalculateHeaderOffset(), 100);
   } else {
     console.log('Waiting for auth state...');
     
@@ -926,7 +1547,9 @@ if (!USE_MOCK) {
         document.removeEventListener('auth:state', h); 
         PATH = resolvePathForUser(u); 
         console.log('Starting realtime with PATH:', PATH);
-        startRealtime(); 
+        startRealtimeFn && startRealtimeFn(); 
+        // Recalcula a altura do header agora que o usuário está logado e o header está visível
+        setTimeout(() => recalculateHeaderOffset(), 100);
       } else {
         console.log('User signed out, clearing PATH');
         PATH = null;
@@ -935,11 +1558,12 @@ if (!USE_MOCK) {
     document.addEventListener('auth:state', h);
   }
 } else {
+  resetHydration();
   // Fallback (mock) — carrega uma vez
   const [liveTx, liveCards, liveBal] = await Promise.all([
     load('tx', []),
     load('cards', cards),
-    load('startBal', startBalance)
+    load('startBal', state.startBalance)
   ]);
 
   const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
@@ -949,7 +1573,13 @@ if (!USE_MOCK) {
 
   transactions = cacheGet('tx', []);
   cards = cacheGet('cards', [{name:'Dinheiro',close:0,due:0}]);
-  startBalance = cacheGet('startBal', null);
+  state.startBalance = cacheGet('startBal', null);
+  state.startDate = cacheGet('startDate', null);
+  // Same normalization for mock fallback
+  if (state.startDate == null && (state.startBalance === 0 || state.startBalance === '0')) {
+    state.startBalance = null;
+    try { cacheSet('startBal', null); } catch (_) {}
+  }
 
   if (hasLiveTx && JSON.stringify(fixedTx) !== JSON.stringify(transactions)) {
     transactions = fixedTx;
@@ -962,11 +1592,13 @@ if (!USE_MOCK) {
     cacheSet('cards', cards);
     refreshMethods(); renderCardList(); renderTable();
   }
-  if (liveBal !== startBalance) {
-    startBalance = liveBal;
-    cacheSet('startBal', startBalance);
+  if (liveBal !== state.startBalance) {
+    state.startBalance = liveBal;
+    cacheSet('startBal', state.startBalance);
     initStart(); renderTable();
   }
+
+  completeHydration();
 }
 const openTxBtn = document.getElementById('openTxModal');
 const txModal   = document.getElementById('txModal');
@@ -1095,7 +1727,62 @@ if (openTxBtn) openTxBtn.onclick = () => {
 function updateModalOpenState() {
   const open = !!document.querySelector('.bottom-modal:not(.hidden)');
   const root = document.documentElement || document.body;
+
+  // Add/remove the existing modal-open class (used by CSS)
   if (open) root.classList.add('modal-open'); else root.classList.remove('modal-open');
+
+  // Prevent viewport jumps on mobile when a modal opens and the on-screen keyboard appears.
+  // Approach: save current scroll position and apply a fixed-position lock to the <body> so
+  // the browser won't resize/layout the page when visual viewport changes. Restore on close.
+  try {
+    if (open) {
+      if (!root.classList.contains('modal-locked')) {
+        const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+        // Apply lock styles to body
+        document.body.style.position = 'fixed';
+        document.body.style.top = `-${scrollY}px`;
+        document.body.style.left = '0';
+        document.body.style.right = '0';
+        document.body.style.width = '100%';
+        // mark locked and persist scroll value on root for restore
+        root.classList.add('modal-locked');
+        root.dataset.modalScroll = String(scrollY);
+      }
+    } else {
+      if (root.classList.contains('modal-locked')) {
+        // restore
+        root.classList.remove('modal-locked');
+        const prev = parseInt(root.dataset.modalScroll || '0', 10) || 0;
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        document.body.style.width = '';
+        // ensure we restore the previous scroll position
+        window.scrollTo(0, prev);
+        try { delete root.dataset.modalScroll; } catch(_) { root.removeAttribute('data-modal-scroll'); }
+      }
+    }
+  } catch (e) {
+    // best-effort only; don't break UI if this fails
+    console.error('updateModalOpenState lock/unlock failed', e);
+  }
+
+  // Safari iOS fix: Force scroll state cleanup when all modals are closed
+  // Fixes bug where accordion scroll becomes unresponsive after opening/closing modals
+  if (!open && /Safari/i.test(navigator.userAgent) && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    setTimeout(() => {
+      // Force a reflow to reset scroll state
+      const wrapper = document.querySelector('.wrapper');
+      if (wrapper) {
+        const currentScrollTop = wrapper.scrollTop;
+        wrapper.style.overflow = 'hidden';
+        wrapper.offsetHeight; // Force reflow
+        wrapper.style.overflow = 'auto';
+        wrapper.scrollTop = currentScrollTop;
+      }
+    }, 50);
+  }
 }
 if (closeTxModal) closeTxModal.onclick = toggleTxModal;
 if (txModal) {
@@ -1269,14 +1956,40 @@ function isInScrollableModal(el){
   // fallback: treat .modal-content as scrollable container
   return content && content.scrollHeight > content.clientHeight;
 }
+
+// Safari iOS fix: Force scroll state cleanup when no modals are open
+let lastModalState = false;
+function resetScrollStateIfNeeded() {
+  const currentModalState = anyModalOpen();
+  if (lastModalState && !currentModalState) {
+    // Modal was just closed - force scroll cleanup for Safari iOS
+    if (/Safari/i.test(navigator.userAgent) && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      setTimeout(() => {
+        // Force a reflow to reset scroll state
+        const wrapper = document.querySelector('.wrapper');
+        if (wrapper) {
+          const currentScrollTop = wrapper.scrollTop;
+          wrapper.style.overflow = 'hidden';
+          wrapper.offsetHeight; // Force reflow
+          wrapper.style.overflow = 'auto';
+          wrapper.scrollTop = currentScrollTop;
+        }
+      }, 50);
+    }
+  }
+  lastModalState = currentModalState;
+}
+
 // Allow scroll inside modal content; block background scroll only
 document.addEventListener('touchmove', (e) => {
+  resetScrollStateIfNeeded();
   if (!anyModalOpen()) return;
   const target = e.target;
   if (isInScrollableModal(target)) return; // allow natural scroll in modal
   e.preventDefault();
 }, { passive: false });
 document.addEventListener('wheel', (e) => {
+  resetScrollStateIfNeeded();
   if (!anyModalOpen()) return;
   const target = e.target;
   if (isInScrollableModal(target)) return; // allow wheel inside modal
@@ -1289,65 +2002,166 @@ document.addEventListener('wheel', (e) => {
   if (!vv) return;
   const root = document.documentElement;
   const THRESH = 140; // px
-  const update = () => {
-    const gap = (window.innerHeight || 0) - ((vv.height || 0) + (vv.offsetTop || 0));
-    const isKb = gap > THRESH && /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (isKb) {
+  const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  let keyboardOpen = false;
+  let closeTimer = null;
+
+  const applyKeyboardOpen = (gap) => {
+    keyboardOpen = true;
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+    if (root) {
       root.dataset.vvKb = '1';
+      root.classList.add('keyboard-open');
       root.style.setProperty('--kb-offset-bottom', Math.max(0, Math.round(gap)) + 'px');
-    } else {
-      delete root.dataset.vvKb;
-      root.style.removeProperty('--kb-offset-bottom');
     }
   };
+
+  const applyKeyboardClosed = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => {
+      keyboardOpen = false;
+      if (root) {
+        delete root.dataset.vvKb;
+        root.classList.remove('keyboard-open');
+        root.style.removeProperty('--kb-offset-bottom');
+      }
+      flushKeyboardDeferredTasks();
+    }, 200);
+  };
+
+  const update = () => {
+    const gap = (window.innerHeight || 0) - ((vv.height || 0) + (vv.offsetTop || 0));
+    const isKb = IS_IOS && gap > THRESH;
+    if (isKb) {
+      applyKeyboardOpen(gap);
+    } else {
+      if (keyboardOpen || root?.dataset?.vvKb === '1') {
+        applyKeyboardClosed();
+      }
+    }
+  };
+
+  const scheduleUpdate = (delay = 0) => {
+    if (delay <= 0) {
+      scheduleAfterKeyboard(update);
+    } else {
+      setTimeout(() => scheduleAfterKeyboard(update), delay);
+    }
+  };
+
   update();
   vv.addEventListener('resize', update);
-  window.addEventListener('orientationchange', () => setTimeout(update, 50));
-  window.addEventListener('focusin', () => setTimeout(update, 0));
-  window.addEventListener('focusout', () => setTimeout(update, 50));
+  window.addEventListener('orientationchange', () => scheduleUpdate(160));
+  window.addEventListener('focusin', () => scheduleUpdate());
+  window.addEventListener('focusout', () => scheduleUpdate(220));
 })();
 
 
 
 
-const currency=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const currency = (v) => safeFmtCurrency(v);
+const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 // Palavras que caracterizam “salário”
 const SALARY_WORDS = ['salário', 'salario', 'provento', 'rendimento', 'pagamento', 'paycheck', 'salary'];
-const mobile=()=>window.innerWidth<=480;
-const fmt=d=>d.toLocaleDateString('pt-BR',mobile()?{day:'2-digit',month:'2-digit'}:{day:'2-digit',month:'2-digit',year:'numeric'});
+const mobile = () => window.innerWidth <= 480;
+const fmt = (d) => {
+  const date = d instanceof Date ? d : new Date(d);
+  return date.toLocaleDateString('pt-BR', mobile()
+    ? { day: '2-digit', month: '2-digit' }
+    : { day: '2-digit', month: '2-digit', year: 'numeric' }
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Sticky month header  (Safari/iOS não suporta <summary> sticky)
 // ---------------------------------------------------------------------------
 const headerEl      = document.querySelector('.app-header');
-const HEADER_OFFSET = headerEl ? headerEl.getBoundingClientRect().height : 58;
+let HEADER_OFFSET = headerEl ? headerEl.getBoundingClientRect().height : 58;
 const STICKY_VISIBLE = 18;
-const stickyMonth     = document.createElement('div');
-stickyMonth.className = 'sticky-month';
-stickyMonth.style.top = (HEADER_OFFSET - STICKY_VISIBLE) + 'px';
-document.body.appendChild(stickyMonth);
+let stickyMonth = null; // Não cria imediatamente
+
+// Função para criar o sticky header somente quando necessário
+function createStickyMonth() {
+  if (stickyMonth) return; // Já foi criado
+  
+  stickyMonth = document.createElement('div');
+  stickyMonth.className = 'sticky-month';
+  stickyMonth.style.top = (HEADER_OFFSET - STICKY_VISIBLE) + 'px';
+  document.body.appendChild(stickyMonth);
+}
+
+// Função para recalcular e atualizar a altura do header
+function recalculateHeaderOffset() {
+  if (!headerEl) return;
+  // If visualViewport keyboard flag is set, avoid recalculating header offsets
+  // to prevent UI from 'jumping' when the OS on-screen keyboard resizes the viewport.
+  try {
+    if (document.documentElement?.dataset?.vvKb === '1') {
+      scheduleAfterKeyboard(recalculateHeaderOffset);
+      return;
+    }
+  } catch(_) {}
+  const h = headerEl.getBoundingClientRect().height;
+  
+  // Só cria e posiciona o sticky quando o header tiver altura real (> 30px)
+  if (h > 30) {
+    HEADER_OFFSET = h;
+    
+    // Cria o sticky se ainda não existir
+    if (!stickyMonth) {
+      createStickyMonth();
+    }
+    
+    // Atualiza a posição
+    if (stickyMonth) {
+      stickyMonth.style.top = (HEADER_OFFSET - STICKY_VISIBLE) + 'px';
+      // Atualiza o sticky imediatamente após recalcular
+      updateStickyMonth();
+    }
+  }
+}
 
 // Recalcula altura do header em rotação / resize
-window.addEventListener('resize', () => {
-  const h = headerEl.getBoundingClientRect().height;
-  stickyMonth.style.top = (h - STICKY_VISIBLE) + 'px';
-});
+window.addEventListener('resize', recalculateHeaderOffset);
 
 function updateStickyMonth() {
+  // Não faz nada se o sticky header ainda não foi criado
+  if (!stickyMonth) return;
+  
   let label = '';
+  let lastDiv = null;
   const divs = document.querySelectorAll('summary.month-divider');
   divs.forEach(div => {
     const rect = div.getBoundingClientRect();
     // choose the last divider whose top passed the header
     if (rect.top <= HEADER_OFFSET) {
       label = div.textContent.replace(/\s+/g, ' ').trim();
+      lastDiv = div;
     }
   });
   if (label) {
-    // Exibe apenas o nome do mês (primeira palavra do label)
-    const mesApenas = label.split(/\s+/)[0];
-    stickyMonth.textContent = mesApenas;
+    // Use the last matching divider element to determine month index/year
+    let monthText = '';
+    try {
+      if (lastDiv) {
+        const det = lastDiv.closest('details.month');
+        if (det && det.dataset && det.dataset.key) {
+          const parts = det.dataset.key.split('-');
+          const mIdx = Number(parts[1]);
+          if (!Number.isNaN(mIdx)) {
+            const dt = new Date(VIEW_YEAR, mIdx, 1);
+            monthText = dt.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+            if (monthText && monthText.length) monthText = monthText.charAt(0).toUpperCase() + monthText.slice(1);
+          }
+        }
+      }
+    } catch (_) {}
+    // Fallback: use the first word from label if anything goes wrong
+    if (!monthText) monthText = label.split(/\s+/)[0];
+    stickyMonth.textContent = monthText;
     stickyMonth.classList.add('visible');
   } else {
     stickyMonth.classList.remove('visible');
@@ -1357,6 +2171,23 @@ function updateStickyMonth() {
 // Atualiza stickyMonth ao rolar o container principal
 if (wrapperEl) wrapperEl.addEventListener('scroll', updateStickyMonth);
 else window.addEventListener('scroll', updateStickyMonth);
+
+// Observer para detectar quando os elementos month-divider são adicionados ao DOM
+// e recalcular o header offset se necessário
+const observer = new MutationObserver(() => {
+  // Quando novos elementos são adicionados, o header pode ter mudado de tamanho
+  const hasMonthDividers = document.querySelectorAll('summary.month-divider').length > 0;
+  if (hasMonthDividers) {
+    setTimeout(() => recalculateHeaderOffset(), 50);
+  }
+});
+
+// Observa mudanças no container principal onde os meses são renderizados
+if (wrapperEl) {
+  observer.observe(wrapperEl, { childList: true, subtree: true });
+} else if (tbody) {
+  observer.observe(tbody.parentElement || document.body, { childList: true, subtree: true });
+}
 
 // --- Date helpers ---
 /**
@@ -1484,7 +2315,7 @@ try {
   val.setAttribute('pattern', '[0-9.,]*');
 } catch (_) {}
 
-// Auto-format value input as BRL currency while typing
+// Auto-format value input using the active currency profile while typing
 val.addEventListener('input', () => {
   // Remove all non-digit characters
   const digits = val.value.replace(/\D/g, '');
@@ -1499,18 +2330,12 @@ val.addEventListener('input', () => {
   }
   // Parse as cents and format
   const numberValue = parseInt(digits, 10) / 100;
-  // Check toggle for sign
   const activeToggle = document.querySelector('.value-toggle button.active');
-  let formatted = numberValue.toLocaleString('pt-BR', {
+  const signedValue = (activeToggle && activeToggle.dataset.type === 'expense') ? -numberValue : numberValue;
+  val.value = safeFmtNumber(signedValue, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
-  if (activeToggle && activeToggle.dataset.type === 'expense') {
-    formatted = '-' + formatted.replace(/^-/, '');
-  } else {
-    formatted = formatted.replace(/^-/, '');
-  }
-  val.value = formatted;
 });
 
 const valueToggles = document.querySelectorAll('.value-toggle button');
@@ -1525,16 +2350,11 @@ valueToggles.forEach(btn => {
       return;
     }
     const numberValue = parseInt(digits, 10) / 100;
-    let formatted = numberValue.toLocaleString('pt-BR', {
+    const signedValue = btn.dataset.type === 'expense' ? -numberValue : numberValue;
+    val.value = safeFmtNumber(signedValue, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     });
-    if (btn.dataset.type === 'expense') {
-      formatted = '-' + formatted.replace(/^-/, '');
-    } else {
-      formatted = formatted.replace(/^-/, '');
-    }
-    val.value = formatted;
   });
 });
 
@@ -1616,13 +2436,115 @@ recurrence.onchange = () => {
 let isEditing = null;
 const cardName=$('cardName'),cardClose=$('cardClose'),cardDue=$('cardDue'),addCardBtn=$('addCardBtn'),cardList=$('cardList');
 const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setStartBtn'),resetBtn=$('resetData');
-// Oculta o botão "Limpar tudo" em produção
-if (resetBtn) {
-  resetBtn.hidden = true;
-  resetBtn.style.display = 'none';
-  // Em produção, não anexamos o handler de limpeza.
+if (startInput) startInputRef = startInput;
+
+function syncStartInputFromState() {
+  const input = startInputRef || document.getElementById('startInput');
+  if (!input) return;
+  if (!startInputRef && input) startInputRef = input;
+  if (state.startBalance == null || Number.isNaN(Number(state.startBalance))) {
+    input.value = '';
+    return;
+  }
+  try {
+    input.value = safeFmtCurrency(state.startBalance, { forceNew: true });
+  } catch (_) {
+    input.value = String(state.startBalance);
+  }
 }
-// Auto-format initial balance input as BRL currency
+
+function ensureStartSetFromBalance(options = {}) {
+  const { persist = true, refresh = true } = options;
+  if (state.startSet === true) return;
+  if (state.startBalance == null || Number.isNaN(Number(state.startBalance))) return;
+  state.startSet = true;
+  try { cacheSet('startSet', true); } catch (_) {}
+  if (persist && typeof save === 'function' && PATH) {
+    Promise.resolve().then(() => save('startSet', true)).catch(() => {});
+  }
+  if (refresh) {
+    try { initStart(); } catch (_) {}
+  }
+}
+
+// Função reutilizável que executa o reset (confirm dentro da função por padrão)
+async function performResetAllData(askConfirm = true) {
+  if (askConfirm && !confirm('Deseja realmente APAGAR TODOS OS DADOS? Esta ação é irreversível.')) return;
+  try {
+    // Clear in-memory
+    transactions = [];
+    cards = [{ name: 'Dinheiro', close: 0, due: 0 }];
+    state.startBalance = null;
+    state.startDate = null;
+  state.startSet = false;
+    syncStartInputFromState();
+
+    // Clear caches (best-effort)
+    try { cacheSet('tx', transactions); } catch (_) {}
+    try { cacheSet('cards', cards); } catch (_) {}
+    try { cacheSet('startBal', state.startBalance); } catch (_) {}
+    try { cacheSet('startDate', state.startDate); } catch (_) {}
+    try { cacheSet('dirtyQueue', []); } catch (_) {}
+
+    // Try persist (best effort)
+    try { await save('tx', transactions); } catch (_) {}
+    try { await save('cards', cards); } catch (_) {}
+    try { await save('startBal', state.startBalance); } catch (_) {}
+    try { await save('startDate', state.startDate); } catch (_) {}
+  try { cacheSet('startSet', false); } catch (_) {}
+  try { await save('startSet', false); } catch (_) {}
+
+    // Rerender
+    refreshMethods(); renderCardList(); initStart(); renderTable();
+    showToast('Todos os dados foram apagados.', 'success');
+  } catch (err) {
+    console.error('Erro ao limpar dados:', err);
+    showToast('Erro ao apagar dados. Veja console.', 'error');
+  }
+}
+
+// Mostra o botão original "Limpar tudo" no fim do acordeão (se existir) e anexa handler
+if (resetBtn) {
+  resetBtn.hidden = false;
+  resetBtn.style.display = '';
+  resetBtn.addEventListener('click', () => performResetAllData(true));
+}
+
+// Cria um botão flutuante fixo para "Limpar tudo" (sem tocar no HTML original)
+(function createFloatingResetButton(){
+  try {
+    // Avoid creating multiple times
+    if (document.getElementById('resetDataFloat')) return;
+    const btn = document.createElement('button');
+    btn.id = 'resetDataFloat';
+    btn.type = 'button';
+    btn.className = 'danger reset-float';
+    btn.title = 'Limpar tudo';
+    btn.textContent = 'Limpar tudo';
+    // Inline styles to ensure visibility regardless of CSS
+    Object.assign(btn.style, {
+      position: 'fixed',
+      left: '16px',
+      bottom: '94px',
+      zIndex: '10000',
+      padding: '10px 12px',
+      background: '#c53030',
+      color: '#fff',
+      border: 'none',
+      borderRadius: '10px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+      cursor: 'pointer',
+      fontWeight: '600'
+    });
+
+    btn.addEventListener('click', () => performResetAllData(true));
+
+    // Only append when body is ready
+    if (document.body) document.body.appendChild(btn);
+    else window.addEventListener('load', () => { document.body.appendChild(btn); });
+  } catch (_) {}
+})();
+// Auto-format initial balance input using the active currency profile
 if (startInput) {
   startInput.addEventListener('input', () => {
     const digits = startInput.value.replace(/\D/g, '');
@@ -1631,9 +2553,7 @@ if (startInput) {
       return;
     }
     const numberValue = parseInt(digits, 10) / 100;
-    startInput.value = numberValue.toLocaleString('pt-BR', {
-      style: 'currency', currency: 'BRL'
-    });
+    startInput.value = safeFmtCurrency(numberValue);
   });
 }
 const startContainer = document.querySelector('.start-container');
@@ -1669,7 +2589,8 @@ const notify = (msg, type = 'error') => {
 };
 
 const togglePlanned = async (id, iso) => {
-  const master = transactions.find(x => x.id === id);
+  const master = transactions.find(x => sameId(x.id, id));
+  const shouldRefreshPlannedModal = plannedModal && !plannedModal.classList.contains('hidden');
   // ← memoriza quais faturas estavam abertas
   const openInvoices = Array.from(
     document.querySelectorAll('details.invoice[open]')
@@ -1742,6 +2663,9 @@ const togglePlanned = async (id, iso) => {
   }
   save('tx', transactions);
   renderTable();
+  if (shouldRefreshPlannedModal) {
+    try { renderPlannedModal(); } catch (err) { console.error('renderPlannedModal failed', err); }
+  }
   // restaura faturas que o usuário tinha expandido
   openInvoices.forEach(pd => {
     const det = document.querySelector(`details.invoice[data-pd="${pd}"]`);
@@ -1751,6 +2675,56 @@ const togglePlanned = async (id, iso) => {
   // mostra o toast por último, já com a tela renderizada
   if (toastMsg) notify(toastMsg, 'success');
 };
+
+function openEditFlow(tx, iso) {
+  if (!tx) return;
+  const hasRecurrence = (() => {
+    if (tx.recurrence && tx.recurrence.trim()) return true;
+    if (tx.parentId) {
+      const parent = transactions.find(p => p.id === tx.parentId);
+      if (parent && parent.recurrence && parent.recurrence.trim()) return true;
+    }
+    for (const p of transactions) {
+      if (!p.recurrence || !p.recurrence.trim()) continue;
+      if (!occursOn(p, iso)) continue;
+      const sameMethod = (p.method || '') === (tx.method || '');
+      const sameDesc   = (p.desc || '') === (tx.desc || '');
+      const sameVal    = Math.abs(Number(p.val || 0) - Number(tx.val || 0)) < 0.005;
+      if (sameMethod && (sameDesc || sameVal)) return true;
+    }
+    return false;
+  })();
+
+  const performEdit = (id) => {
+    reopenPlannedAfterEdit = !!(plannedModal && !plannedModal.classList.contains('hidden'));
+    if (reopenPlannedAfterEdit) {
+      plannedModal.classList.add('hidden');
+      updateModalOpenState();
+    }
+    if (isDetachedOccurrence(tx)) pendingEditMode = null;
+    editTx(id);
+  };
+
+  // helper to open recurrence modal safely
+  const showRecurrenceModal = (id) => {
+    pendingEditTxId  = id;
+    pendingEditTxIso = iso || tx.opDate;
+    reopenPlannedAfterEdit = !!(plannedModal && !plannedModal.classList.contains('hidden'));
+    if (reopenPlannedAfterEdit) {
+      plannedModal.classList.add('hidden');
+      updateModalOpenState();
+    }
+    editRecurrenceModal.classList.remove('hidden');
+    updateModalOpenState();
+  };
+
+  if (tx.recurrence || (hasRecurrence && !tx.recurrence && !tx.parentId)) {
+    showRecurrenceModal(tx.id);
+    return;
+  }
+
+  performEdit(tx.id);
+}
 
 const openCardBtn=document.getElementById('openCardModal');
 const cardModal=document.getElementById('cardModal');
@@ -1917,6 +2891,10 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
   const actions = document.createElement('div');
   actions.className = 'swipe-actions';
 
+  const existsInStore = transactions.some(item => item && String(item.id) === String(tx.id));
+  const actionTargetId = existsInStore ? tx.id : (tx.parentId || tx.id);
+  const actionTargetTx = transactions.find(item => item && String(item.id) === String(actionTargetId)) || tx;
+
   // Edit button
   const editBtn = document.createElement('button');
   editBtn.className = 'icon edit';
@@ -1926,35 +2904,7 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
   editBtn.appendChild(editIconDiv);
   editBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    // master or dynamically recurring occurrence
-    const t = tx;
-    const hasRecurrence = (() => {
-      if (typeof t.recurrence === 'string' && t.recurrence.trim() !== '') return true;
-      if (t.parentId) {
-        const master = transactions.find(p => p.id === t.parentId);
-        if (master && typeof master.recurrence === 'string' && master.recurrence.trim() !== '') return true;
-      }
-      for (const p of transactions) {
-        if (typeof p.recurrence === 'string' && p.recurrence.trim() !== '') {
-          if (occursOn(p, t.opDate)) {
-            if (p.desc === t.desc || p.val === t.val) return true;
-          }
-        }
-      }
-      return false;
-    })();
-    if (t.recurrence || (hasRecurrence && !t.recurrence && !t.parentId)) {
-      pendingEditTxId  = t.id;
-      pendingEditTxIso = t.opDate;
-      editRecurrenceModal.classList.remove('hidden');
-      return;
-    }
-    if (isDetachedOccurrence(t)) {
-      pendingEditMode = null;
-      editTx(t.id);
-      return;
-    }
-    editTx(t.id);
+    openEditFlow(actionTargetTx, tx.opDate);
   });
   actions.appendChild(editBtn);
 
@@ -1965,34 +2915,7 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
   const delIconDiv = document.createElement('div');
   delIconDiv.className = 'icon-action icon-delete';
   delBtn.appendChild(delIconDiv);
-  delBtn.onclick = () => {
-    const t = tx;
-    const hasRecurrence = (() => {
-      if (typeof t.recurrence === 'string' && t.recurrence.trim() !== '') return true;
-      if (t.parentId) {
-        const master = transactions.find(p => p.id === t.parentId);
-        if (master && typeof master.recurrence === 'string' && master.recurrence.trim() !== '') return true;
-      }
-      for (const p of transactions) {
-        if (typeof p.recurrence === 'string' && p.recurrence.trim() !== '') {
-          if (occursOn(p, t.opDate)) {
-            if (p.desc === t.desc || p.val === t.val) return true;
-          }
-        }
-      }
-      return false;
-    })();
-    if (hasRecurrence) {
-      delTx(t.id, t.opDate);
-    } else {
-      if (confirm('Deseja excluir esta operação?')) {
-        transactions = transactions.filter(x => x.id !== t.id);
-        save('tx', transactions);
-        renderTable();
-        notify('Operação excluída!', 'success');
-      }
-    }
-  };
+  delBtn.onclick = () => delTx(actionTargetId, tx.opDate);
   actions.appendChild(delBtn);
 
   // Operation line
@@ -2006,6 +2929,45 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
   const left = document.createElement('div');
   left.className = 'op-left';
 
+  const appendInvoiceBadge = (target) => {
+    if (!target || !tx.invoicePayment) return;
+    const badge = document.createElement('span');
+    badge.className = 'invoice-payment-badge';
+    badge.textContent = 'Pagamento de fatura';
+    target.appendChild(badge);
+  };
+
+  // Build timestamp text so we can place it under the description
+  const ts = document.createElement('div');
+  ts.className = 'timestamp';
+  (function buildTimestamp(){
+    const [y, mo, da] = (tx.opDate || '').split('-').map(Number);
+    const dateObj = (isFinite(y) && isFinite(mo) && isFinite(da)) ? new Date(y, mo - 1, da) : new Date();
+    const dateStr = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    let methodLabel = tx.method === 'Dinheiro' ? 'Dinheiro' : `Cartão ${tx.method}`;
+    if (tx.method !== 'Dinheiro' && !tx.planned && tx.postDate !== tx.opDate && !isInvoiceContext) {
+      const [, pmm, pdd] = (tx.postDate || '').split('-');
+      if (pdd && pmm) methodLabel += ` → Fatura ${pdd}/${pmm}`;
+    }
+    if (tx.planned) {
+      ts.textContent = `${dateStr} - ${methodLabel}`;
+    } else if (isInvoiceContext) {
+      // In invoice view we want a compact timestamp showing only the time (HH:MM) when available
+      if (tx.ts) {
+        const timeOnly = new Date(tx.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+        ts.textContent = `${timeOnly}`;
+      } else {
+        // Fallback to short date if there's no precise timestamp
+        ts.textContent = `${dateStr}`;
+      }
+    } else if (tx.opDate === todayISO() && tx.ts) {
+      const timeStr = new Date(tx.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+      ts.textContent = `${timeStr} - ${methodLabel}`;
+    } else {
+      ts.textContent = `${dateStr} - ${methodLabel}`;
+    }
+  })();
+
   // --- Planned modal disables swipe, needs different structure ---
   if (disableSwipe === true) {
     // If planned, build checkbox and label
@@ -2014,23 +2976,41 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
       checkbox.type = 'checkbox';
       checkbox.className = 'plan-check';
       checkbox.name = 'planned';
-      checkbox.onchange = () => togglePlanned(tx.id, tx.opDate);
+      checkbox.onchange = (ev) => {
+        ev.stopPropagation();
+        togglePlanned(actionTargetId, tx.opDate);
+      };
       const labelWrapper = document.createElement('span');
       labelWrapper.textContent = tx.desc;
-      // Patch: append checkbox then labelWrapper directly (no span wrapper)
+      const leftText = document.createElement('div');
+      leftText.className = 'left-text';
+      const titleRow = document.createElement('div');
+      titleRow.className = 'left-title';
+      titleRow.appendChild(labelWrapper);
+      appendInvoiceBadge(titleRow);
+      leftText.appendChild(titleRow);
+      leftText.appendChild(ts);
       left.appendChild(checkbox);
-      left.appendChild(labelWrapper);
+      left.appendChild(leftText);
     } else {
       const descNode = document.createElement('span');
       descNode.textContent = tx.desc;
-      left.appendChild(descNode);
+      const leftText = document.createElement('div');
+      leftText.className = 'left-text';
+      const titleRow = document.createElement('div');
+      titleRow.className = 'left-title';
+      titleRow.appendChild(descNode);
+      appendInvoiceBadge(titleRow);
+      leftText.appendChild(titleRow);
+      leftText.appendChild(ts);
+      left.appendChild(leftText);
     }
     // Recurrence icon
     const t = tx;
     const hasRecurrence = (() => {
       if (typeof t.recurrence === 'string' && t.recurrence.trim() !== '') return true;
       if (t.parentId) {
-        const master = transactions.find(p => p.id === t.parentId);
+        const master = transactions.find(p => sameId(p.id, t.parentId));
         if (master && typeof master.recurrence === 'string' && master.recurrence.trim() !== '') return true;
       }
       for (const p of transactions) {
@@ -2046,21 +3026,23 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
       const recIcon = document.createElement('span');
       recIcon.className = 'icon-repeat';
       recIcon.title = 'Recorrência';
-      left.appendChild(recIcon);
+      const tgt = left.querySelector('.left-title') || left;
+      tgt.appendChild(recIcon);
     }
     if (!left.querySelector('.icon-repeat')) {
       const t = tx;
       const hasRecurrenceFinal =
         (typeof t.recurrence === 'string' && t.recurrence.trim() !== '') ||
         (t.parentId && transactions.some(p =>
-          p.id === t.parentId &&
+          sameId(p.id, t.parentId) &&
           typeof p.recurrence === 'string' &&
           p.recurrence.trim() !== ''
         ));
       if (hasRecurrenceFinal) {
         const recIc = document.createElement('span');
         recIc.className = 'icon-repeat';
-        left.insertBefore(recIc, left.firstChild);
+        const tgt = left.querySelector('.left-title') || left;
+        tgt.appendChild(recIc);
       }
     }
   } else {
@@ -2070,12 +3052,23 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
       chk.type = 'checkbox';
       chk.className = 'plan-check';
       chk.name = 'planned';
-      chk.onchange = () => togglePlanned(tx.id, tx.opDate);
+      chk.onchange = (ev) => {
+        ev.stopPropagation();
+        togglePlanned(actionTargetId, tx.opDate);
+      };
       left.appendChild(chk);
     }
     const descNode = document.createElement('span');
     descNode.textContent = tx.desc;
-    left.appendChild(descNode);
+    const leftText = document.createElement('div');
+    leftText.className = 'left-text';
+    const titleRow = document.createElement('div');
+    titleRow.className = 'left-title';
+    titleRow.appendChild(descNode);
+    appendInvoiceBadge(titleRow);
+    leftText.appendChild(titleRow);
+    leftText.appendChild(ts);
+    left.appendChild(leftText);
     // Recurrence icon
     const t = tx;
     const hasRecurrence = (() => {
@@ -2097,7 +3090,8 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
       const recIcon = document.createElement('span');
       recIcon.className = 'icon-repeat';
       recIcon.title = 'Recorrência';
-      left.appendChild(recIcon);
+      const tgt = left.querySelector('.left-title') || left;
+      tgt.appendChild(recIcon);
     }
     if (!left.querySelector('.icon-repeat')) {
       const t = tx;
@@ -2111,7 +3105,8 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
       if (hasRecurrenceFinal) {
         const recIc = document.createElement('span');
         recIc.className = 'icon-repeat';
-        left.insertBefore(recIc, left.firstChild);
+        const tgt = left.querySelector('.left-title') || left;
+        tgt.appendChild(recIc);
       }
     }
   }
@@ -2120,7 +3115,10 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
   right.className = 'op-right';
   const value = document.createElement('span');
   value.className = 'value';
-  value.textContent = `R$ ${(tx.val < 0 ? '-' : '')}${Math.abs(tx.val).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  value.textContent = safeFmtCurrency(tx.val, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
   if (tx.val < 0) {
     value.classList.add('negative');
   } else {
@@ -2131,32 +3129,7 @@ function makeLine(tx, disableSwipe = false, isInvoiceContext = false) {
   topRow.appendChild(right);
   d.appendChild(topRow);
 
-  // Timestamp & method
-  const ts = document.createElement('div');
-  ts.className = 'timestamp';
-  const [y, mo, da] = tx.opDate.split('-').map(Number);
-  const dateObj = new Date(y, mo - 1, da);
-  const dateStr = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-  
-  // Melhor indicação visual para operações de cartão
-  let methodLabel = tx.method === 'Dinheiro' ? 'Dinheiro' : `Cartão ${tx.method}`;
-  
-  // Para operações de cartão executadas, indica que também vai para a fatura
-  // MAS APENAS quando NÃO estamos dentro da própria fatura
-  if (tx.method !== 'Dinheiro' && !tx.planned && tx.postDate !== tx.opDate && !isInvoiceContext) {
-    const [, pmm, pdd] = tx.postDate.split('-');
-    methodLabel += ` → Fatura ${pdd}/${pmm}`;
-  }
-  
-  if (tx.planned) {
-    ts.textContent = `${dateStr} - ${methodLabel}`;
-  } else if (tx.opDate === todayISO()) {
-    const timeStr = new Date(tx.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
-    ts.textContent = `${timeStr} - ${methodLabel}`;
-  } else {
-    ts.textContent = `${dateStr} - ${methodLabel}`;
-  }
-  d.appendChild(ts);
+  // Timestamp now lives under description inside left-text
 
   // Assemble wrapper and return
   wrap.appendChild(actions);
@@ -2182,12 +3155,12 @@ function openPayInvoiceModal(cardName, dueISO, remaining, totalAbs, adjustedBefo
   // Prefill form
   const today = todayISO();
   desc.value = `Pagamento fatura – ${cardName}`;
-  // Set expense toggle active and format value as BRL (negative)
+  // Ensure the value toggle reflects expense/receipt and keeps the formatted sign
   document.querySelectorAll('.value-toggle button').forEach(b => b.classList.remove('active'));
   const expBtn = document.querySelector('.value-toggle button[data-type="expense"]');
   if (expBtn) expBtn.classList.add('active');
   const rem = Number(remaining) || 0;
-  val.value = (-rem).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  val.value = safeFmtNumber(-rem, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   date.value = today;
   // Lock method to Dinheiro
   hiddenSelect.value = 'Dinheiro';
@@ -2243,7 +3216,7 @@ if (invoiceParcelCheckbox) {
       const n = Math.max(2, parseInt(installments.value || '2', 10) || 2);
       installments.value = String(n);
       const per = n > 0 ? base / n : base;
-      val.value = (-per).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      val.value = safeFmtNumber(-per, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     } else {
       parcelasBlock.classList.add('hidden');
       installments.disabled = true;
@@ -2252,7 +3225,7 @@ if (invoiceParcelCheckbox) {
       // Restore full remaining amount to value field
       const ctx = pendingInvoiceCtx || {};
       const base = Math.abs(Number(ctx.remaining) || 0);
-      val.value = (-base).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      val.value = safeFmtNumber(-base, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
   });
 }
@@ -2266,7 +3239,7 @@ if (installments) {
     const base = Math.abs(Number(ctx.remaining) || 0);
     const n = parseInt(installments.value, 10) || 1;
     const per = n > 0 ? base / n : base;
-    val.value = (-per).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    val.value = safeFmtNumber(-per, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   });
 }
 
@@ -2346,7 +3319,7 @@ async function addTx() {
              passadas.  Se o registro clicado for uma ocorrência gerada,
              subimos para o pai; caso contrário usamos o próprio. */
           const master = t.parentId
-            ? transactions.find(tx => tx.id === t.parentId)
+            ? transactions.find(tx => sameId(tx.id, t.parentId))
             : t;
           if (master) {
             master.desc         = newDesc;
@@ -2385,8 +3358,7 @@ async function addTx() {
     renderTable();
     toggleTxModal();
     // Custom edit confirmation toast
-    const formattedVal = parseFloat(val.value.replace(/\./g, '').replace(/,/g, '.'))
-      .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const formattedVal = safeFmtCurrency(safeParseCurrency(val.value));
     const recValue = recurrence.value;
     let toastMsg;
     if (!recValue) {
@@ -2519,7 +3491,7 @@ async function addTx() {
     return;
   }
 
-  if (startBalance === null) {
+  if (state.startBalance === null) {
     showToast('Defina o saldo inicial primeiro (pode ser 0).');
     return;
   }
@@ -2611,11 +3583,10 @@ function resetTxForm() {
   date.value = todayISO();
   toggleTxModal();
   // Custom save confirmation toast
-  const v = 0; // valor já limpo, mas podemos mostrar mensagem genérica
   // Recupera última transação para mensagem
   let last = transactions[transactions.length - 1];
-  let formattedVal = last && typeof last.val === 'number'
-    ? last.val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const formattedVal = last && typeof last.val === 'number'
+    ? safeFmtCurrency(last.val)
     : '';
   const recValue = recurrence.value;
   let toastMsg;
@@ -2674,7 +3645,7 @@ function generateOccurrences(baseTx) {
 function getCardById(id) {
   if (!id) return null;
   // Tenta encontrar cartão pelo campo id, ou pelo nome (fallback)
-  return cards.find(c => c.id === id || c.name === id) || null;
+  return cards.find(c => sameId(c.id, id) || c.name === id) || null;
 }
 
 // Função utilitária para formatar data ISO (YYYY-MM-DD)
@@ -2685,14 +3656,17 @@ function formatDateISO(date) {
 
 // Delete a transaction (with options for recurring rules)
 function delTx(id, iso) {
-  const t = transactions.find(x => x.id === id);
+  const t = transactions.find(x => sameId(x.id, id));
   if (!t) return;
 
   // Se NÃO for recorrente (nem ocorrência destacada), exclui direto
   if (!t.recurrence && !t.parentId) {
-    transactions = transactions.filter(x => x.id !== id);
+    transactions = transactions.filter(x => !sameId(x.id, id));
     save('tx', transactions);
     renderTable();
+    if (plannedModal && !plannedModal.classList.contains('hidden')) {
+      try { renderPlannedModal(); } catch (err) { console.error('renderPlannedModal failed', err); }
+    }
     showToast('Operação excluída.', 'success');
     return;
   }
@@ -2719,7 +3693,7 @@ function findMasterRuleFor(tx, iso) {
   if (!tx) return null;
   if (tx.recurrence && tx.recurrence.trim() !== '') return tx;
   if (tx.parentId) {
-    const parent = transactions.find(p => p.id === tx.parentId);
+    const parent = transactions.find(p => sameId(p.id, tx.parentId));
     if (parent) return parent;
   }
   // Heuristic: find a rule that occurs on the same date and looks like this tx
@@ -2735,8 +3709,9 @@ function findMasterRuleFor(tx, iso) {
 }
 
 deleteSingleBtn.onclick = () => {
-  const tx = transactions.find(t => t.id === pendingDeleteTxId);
+  const tx = transactions.find(t => sameId(t.id, pendingDeleteTxId));
   const iso = pendingDeleteTxIso;
+  const refreshPlannedModal = plannedModal && !plannedModal.classList.contains('hidden');
   if (!tx) { closeDeleteModal(); return; }
   const master = findMasterRuleFor(tx, iso);
   if (master) {
@@ -2745,44 +3720,55 @@ deleteSingleBtn.onclick = () => {
     // Remove any materialized child occurrence for this exact date
     // This covers cases where the occurrence was previously edited/created
     // as a standalone item (with parentId) and would otherwise remain visible.
-    transactions = transactions.filter(x => !(x.parentId === master.id && x.opDate === iso));
+    transactions = transactions.filter(x => !(sameId(x.parentId, master.id) && x.opDate === iso));
     showToast('Ocorrência excluída!', 'success');
   } else {
     // fallback: not a recurrence → hard delete
-    transactions = transactions.filter(x => x.id !== tx.id);
+    transactions = transactions.filter(x => !sameId(x.id, tx.id));
     showToast('Operação excluída.', 'success');
   }
   save('tx', transactions);
   renderTable();
+  if (refreshPlannedModal) {
+    try { renderPlannedModal(); } catch (err) { console.error('renderPlannedModal failed', err); }
+  }
   closeDeleteModal();
 };
 
 deleteFutureBtn.onclick = () => {
-  const tx = transactions.find(t => t.id === pendingDeleteTxId);
+  const tx = transactions.find(t => sameId(t.id, pendingDeleteTxId));
   const iso = pendingDeleteTxIso;
+  const refreshPlannedModal = plannedModal && !plannedModal.classList.contains('hidden');
   if (!tx) { closeDeleteModal(); return; }
   const master = findMasterRuleFor(tx, iso);
   if (master) {
     master.recurrenceEnd = iso;
-    showToast('Esta e futuras excluídas!', 'success');
+  showToast('Esta e futuras excluídas!', 'success');
   } else {
     // fallback: not a recurrence → delete only this occurrence
-    transactions = transactions.filter(x => x.id !== tx.id);
+    transactions = transactions.filter(x => !sameId(x.id, tx.id));
     showToast('Operação excluída.', 'success');
   }
   save('tx', transactions);
   renderTable();
+  if (refreshPlannedModal) {
+    try { renderPlannedModal(); } catch (err) { console.error('renderPlannedModal failed', err); }
+  }
   closeDeleteModal();
 };
 
 deleteAllBtn.onclick = () => {
-  const tx = transactions.find(t => t.id === pendingDeleteTxId);
+  const tx = transactions.find(t => sameId(t.id, pendingDeleteTxId));
   if (!tx) { closeDeleteModal(); return; }
   const master = findMasterRuleFor(tx, pendingDeleteTxIso) || tx;
   // Remove both master rule and any occurrences with parentId
-  transactions = transactions.filter(t => t.id !== master.id && t.parentId !== master.id);
+  transactions = transactions.filter(t => !sameId(t.id, master.id) && !sameId(t.parentId, master.id));
+  const refreshPlannedModal = plannedModal && !plannedModal.classList.contains('hidden');
   save('tx', transactions);
   renderTable();
+  if (refreshPlannedModal) {
+    try { renderPlannedModal(); } catch (err) { console.error('renderPlannedModal failed', err); }
+  }
   closeDeleteModal();
   showToast('Todas as recorrências excluídas!', 'success');
 };
@@ -2790,6 +3776,13 @@ deleteAllBtn.onclick = () => {
 // Modal Editar Recorrência handlers
 function closeEditModal() {
   editRecurrenceModal.classList.add('hidden');
+  updateModalOpenState();
+  if (reopenPlannedAfterEdit && plannedModal) {
+    reopenPlannedAfterEdit = false;
+    renderPlannedModal();
+    plannedModal.classList.remove('hidden');
+    updateModalOpenState();
+  }
 }
 closeEditRecurrenceModal.onclick = closeEditModal;
 cancelEditRecurrence.onclick = closeEditModal;
@@ -2823,15 +3816,19 @@ const editTx = id => {
   // 3) Valor + toggle despesa/receita
   const valInput = document.getElementById('value');
   if (valInput) {
-    const abs = Math.abs(Number(t.val || 0));
-    valInput.value = abs.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const signedVal = Number(t.val || 0);
+    valInput.value = safeFmtNumber(signedVal, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
   }
   document.querySelectorAll('.value-toggle button').forEach(b => b.classList.remove('active'));
   const type = (Number(t.val || 0) < 0) ? 'expense' : 'income';
   const typeBtn = document.querySelector(`.value-toggle button[data-type="${type}"]`);
   if (typeBtn) typeBtn.classList.add('active');
-  if (type === 'expense' && valInput) {
-    valInput.value = '-' + valInput.value.replace(/^-/, '');
+  if (type !== 'expense' && valInput) {
+    // Ensure positive numbers don't keep stray negatives
+    valInput.value = valInput.value.replace(/^-/, '');
   }
 
   // 4) Método de pagamento (pill + select + radios do cartão)
@@ -2908,12 +3905,20 @@ document.addEventListener('click', (e) => {
 });
 
 function renderTable() {
+  if (isHydrating()) {
+    const accSk = document.getElementById('accordion');
+    if (accSk) accSk.dataset.state = 'skeleton';
+    return;
+  }
   clearTableContent();
   const acc = document.getElementById('accordion');
   if (acc) acc.dataset.state = 'skeleton';
   const groups = groupTransactionsByMonth();
   renderTransactionGroups(groups);
   if (acc) delete acc.dataset.state;
+  
+  // Tenta criar o sticky header após renderizar conteúdo
+  setTimeout(() => recalculateHeaderOffset(), 100);
 }
 
 // Defensive render: avoids silent failures leaving the UI empty
@@ -2963,6 +3968,434 @@ function renderTransactionGroups(groups) {
 
 // -----------------------------------------------------------------------------
 // Acordeão: mês → dia → fatura
+// Helper function to get all transactions of a specific ISO date
+function txByDate(iso) {
+  const list = [];
+  const today = todayISO();
+
+  // ================= NON-RECURRING =================
+  // Helper to map legacy/invalid methods to a valid card name when possible
+  const nrm = s => (s==null?'' : String(s)).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  const nonCashCards = (cards || []).filter(c => c && c.name !== 'Dinheiro');
+  const singleCard = nonCashCards.length === 1 ? nonCashCards[0].name : null;
+  const resolveCard = (m) => {
+    const mNorm = nrm(m);
+    if (!m || mNorm === 'dinheiro') return null;
+    const found = (cards || []).find(c => c && nrm(c.name) === mNorm);
+    if (found) return found.name;
+    // If exactly one card exists, use it as a safe fallback
+    if (singleCard) return singleCard;
+    return null;
+  };
+  transactions.forEach(t => {
+    if (t.recurrence) return;            // só não-recorrentes aqui
+    if (t.opDate !== iso) return;        // renderiza sempre no opDate
+    // Oculta movimentos internos da fatura (pagamento/ajuste)
+    if (t.invoiceAdjust) return;
+
+    if (t.method !== 'Dinheiro') {
+      // CARTÃO
+      if (t.planned) {
+        // planejada → aparece no dia lançado (opDate)
+        const em = resolveCard(t.method) || t.method;
+        const pd = post(t.opDate, em);
+        list.push({ ...t, method: em, postDate: pd });
+      } else {
+        // executada → aparece no dia do lançamento E também na fatura (dupla visibilidade)
+        const em = resolveCard(t.method) || t.method;
+        const pd = post(t.opDate, em);
+        list.push({ ...t, method: em, postDate: pd });
+      }
+    } else {
+      // DINHEIRO → aparece sempre no opDate (planejada ou executada)
+      list.push(t);
+    }
+  });
+
+  // ================= RECURRING RULES =================
+  transactions
+    .filter(t => t.recurrence)
+    .forEach(master => {
+      if (!occursOn(master, iso)) return; // materializa somente a ocorrência do dia
+
+      const em = resolveCard(master.method) || master.method;
+      const pd = post(iso, em);
+      const plannedFlag = iso > today;    // futuro → planejada; passado/hoje → executada
+
+      if (master.method !== 'Dinheiro') {
+        // CARTÃO recorrente
+        if (plannedFlag) {
+          // planejada → aparece no opDate
+          list.push({
+            ...master,
+            opDate: iso,
+            method: em,
+            postDate: pd,
+            planned: true,
+            recurrence: ''
+          });
+        } else {
+          // executada → aparece no dia do lançamento E também na fatura (dupla visibilidade)
+          list.push({
+            ...master,
+            opDate: iso,
+            method: em,
+            postDate: pd,
+            planned: false,
+            recurrence: ''
+          });
+        }
+      } else {
+      // DINHEIRO recorrente → sempre aparece no opDate (planejada/executada)
+      list.push({
+        ...master,
+        opDate: iso,
+        postDate: post(iso, 'Dinheiro'),
+        planned: plannedFlag,
+        recurrence: ''
+      });
+    }
+  });
+
+  // Ordem cronológica estável (por opDate e ts)
+  list.sort((a, b) => {
+    const dateCmp = a.opDate.localeCompare(b.opDate);
+    if (dateCmp !== 0) return dateCmp;
+    return (a.ts || '').localeCompare(b.ts || '');
+  });
+
+  return list;
+}
+
+// ===================== YEAR SELECTOR =====================
+
+// Detecta anos disponíveis nas transações
+function getAvailableYears() {
+  // Calendar-like year provider: return a wide, predictable range so user
+  // can navigate like a calendar. We avoid generating an extremely large
+  // DOM by returning a reasonable window, and the modal provides controls
+  // to page earlier/later if needed.
+  const currentYear = new Date().getFullYear();
+  const MIN_YEAR = 0; // allow going back to year 0 as requested
+  const FUTURE_PADDING = 50; // years into the future to allow by default
+  const MAX_YEAR = currentYear + FUTURE_PADDING;
+
+  const years = [];
+  for (let y = MAX_YEAR; y >= MIN_YEAR; y--) years.push(y);
+  return years;
+}
+
+// Atualiza o título com o ano atual
+function updateYearTitle() {
+  const logoText = document.querySelector('.logo-text');
+  if (logoText) {
+    // Keep visual text identical but expose current year via attributes for accessibility
+    logoText.textContent = 'Gastos+';
+    // attach data and aria attributes so behavior can be added without changing visuals
+    const parentBtn = logoText.closest('#yearSelector');
+    if (parentBtn) {
+      parentBtn.setAttribute('data-year', String(VIEW_YEAR));
+      parentBtn.setAttribute('aria-label', `Gastos mais - ano ${VIEW_YEAR}`);
+      // ensure the element is focusable for keyboard handling
+      if (!parentBtn.hasAttribute('tabindex')) parentBtn.setAttribute('tabindex', '0');
+    }
+  }
+}
+
+// Abre o modal de seleção de ano
+function openYearModal() {
+  const modal = document.getElementById('yearModal');
+  const yearList = document.getElementById('yearList');
+  
+  if (!modal || !yearList) return;
+  
+  // Limpa a lista
+  yearList.innerHTML = '';
+  
+  // Força recálculo dos anos disponíveis
+  const availableYears = getAvailableYears();
+  
+  // Se ainda só tem o ano atual, força a inclusão de anos com transações
+  if (availableYears.length === 1 && transactions.length > 0) {
+    const extraYears = new Set(availableYears);
+    
+    // Busca anos em todas as transações de forma mais agressiva
+    transactions.forEach(tx => {
+      // Verifica todas as propriedades que podem conter data
+      Object.values(tx).forEach(value => {
+        if (typeof value === 'string') {
+          // Regex para encontrar anos de 4 dígitos
+          const yearMatch = value.match(/\b(20[2-9][0-9])\b/);
+          if (yearMatch) {
+            const year = parseInt(yearMatch[1]);
+            if (year >= 2020 && year <= 2035) {
+              extraYears.add(year);
+            }
+          }
+          
+          // Verifica formato de data DD/MM/YYYY
+          const dateMatch = value.match(/\b\d{1,2}\/\d{1,2}\/(20[2-9][0-9])\b/);
+          if (dateMatch) {
+            const year = parseInt(dateMatch[1]);
+            extraYears.add(year);
+          }
+        }
+      });
+    });
+    
+    availableYears.length = 0;
+    availableYears.push(...Array.from(extraYears).sort((a, b) => b - a));
+  }
+  
+  availableYears.forEach(year => {
+    const yearItem = document.createElement('div');
+    yearItem.className = 'year-item';
+    if (year === VIEW_YEAR) {
+      yearItem.classList.add('current');
+    }
+    yearItem.textContent = year;
+    
+    yearItem.addEventListener('click', () => {
+      selectYear(year);
+      closeYearModal();
+    });
+    
+    yearList.appendChild(yearItem);
+  });
+  
+  // Open modal (make visible) before scrolling so measurements work
+  modal.classList.remove('hidden');
+  updateModalOpenState();
+
+  // After the list is populated, ensure the currently selected year is
+  // vertically centered in the scrollable yearList. Use scrollIntoView
+  // with block: 'center' for broad browser support.
+  // Delay slightly to allow CSS transitions/layout to settle in some browsers.
+  requestAnimationFrame(() => {
+    const active = yearList.querySelector('.year-item.current');
+    if (active) {
+      try {
+        active.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+      } catch (e) {
+        // Fallback: manual centering
+        const container = yearList;
+        const containerRect = container.getBoundingClientRect();
+        const activeRect = active.getBoundingClientRect();
+        const offset = (activeRect.top + activeRect.height / 2) - (containerRect.top + container.clientHeight / 2);
+        container.scrollTop += offset;
+      }
+    }
+  });
+}
+
+// Fecha o modal de seleção de ano
+function closeYearModal() {
+  const modal = document.getElementById('yearModal');
+  if (modal) {
+    modal.classList.add('hidden');
+    updateModalOpenState();
+  }
+}
+
+// Seleciona um ano e atualiza a interface
+function selectYear(year) {
+  VIEW_YEAR = year;
+  updateYearTitle();
+  renderTable(); // Re-renderiza com o novo ano
+}
+
+// Calcula o range real de datas baseado nas transações
+function calculateDateRange() {
+  if (!Array.isArray(transactions) || transactions.length === 0) {
+    // Se não há transações, usa range padrão do ano selecionado (VIEW_YEAR)
+    const year = typeof VIEW_YEAR === 'number' ? VIEW_YEAR : new Date().getFullYear();
+    return {
+      minDate: `${year}-01-01`,
+      maxDate: `${year}-12-31`
+    };
+  }
+
+  let minDate = null;
+  let maxDate = null;
+
+  // Analisa todas as transações (incluindo recorrências expandidas)
+  const allExpandedTx = [];
+  
+  transactions.forEach(tx => {
+    if (!tx.recurrence) {
+      // Transação única - usa opDate e postDate
+      allExpandedTx.push({
+        opDate: tx.opDate,
+        postDate: tx.postDate || tx.opDate
+      });
+    } else {
+      // Transação recorrente - expande para encontrar datas relevantes
+      // Vamos expandir para um range amplo para capturar todas as ocorrências
+      const startScan = new Date('2024-01-01');
+      const endScan = new Date('2026-12-31');
+      
+      for (let d = new Date(startScan); d <= endScan; d.setDate(d.getDate() + 1)) {
+        const iso = d.toISOString().slice(0, 10);
+        if (occursOn(tx, iso)) {
+          const postDate = post(iso, tx.method || 'Dinheiro');
+          allExpandedTx.push({
+            opDate: iso,
+            postDate: postDate
+          });
+        }
+      }
+    }
+  });
+
+  // Encontra min/max considerando tanto opDate quanto postDate
+  allExpandedTx.forEach(tx => {
+    const dates = [tx.opDate, tx.postDate].filter(Boolean);
+    dates.forEach(date => {
+      if (!minDate || date < minDate) minDate = date;
+      if (!maxDate || date > maxDate) maxDate = date;
+    });
+  });
+
+  // Se ainda não encontrou datas, usa range padrão
+  if (!minDate || !maxDate) {
+    const year = typeof VIEW_YEAR === 'number' ? VIEW_YEAR : new Date().getFullYear();
+    return {
+      minDate: `${year}-01-01`,
+      maxDate: `${year}-12-31`
+    };
+  }
+
+  // Adiciona uma margem para garantir que cobrimos tudo
+  const minDateObj = new Date(minDate);
+  const maxDateObj = new Date(maxDate);
+  
+  // Always expand the range so it at least covers the currently selected VIEW_YEAR
+  try {
+    const vyStart = new Date(VIEW_YEAR, 0, 1);
+    const vyEnd = new Date(VIEW_YEAR, 11, 31);
+    if (vyStart < minDateObj) minDateObj.setTime(vyStart.getTime());
+    if (vyEnd > maxDateObj) maxDateObj.setTime(vyEnd.getTime());
+  } catch (_) {}
+
+  // Margem: início do mês da primeira transação até final do ano da última
+  minDateObj.setDate(1); // primeiro dia do mês
+  maxDateObj.setMonth(11, 31); // 31 de dezembro do ano
+  
+  return {
+    minDate: minDateObj.toISOString().slice(0, 10),
+    maxDate: maxDateObj.toISOString().slice(0, 10)
+  };
+}
+
+// Constrói um mapa de saldos contínuos dia-a-dia
+function buildRunningBalanceMap() {
+  const { minDate, maxDate } = calculateDateRange();
+  const balanceMap = new Map();
+  // Anchor semantics: if startDate is set, balances before that date are treated as 0.
+  // The running balance should begin at startDate with startBalance.
+  // If no startDate is set, fall back to previous behavior (seed with startBalance || 0 at minDate).
+  let runningBalance = 0;
+  const hasAnchor = !!state.startDate;
+  // use ISO string comparisons (YYYY-MM-DD) to avoid timezone issues
+  const anchorISO = hasAnchor ? String(state.startDate) : null;
+
+  // Itera dia-a-dia no range calculado
+  const startDateObj = new Date(minDate);
+  const endDateObj = new Date(maxDate);
+
+  // If the anchor (startDate) exists but is before the current range's minDate,
+  // we should seed the running balance so days in this range start from the anchored value.
+  if (hasAnchor && anchorISO && anchorISO < minDate && anchorISO <= maxDate) {
+    runningBalance = (state.startBalance != null) ? state.startBalance : 0;
+  }
+  
+  for (let currentDate = new Date(startDateObj); currentDate <= endDateObj; currentDate.setDate(currentDate.getDate() + 1)) {
+    const iso = currentDate.toISOString().slice(0, 10);
+    // If we have an explicit anchor, ensure days before anchor are zero (and don't start runningBalance until anchor)
+    if (hasAnchor && iso < anchorISO) {
+      balanceMap.set(iso, 0);
+      continue;
+    }
+    if (hasAnchor && iso === anchorISO) {
+      // initialize running balance at anchor date
+      runningBalance = (state.startBalance != null) ? state.startBalance : 0;
+    }
+    // If no anchor and we're at the very first iterated date, seed with startBalance || 0
+    if (!hasAnchor && (iso === minDate)) {
+      runningBalance = (state.startBalance != null) ? state.startBalance : 0;
+    }
+    // Calcula o impacto do dia usando a lógica existente
+    const dayTx = txByDate(iso);
+    
+    // 1) Dinheiro impacta no opDate
+    const cashImpact = dayTx
+      .filter(t => t.method === 'Dinheiro')
+      .reduce((s, t) => s + (t.val || 0), 0);
+
+    // 2) Cartões impactam via total da fatura no vencimento, menos ajustes
+    const invoicesByCard = {};
+    const addToGroup = (cardName, tx) => {
+      if (!invoicesByCard[cardName]) invoicesByCard[cardName] = [];
+      invoicesByCard[cardName].push(tx);
+    };
+
+    // Não-recorrentes de cartão: vencem hoje
+    transactions.forEach(t => {
+      if (t.method !== 'Dinheiro' && !t.recurrence && t.postDate === iso) {
+        const validCard = cards.some(c => c && c.name === t.method && c.name !== 'Dinheiro');
+        if (!validCard) return;
+        addToGroup(t.method, t);
+      }
+    });
+
+    // Recorrentes de cartão: varre 60 dias p/ trás por ocorrências cujo postDate == hoje
+    const _scanStart = new Date(iso);
+    _scanStart.setDate(_scanStart.getDate() - 60);
+    for (const master of transactions.filter(t => t.recurrence && t.method !== 'Dinheiro')) {
+      const validCard = cards.some(c => c && c.name === master.method && c.name !== 'Dinheiro');
+      if (!validCard) continue;
+      for (let d2 = new Date(_scanStart); d2 <= new Date(iso); d2.setDate(d2.getDate() + 1)) {
+        const occIso = d2.toISOString().slice(0, 10);
+        if (!occursOn(master, occIso)) continue;
+        const pd = post(occIso, master.method);
+        if (pd === iso) {
+          addToGroup(master.method, {
+            ...master,
+            opDate: occIso,
+            postDate: iso,
+            planned: false,
+            recurrence: ''
+          });
+        }
+      }
+    }
+
+    const invoiceTotals = {};
+    Object.keys(invoicesByCard).forEach(card => {
+      invoiceTotals[card] = invoicesByCard[card].reduce((s, t) => s + t.val, 0);
+    });
+
+    // Soma ajustes positivos que deslocam parte da fatura deste dueISO
+    const sumAdjustFor = (cardName, dueISO) => transactions
+      .filter(t => t.invoiceAdjust && t.invoiceAdjust.card === cardName && t.invoiceAdjust.dueISO === dueISO)
+      .reduce((s, t) => s + (Number(t.invoiceAdjust.amount) || 0), 0);
+    
+    let cardImpact = 0;
+    Object.keys(invoiceTotals).forEach(card => {
+      const adj = sumAdjustFor(card, iso);
+      cardImpact += (invoiceTotals[card] + adj);
+    });
+
+    const dayTotal = cashImpact + cardImpact;
+    runningBalance += dayTotal;
+
+    // Armazena o saldo para este dia
+    balanceMap.set(iso, runningBalance);
+  }
+
+  return balanceMap;
+}
+
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 // Accordion: month ▶ day ▶ invoice
@@ -2972,9 +4405,18 @@ function renderTransactionGroups(groups) {
 function renderAccordion() {
   const acc = document.getElementById('accordion');
   if (!acc) return;
-  const hydrating = acc.dataset && acc.dataset.state === 'skeleton';
-  const noDataYet = (startBalance == null) && (!Array.isArray(transactions) || transactions.length === 0);
-  const keepSkeleton = hydrating || noDataYet; // keep shimmer if still no data
+  
+  // Força limpeza total do accordeon para evitar duplicação
+  // especialmente quando muda de ano
+  
+  const hydrating = false; // Sempre force refresh completo
+  // Force rendering of months/days even if there's no startBalance or transactions
+  const noDataYet = false;
+  const keepSkeleton = hydrating && noDataYet; // keep shimmer only during hydrating
+
+  // Constrói o mapa de saldos contínuos uma única vez
+  const balanceMap = buildRunningBalanceMap();
+  
   // Salva quais <details> estão abertos
   const openKeys = Array.from(acc.querySelectorAll('details[open]'))
                         .map(d => d.dataset.key || '');
@@ -2985,7 +4427,7 @@ function renderAccordion() {
   if (!keepSkeleton) acc.innerHTML = '';
 
   const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const currency = v => v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const currency = v => safeFmtCurrency(v);
   const curMonth = new Date().getMonth();   // 0‑based
 
   // Helper para criar o header da fatura do cartão
@@ -2993,9 +4435,10 @@ function renderAccordion() {
     const invSum = document.createElement('summary');
     invSum.classList.add('invoice-header-line');
     // Formatação do total original da fatura (valor bruto)
-    const formattedTotal = cardTotalAmount < 0
-      ? `R$ -${Math.abs(cardTotalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-      : `R$ ${cardTotalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    const formattedTotal = safeFmtCurrency(cardTotalAmount, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
 
     // Metadados: pagamentos (dinheiro), ajustes e parcelamento
     const paidAbs = transactions
@@ -3010,13 +4453,13 @@ function renderAccordion() {
     if (parcel) {
       const n = parseInt(parcel.installments, 10) || 0;
       const per = Math.abs(Number(parcel.val) || 0);
-      const perFmt = `R$ ${per.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+      const perFmt = safeFmtCurrency(per, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       note = `<small class="note">Parcelada em ${n} vezes de ${perFmt}</small>`;
     } else if (paidAbs >= totalAbs - 0.005) { // tolerância de centavos
       note = `<small class="note">Paga</small>`;
     } else if (paidAbs > 0) {
       const remaining = Math.max(0, totalAbs - paidAbs);
-      note = `<small class="note">Restante - R$ ${remaining.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</small>`;
+      note = `<small class="note">Restante - ${safeFmtCurrency(remaining, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small>`;
     }
 
     // Usa hífen simples para coincidir com a expectativa do usuário: "Fatura - Nome do Cartão"
@@ -3085,96 +4528,23 @@ function renderAccordion() {
     return txs.filter(t => !t.planned);
   }
 
-  // Helper to get all transactions of a specific ISO date
-  const txByDate = iso => {
-  const list = [];
-  const today = todayISO();
-
-  // ================= NON-RECURRING =================
-  transactions.forEach(t => {
-    if (t.recurrence) return;            // só não-recorrentes aqui
-    if (t.opDate !== iso) return;        // renderiza sempre no opDate
-    // Oculta movimentos internos da fatura (pagamento/ajuste)
-    if (t.invoicePayment || t.invoiceAdjust) return;
-
-    if (t.method !== 'Dinheiro') {
-      // CARTÃO
-      if (t.planned) {
-        // planejada → aparece no dia lançado (opDate)
-        list.push(t);
-      } else {
-        // executada → aparece no dia do lançamento E também na fatura (dupla visibilidade)
-        list.push(t);
-      }
-    } else {
-      // DINHEIRO → aparece sempre no opDate (planejada ou executada)
-      list.push(t);
-    }
-  });
-
-  // ================= RECURRING RULES =================
-  transactions
-    .filter(t => t.recurrence)
-    .forEach(master => {
-      if (!occursOn(master, iso)) return; // materializa somente a ocorrência do dia
-
-      const pd = post(iso, master.method);
-      const plannedFlag = iso > today;    // futuro → planejada; passado/hoje → executada
-
-      if (master.method !== 'Dinheiro') {
-        // CARTÃO recorrente
-        if (plannedFlag) {
-          // planejada → aparece no opDate
-          list.push({
-            ...master,
-            opDate: iso,
-            postDate: pd,
-            planned: true,
-            recurrence: ''
-          });
-        } else {
-          // executada → aparece no dia do lançamento E também na fatura (dupla visibilidade)
-          list.push({
-            ...master,
-            opDate: iso,
-            postDate: pd,
-            planned: false,
-            recurrence: ''
-          });
-        }
-      } else {
-      // DINHEIRO recorrente → sempre aparece no opDate (planejada/executada)
-      list.push({
-        ...master,
-        opDate: iso,
-        postDate: post(iso, 'Dinheiro'),
-        planned: plannedFlag,
-        recurrence: ''
-      });
-    }
-  });
-
-  // Ordem cronológica estável (por opDate e ts)
-  list.sort((a, b) => {
-    const dateCmp = a.opDate.localeCompare(b.opDate);
-    if (dateCmp !== 0) return dateCmp;
-    return (a.ts || '').localeCompare(b.ts || '');
-  });
-
-  return list;
-  };
-
-  let runningBalance = startBalance || 0;          // saldo acumulado
+  // Remove variável runningBalance local - agora usa o mapa precalculado
   for (let mIdx = 0; mIdx < 12; mIdx++) {
-    const nomeMes = new Date(2025, mIdx).toLocaleDateString('pt-BR', { month: 'long' });
+    const nomeMes = new Date(VIEW_YEAR, mIdx).toLocaleDateString('pt-BR', { month: 'long' });
     // Build or reuse month container
     let mDet;
     if (keepSkeleton) {
+      // If an existing month node exists, reuse it and preserve its open state
       mDet = acc.querySelector(`details.month[data-key="m-${mIdx}"]`) || document.createElement('details');
       mDet.className = 'month';
       mDet.dataset.key = `m-${mIdx}`;
-      const isOpen = mIdx >= curMonth;
-      mDet.open = openKeys.includes(mDet.dataset.key) || isOpen;
+      // Só expande meses futuros no ano corrente
+      const currentYear = new Date().getFullYear();
+      const isCurrentYear = VIEW_YEAR === currentYear;
+      const isOpen = isCurrentYear ? (mIdx >= curMonth) : false;
+      // Preserve previous open if element existed, otherwise use persisted openKeys or default
+      const prevMonth = acc.querySelector(`details.month[data-key="m-${mIdx}"]`);
+      mDet.open = prevMonth ? !!prevMonth.open : (openKeys.includes(mDet.dataset.key) || isOpen);
       if (!mDet.parentElement) acc.appendChild(mDet);
       // Ensure summary exists and is in final structure
       let mSum = mDet.querySelector('summary.month-divider');
@@ -3203,7 +4573,10 @@ function renderAccordion() {
       mDet = document.createElement('details');
       mDet.className = 'month';
       mDet.dataset.key = `m-${mIdx}`;   // identifica o mês
-      const isOpen = mIdx >= curMonth;
+      // Só expande meses futuros no ano corrente
+      const currentYear = new Date().getFullYear();
+      const isCurrentYear = VIEW_YEAR === currentYear;
+      const isOpen = isCurrentYear ? (mIdx >= curMonth) : false;
       mDet.open = openKeys.includes(mDet.dataset.key) || isOpen;
     }
     // Month total = sum of all tx in that month
@@ -3257,10 +4630,9 @@ function renderAccordion() {
     if (!hydrating) mDet.appendChild(mSum);
 
     // Garante o número correto de dias em cada mês
-    const daysInMonth = new Date(2025, mIdx + 1, 0).getDate();
-    let monthEndBalanceForHeader;
+    const daysInMonth = new Date(VIEW_YEAR, mIdx + 1, 0).getDate();
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateObj = new Date(2025, mIdx, d);
+      const dateObj = new Date(VIEW_YEAR, mIdx, d);
       const iso = formatToISO(dateObj);
       const dayTx = txByDate(iso);
 
@@ -3274,6 +4646,9 @@ const addToGroup = (cardName, tx) => {
 // Não-recorrentes de cartão: vencem hoje
 transactions.forEach(t => {
   if (t.method !== 'Dinheiro' && !t.recurrence && t.postDate === iso) {
+    // Garantir que o método refere-se a um cartão existente (evita fatura fantasma)
+    const validCard = cards.some(c => c && c.name === t.method && c.name !== 'Dinheiro');
+    if (!validCard) return;
     addToGroup(t.method, t);
   }
 });
@@ -3282,6 +4657,9 @@ transactions.forEach(t => {
 const _scanStart = new Date(iso);
 _scanStart.setDate(_scanStart.getDate() - 60);
 for (const master of transactions.filter(t => t.recurrence && t.method !== 'Dinheiro')) {
+  // Pula séries que apontam para um cartão inexistente
+  const validCard = cards.some(c => c && c.name === master.method && c.name !== 'Dinheiro');
+  if (!validCard) continue;
   for (let d2 = new Date(_scanStart); d2 <= new Date(iso); d2.setDate(d2.getDate() + 1)) {
     const occIso = d2.toISOString().slice(0, 10);
     if (!occursOn(master, occIso)) continue;
@@ -3330,7 +4708,9 @@ Object.keys(invoiceTotals).forEach(card => {
 });
 
 const dayTotal = cashImpact + cardImpact;
-      runningBalance += dayTotal;                           // atualiza saldo acumulado
+  // Obtém o saldo do dia do mapa precalculado
+  // Use balanceMap.has to avoid falling back to startBalance for dates before the anchor
+  const dayBalance = balanceMap.has(iso) ? balanceMap.get(iso) : (state.startBalance || 0);
       const dow = dateObj.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
       let dDet;
       if (hydrating) {
@@ -3341,19 +4721,22 @@ const dayTotal = cashImpact + cardImpact;
         dDet.dataset.has = String(dayTx.length > 0);
         if (!dDet.parentElement) mDet.appendChild(dDet);
       } else {
+        // Attempt to preserve open state from any existing day node with same key
+        const prev = mDet.querySelector(`details.day[data-key="d-${iso}"]`);
         dDet = document.createElement('details');
         dDet.dataset.has = String(dayTx.length > 0);
         dDet.className = 'day';
         dDet.dataset.key = `d-${iso}`;    // identifica o dia YYYY‑MM‑DD
-        dDet.open = openKeys.includes(dDet.dataset.key);
+        dDet.open = prev ? !!prev.open : openKeys.includes(dDet.dataset.key);
       }
       const today = todayISO();
       if (iso === today) dDet.classList.add('today');
       let dSum = dDet.querySelector('summary.day-summary');
       if (!dSum) { dSum = document.createElement('summary'); dSum.className = 'day-summary'; }
-  const saldoFormatado = runningBalance < 0
-        ? `R$ -${Math.abs(runningBalance).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-        : `R$ ${runningBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  const saldoFormatado = safeFmtCurrency(dayBalance, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
       const baseLabel = `${String(d).padStart(2,'0')} - ${dow.charAt(0).toUpperCase() + dow.slice(1)}`;
       const hasCardDue = cards.some(card => card.due === d);
       const hasSalary  = dayTx.some(t =>
@@ -3366,7 +4749,7 @@ const dayTotal = cashImpact + cardImpact;
 
       const labelWithDue = labelParts.join('');
   dSum.innerHTML = `<span>${labelWithDue}</span><span class="day-balance" style="margin-left:auto">${noDataYet ? '' : saldoFormatado}</span>`;
-      if (runningBalance < 0) dDet.classList.add('negative');
+      if (dayBalance < 0) dDet.classList.add('negative');
       // Replace or append summary
       if (!hydrating) dDet.appendChild(dSum); else if (!dDet.contains(dSum)) dDet.prepend(dSum);
 
@@ -3471,10 +4854,54 @@ const dayTotal = cashImpact + cardImpact;
           openPayInvoiceModal(cardName, dueISO, remaining, Math.abs(total), adjusted);
         });
 
-        // Itens da fatura (apenas visual; o saldo usa somente o total)
-        invoicesByCard[cardName]
+        // Itens da fatura (visual + swipe), agrupados por dia com divisores
+        // Limpa lista anterior, se houver
+        const oldList = det.querySelector('ul.executed-list');
+        if (oldList) { try { oldList.remove(); } catch(_) {} }
+        const execList = document.createElement('ul');
+        execList.className = 'executed-list';
+
+        const items = invoicesByCard[cardName]
           .filter(t => !t.planned)
-          .forEach(t => det.appendChild(makeLine(t, false, true)));
+          .slice()
+          .sort((a, b) => {
+            // Date groups: descending (newest date first)
+            const dateCmp = (b.opDate || '').localeCompare(a.opDate || '');
+            if (dateCmp !== 0) return dateCmp;
+            // Within the same date: sort by timestamp ascending (earliest first)
+            const ta = a.ts || '';
+            const tb = b.ts || '';
+            return (ta).localeCompare(tb);
+          });
+
+        // Group by opDate
+        let currentDate = null;
+        const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+        for (let i = 0; i < items.length; i++) {
+          const t = items[i];
+          if (t.opDate !== currentDate) {
+            currentDate = t.opDate;
+            // Header de data
+            const headerLi = document.createElement('li');
+            const dObj = new Date(currentDate + 'T00:00:00');
+            const longLabel = cap(dObj.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' }));
+            const h = document.createElement('div');
+            h.className = 'invoice-group-date';
+            h.textContent = longLabel;
+            headerLi.appendChild(h);
+            // Hairline sutil logo após o título (mais limpo)
+            const thinDiv = document.createElement('div');
+            thinDiv.className = 'invoice-divider thin';
+            headerLi.appendChild(thinDiv);
+            execList.appendChild(headerLi);
+          }
+          // Linha da operação (mantém swipe)
+          const li = document.createElement('li');
+          li.appendChild(makeLine(t, false, true));
+          execList.appendChild(li);
+          // Sem divisores entre itens (visual minimalista)
+        }
+        det.appendChild(execList);
         dDet.appendChild(det);
       });
       if (plannedOps.length) {
@@ -3525,7 +4952,10 @@ const dayTotal = cashImpact + cardImpact;
     }
 
 // --- Atualiza o preview do mês com base no último dia visível ---
-monthEndBalanceForHeader = runningBalance; // saldo do último dia do mês
+// Calcula o saldo do último dia do mês usando o mapa
+const lastDayOfMonth = new Date(VIEW_YEAR, mIdx + 1, 0).getDate();
+const lastDayISO = formatToISO(new Date(VIEW_YEAR, mIdx, lastDayOfMonth));
+  const monthEndBalanceForHeader = balanceMap.has(lastDayISO) ? balanceMap.get(lastDayISO) : (state.startBalance || 0);
 const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado';
 
     // Atualiza o summary do mês (cabeçalho do accordion)
@@ -3581,7 +5011,12 @@ const headerPreviewLabel = (mIdx < curMonth) ? 'Saldo final' : 'Saldo planejado'
 }
 
 function initStart() {
-  const showStart = startBalance === null && transactions.length === 0;
+  // Avoid showing start UI until we have loaded cached state to prevent flashes
+  if (!state.bootHydrated) return;
+  // Show start balance input whenever there's no anchored start date.
+  // If the persisted startSet flag exists, user already completed the start flow.
+  // Otherwise, fall back to presence of startDate/startBalance.
+  const showStart = !(state.startSet === true || (state.startDate != null && state.startBalance != null));
   // exibe ou oculta todo o container de saldo inicial
   startContainer.style.display = showStart ? 'block' : 'none';
   dividerSaldo.style.display = showStart ? 'block' : 'none';
@@ -3590,7 +5025,7 @@ function initStart() {
   // mantém o botão habilitado; a função addTx impede lançamentos
   addBtn.classList.toggle('disabled', showStart);
 }
-setStartBtn.addEventListener('click', () => {
+setStartBtn.addEventListener('click', async () => {
   const raw = startInput.value || '';
   // remove tudo que não for dígito
   const digits = raw.replace(/\D/g, '');
@@ -3605,9 +5040,22 @@ setStartBtn.addEventListener('click', () => {
     return;
   }
   // salva o novo saldo e renderiza novamente
-  startBalance = numberValue;
-  cacheSet('startBal', startBalance);
-  save('startBal', startBalance);
+  state.startBalance = numberValue;
+  cacheSet('startBal', state.startBalance);
+  syncStartInputFromState();
+  // If there's no startDate yet, anchor this saved start balance to today
+  if (!state.startDate) {
+    state.startDate = todayISO();
+    cacheSet('startDate', state.startDate);
+    try { save('startDate', state.startDate); } catch (_) {}
+  }
+  // Persist start balance and mark the start flow as completed (startSet=true)
+  try {
+    await save('startBal', state.startBalance);
+  } catch(_) {}
+  state.startSet = true;
+  try { cacheSet('startSet', true); } catch(_) {}
+  try { await save('startSet', true); } catch(_) {}
   initStart();
   renderTable();
 });
@@ -3689,7 +5137,7 @@ cardModal.onclick = e => { if (e.target === cardModal) { cardModal.classList.add
       const [liveTx, liveCards, liveBal] = await Promise.all([
         load('tx', []),
         load('cards', cards),
-        load('startBal', startBalance)
+        load('startBal', state.startBalance)
       ]);
 
       const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
@@ -3714,16 +5162,15 @@ cardModal.onclick = e => { if (e.target === cardModal) { cardModal.classList.add
         cacheSet('cards', cards);
         refreshMethods(); renderCardList(); renderTable();
       }
-      if (liveBal !== startBalance) {
-        startBalance = liveBal;
-        cacheSet('startBal', startBalance);
+      if (liveBal !== state.startBalance) {
+        state.startBalance = liveBal;
+        cacheSet('startBal', state.startBalance);
+        syncStartInputFromState();
+        ensureStartSetFromBalance();
         initStart(); renderTable();
       }
     } catch (_) { /* ignore boot fetch when not logged yet */ }
   }
-  // exibe versão
-  const verEl = document.getElementById('version');
-  if (verEl) verEl.textContent = `v${APP_VERSION}`;
   // se online, tenta esvaziar fila pendente
   if (navigator.onLine) flushQueue();
 })();
@@ -3810,6 +5257,7 @@ function preparePlannedList() {
   // Agrupa por data
   const plannedByDate = {};
   const add = (tx) => {
+    if (!tx || !tx.opDate) return;
     const key = tx.opDate;
     if (!plannedByDate[key]) plannedByDate[key] = [];
     plannedByDate[key].push(tx);
@@ -3840,7 +5288,7 @@ function preparePlannedList() {
 
       // evita duplicata se já houver planejado nesse dia
       const dup = (plannedByDate[iso] || []).some(t =>
-        (t.parentId && t.parentId === master.id) ||
+        (t.parentId && sameId(t.parentId, master.id)) ||
         ((t.desc||'')===(master.desc||'') && (t.method||'')===(master.method||'') &&
          Math.abs(Number(t.val||0))===Math.abs(Number(master.val||0)))
       );
@@ -3850,7 +5298,7 @@ function preparePlannedList() {
       // that matches this master (by parentId or desc/method/val), skip projection.
       const exists = transactions.some(t =>
         t && t.opDate === iso && (
-          (t.parentId && t.parentId === master.id) ||
+          (t.parentId && sameId(t.parentId, master.id)) ||
           ((t.desc||'')===(master.desc||'') && (t.method||'')===(master.method||'') &&
            Math.abs(Number(t.val||0))===Math.abs(Number(master.val||0)))
         )
@@ -3872,15 +5320,15 @@ function preparePlannedList() {
   // 3) Ordena e renderiza mantendo o DOM atual
   const sortedDates = Object.keys(plannedByDate).sort();
   for (const date of sortedDates) {
-    const group = plannedByDate[date].sort((a,b)=>(a.ts||'').localeCompare(b.ts||''));
+  const group = plannedByDate[date].sort((a,b)=>(a.ts||'').localeCompare(b.ts||''));
 
-    const dateObj = new Date(date+'T00:00');
-    const dateLabel = dateObj.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'});
-    const groupHeader = document.createElement('h3');
-    groupHeader.textContent = `${dateLabel.charAt(0).toUpperCase()}${dateLabel.slice(1)}`;
-    plannedList.appendChild(groupHeader);
+  const dateObj = new Date(date+'T00:00');
+  const dateLabel = dateObj.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'});
+  const groupHeader = document.createElement('h3');
+  groupHeader.textContent = `${dateLabel.charAt(0).toUpperCase()}${dateLabel.slice(1)}`;
+  plannedList.appendChild(groupHeader);
 
-    for (const tx of group) plannedList.appendChild(makeLine(tx, true)); // sem wrapper extra
+    for (const tx of group) plannedList.appendChild(makeLine(tx, true));
   }
 }
 
@@ -3914,3 +5362,6 @@ initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.op-line', 'opsSwi
 if (cardList) initSwipe(cardList, '.swipe-wrapper', '.swipe-actions', '.card-line', 'cardsSwipeInit');
 // Initialize swipe for invoice headers (summary)
 initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.invoice-header-line', 'invoiceSwipeInit');
+
+// Initialize year selector title
+updateYearTitle();

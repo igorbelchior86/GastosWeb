@@ -14,8 +14,8 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.8(a23)">
-  <link rel="stylesheet" href="login.css?v=1.4.8(a23)">
+  <link rel="stylesheet" href="style.css?v=1.4.9(a60)">
+  <link rel="stylesheet" href="login.css?v=1.4.9(a60)">
 
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
@@ -28,7 +28,10 @@
   </template>
   <header class="app-header" style="display: none;">
     <div class="logo-title">
-      <span class="logo-text">Gastos+</span>
+      <button id="yearSelector" class="logo-text-btn">
+        <span class="logo-text">Gastos+</span>
+        <span class="year-indicator">▼</span>
+      </button>
     </div>
     <!-- Offline indicator removed -->
 
@@ -68,15 +71,13 @@
       <div id="accordion"></div>
       <button id="resetData" class="danger" style="margin-top:12px; display:none" hidden>Limpar tudo</button>
     </div>
-    <hr class="divider">
-    <footer class="app-footer"><small id="version">v1.4.9</small></footer>
   </div>
 
-  <!-- Modal Ajustes -->
+  <!-- Modal Sobre -->
   <div id="settingsModal" class="bottom-modal backdrop-blur hidden">
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
-      <h2>Ajustes</h2>
+      <h2>Sobre</h2>
       <button id="closeSettingsModal" class="modal-close-btn" aria-label="Fechar">✕</button>
       <div class="modal-content">
   <button id="toggleThemeBtn" class="theme-toggle-btn">Modo Claro/Escuro</button>
@@ -102,6 +103,18 @@
 
       <ul id="cardList" class="card-list"></ul>
 
+    </div>
+  </div>
+
+  <!-- Modal Seletor de Ano -->
+  <div id="yearModal" class="bottom-modal backdrop-blur hidden">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
+      <h2>Selecionar Ano</h2>
+      <button id="closeYearModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="modal-content">
+        <div id="yearList" class="year-list"></div>
+      </div>
     </div>
   </div>
 
@@ -223,6 +236,48 @@
     </div>
   </div>
 
+  <!-- Modal Confirmar sair da conta -->
+  <div id="confirmLogoutModal" class="bottom-modal backdrop-blur hidden" role="dialog" aria-modal="true" aria-labelledby="confirmLogoutTitle">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
+      <h2 id="confirmLogoutTitle">Sair da conta</h2>
+      <button id="closeConfirmLogout" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="form-grid">
+        <p id="confirmLogoutText" style="margin: 6px 0 4px; color: var(--txt-main); text-align:center;">Deseja mesmo desconectar?</p>
+        <button id="confirmLogoutYes" class="action-btn">Sim</button>
+        <button id="confirmLogoutNo" class="action-btn cancel-btn">Não</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Confirmar apagar dados -->
+  <div id="confirmResetModal" class="bottom-modal backdrop-blur hidden" role="dialog" aria-modal="true" aria-labelledby="confirmResetTitle">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
+      <h2 id="confirmResetTitle">Apagar Todos os Dados</h2>
+      <button id="closeConfirmReset" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="form-grid">
+  <p id="confirmResetText" style="margin: 6px 0 4px; color: var(--txt-main); opacity:0.95; text-align:center;">⚠️ Esta ação apagará permanentemente todas as suas transações, cartões e configurações. Não poderá ser desfeita.</p>
+        <button id="confirmResetYes" class="action-btn danger-btn">Apagar Tudo</button>
+        <button id="confirmResetNo" class="action-btn cancel-btn">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal País / Moeda (profiles) -->
+  <div id="currencyProfileModal" class="bottom-modal backdrop-blur hidden" role="dialog" aria-modal="true" aria-labelledby="currencyProfileTitle">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
+      <h2 id="currencyProfileTitle">País / Moeda</h2>
+      <button id="closeCurrencyProfileModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="modal-content">
+        <ul id="currencyProfileList" style="list-style:none;padding:6px 0;margin:0;display:block;">
+          <!-- items injected by JS -->
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <!-- Ações inferiores: Home/Ajustes em pill e Adicionar separadamente -->
   <div class="floating-pill" role="tablist" aria-label="Atalhos inferiores" data-selected="home" style="display: none;">
     <div class="pill-highlight" aria-hidden="true"></div>
@@ -284,9 +339,16 @@
     }catch(e){}
   })();
   </script>
-  <script type="module" src="auth.js?v=1.4.8(a23)"></script>
-  <script type="module" src="login.view.js?v=1.4.8(a23)"></script>
-  <script type="module" src="main.js?v=1.4.8(a23)"></script>
+  
+  <!-- Carrega módulos utilitários como scripts globais -->
+  <script src="js/utils/date-utils-global.js"></script>
+  <script src="js/utils/format-utils-global.js"></script>
+  <script src="js/utils/data-utils-global.js"></script>
+  <script src="js/utils/currency-profiles.js"></script>
+  
+  <script type="module" src="auth.js?v=1.4.9(a60)"></script>
+  <script type="module" src="login.view.js?v=1.4.9(a60)"></script>
+  <script type="module" src="main.js?v=1.4.9(a60)"></script>
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
