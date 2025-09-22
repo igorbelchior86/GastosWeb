@@ -1390,9 +1390,10 @@ if (!USE_MOCK) {
     }
 
     // Live listeners (Realtime DB)
-    const txRef    = profileRef('tx');
-    const cardsRef = profileRef('cards');
-    const balRef   = profileRef('startBal');
+    const txRef       = profileRef('tx');
+    const cardsRef    = profileRef('cards');
+    const balRef      = profileRef('startBal');
+    const startDateRef= profileRef('startDate');
     const startSetRef = profileRef('startSet');
 
     const listeners = [];
@@ -1400,6 +1401,7 @@ if (!USE_MOCK) {
     registerHydrationTarget('tx', !!txRef);
     registerHydrationTarget('cards', !!cardsRef);
     registerHydrationTarget('startBal', !!balRef);
+    registerHydrationTarget('startDate', !!startDateRef);
     registerHydrationTarget('startSet', !!startSetRef);
 
   // initialize from cache first for instant UI
@@ -1507,6 +1509,22 @@ if (!USE_MOCK) {
       renderTable();
     } finally {
       markHydrationTargetReady('startBal');
+    }
+  }));
+  if (startDateRef) listeners.push(onValue(startDateRef, (snap) => {
+    const val = snap.exists() ? snap.val() : null;
+    if (val === state.startDate) {
+      markHydrationTargetReady('startDate');
+      return;
+    }
+    try {
+      state.startDate = val;
+      try { cacheSet('startDate', state.startDate); } catch (_) {}
+      ensureStartSetFromBalance({ persist: false, refresh: false });
+      initStart();
+      renderTable();
+    } finally {
+      markHydrationTargetReady('startDate');
     }
   }));
   // Listen for persisted startSet flag changes so remote clears/sets propagate
@@ -3261,7 +3279,7 @@ async function addTx() {
       return;
     }
     const newDesc    = desc.value.trim();
-    let newVal = parseFloat(val.value.replace(/\./g, '').replace(/,/g, '.')) || 0;
+    let newVal = safeParseCurrency(val.value) || 0;
     const activeType = document.querySelector('.value-toggle button.active').dataset.type;
     if (activeType === 'expense') newVal = -Math.abs(newVal);
     const newMethod  = met.value;
@@ -3378,7 +3396,7 @@ async function addTx() {
   // Modo especial: pagamento/parcelamento de fatura
   if (isPayInvoiceMode && pendingInvoiceCtx) {
     const ctx = pendingInvoiceCtx;
-    const rawVal = parseFloat(val.value.replace(/\./g, '').replace(/,/g, '.')) || 0;
+    const rawVal = safeParseCurrency(val.value) || 0;
     const amount = Math.abs(rawVal); // valor informado, sempre positivo
     if (amount <= 0) { showToast('Informe um valor válido.'); return; }
     const remaining = Number(ctx.remaining) || 0;
@@ -3506,7 +3524,7 @@ async function addTx() {
 // 1. Coleta os dados do formulário e valida
 function collectTxFormData() {
   const d = desc.value.trim();
-  let v = parseFloat(val.value.replace(/\./g, '').replace(/,/g, '.')) || 0;
+  let v = safeParseCurrency(val.value) || 0;
   const activeType = document.querySelector('.value-toggle button.active').dataset.type;
   if (activeType === 'expense') v = -Math.abs(v);
   const m = met.value;
