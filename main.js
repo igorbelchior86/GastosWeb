@@ -28,6 +28,15 @@ let hydrationInProgress = true;
 let reopenPlannedAfterEdit = false;
 const sameId = (a, b) => String(a ?? '') === String(b ?? '');
 
+function normalizeISODate(input) {
+  if (!input) return null;
+  if (input instanceof Date) return input.toISOString().slice(0, 10);
+  const str = String(input).trim();
+  if (!str) return null;
+  const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
 function resetHydration() {
   hydrationInProgress = true;
   hydrationTargets.clear();
@@ -176,7 +185,7 @@ function hydrateStateFromCache(options = {}) {
 
   cards = ensureCashCard(cacheGet('cards', [{ name: 'Dinheiro', close: 0, due: 0 }]));
   state.startBalance = cacheGet('startBal', null);
-  state.startDate = cacheGet('startDate', null);
+  state.startDate = normalizeISODate(cacheGet('startDate', null));
   state.startSet = cacheGet('startSet', false);
 
   if (state.startDate == null && (state.startBalance === 0 || state.startBalance === '0')) {
@@ -796,7 +805,7 @@ function applyCurrencyProfile(profileId, options = {}){
     syncStartInputFromState();
   }
 
-  const newStartDate = cacheGet('startDate', null);
+  const newStartDate = normalizeISODate(cacheGet('startDate', null));
   const newStartBalanceRaw = cacheGet('startBal', null);
   state.startDate = newStartDate;
   state.startBalance = (newStartDate == null && (newStartBalanceRaw === 0 || newStartBalanceRaw === '0'))
@@ -1034,7 +1043,7 @@ function resolvePathForUser(user){
   return personalPath;
 }
 
-const APP_VERSION = 'v1.4.9(a60)';
+const APP_VERSION = 'v1.4.9(a61)';
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 function logMetric(name, payload) {
@@ -1512,14 +1521,18 @@ if (!USE_MOCK) {
     }
   }));
   if (startDateRef) listeners.push(onValue(startDateRef, (snap) => {
-    const val = snap.exists() ? snap.val() : null;
-    if (val === state.startDate) {
+    const raw = snap.exists() ? snap.val() : null;
+    const normalized = normalizeISODate(raw);
+    if (normalized === state.startDate) {
       markHydrationTargetReady('startDate');
       return;
     }
     try {
-      state.startDate = val;
+      state.startDate = normalized;
       try { cacheSet('startDate', state.startDate); } catch (_) {}
+      if (normalized && normalized !== raw && typeof save === 'function' && PATH) {
+        Promise.resolve().then(() => save('startDate', normalized)).catch(() => {});
+      }
       ensureStartSetFromBalance({ persist: false, refresh: false });
       initStart();
       renderTable();
@@ -1592,7 +1605,7 @@ if (!USE_MOCK) {
   transactions = cacheGet('tx', []);
   cards = cacheGet('cards', [{name:'Dinheiro',close:0,due:0}]);
   state.startBalance = cacheGet('startBal', null);
-  state.startDate = cacheGet('startDate', null);
+  state.startDate = normalizeISODate(cacheGet('startDate', null));
   // Same normalization for mock fallback
   if (state.startDate == null && (state.startBalance === 0 || state.startBalance === '0')) {
     state.startBalance = null;
@@ -5061,11 +5074,15 @@ setStartBtn.addEventListener('click', async () => {
   state.startBalance = numberValue;
   cacheSet('startBal', state.startBalance);
   syncStartInputFromState();
-  // If there's no startDate yet, anchor this saved start balance to today
-  if (!state.startDate) {
-    state.startDate = todayISO();
+  const anchorISO = normalizeISODate(state.startDate) || todayISO();
+  if (anchorISO !== state.startDate) {
+    state.startDate = anchorISO;
     cacheSet('startDate', state.startDate);
     try { save('startDate', state.startDate); } catch (_) {}
+  } else if (!state.startDate) {
+    // garante persistência mesmo se valor já vier normalizado de outra instância
+    cacheSet('startDate', anchorISO);
+    try { save('startDate', anchorISO); } catch (_) {}
   }
   // Persist start balance and mark the start flow as completed (startSet=true)
   try {
