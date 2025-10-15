@@ -14,12 +14,56 @@
   <meta http-equiv="Expires" content="0">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.4.9(a61)">
-  <link rel="stylesheet" href="login.css?v=1.4.9(a61)">
+  <!-- Stylesheets live in the public folder now that index.html is at the root -->
+  <link rel="stylesheet" href="public/style.css?v=b86">
+  <link rel="stylesheet" href="public/login.css?v=1.4.9(b86)">
 
-  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
-  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
-  <link rel="manifest" href="site.webmanifest">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="192x192" href="public/icons/icon-192x192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="public/icons/icon-180x180.png">
+  <link rel="manifest" href="/site.webmanifest">
+
+  <!-- Apply theme immediately to prevent FOUC (Flash of Unstyled Content) -->
+  <!-- This runs BEFORE any other scripts, ensuring theme is set before render -->
+  <script>
+    (function() {
+      // Inline theme applier to prevent flash on page load
+      function getSystemPref() {
+        try {
+          return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+            ? 'light'
+            : 'dark';
+        } catch (_) {
+          return 'dark';
+        }
+      }
+      
+      function applyTheme(pref) {
+        let resolved = pref === 'system' ? getSystemPref() : pref;
+        const root = document.documentElement;
+        if (resolved === 'light') {
+          root.classList.add('light');
+          root.setAttribute('data-theme', 'light');
+        } else {
+          root.classList.remove('light');
+          root.setAttribute('data-theme', 'dark');
+        }
+      }
+      
+      // Read saved preference from localStorage and apply immediately
+      const saved = localStorage.getItem('ui:theme') || localStorage.getItem('ui:preferences:v2');
+      if (saved) {
+        try {
+          const prefs = JSON.parse(saved);
+          applyTheme(prefs.theme || 'system');
+        } catch (e) {
+          applyTheme(saved);
+        }
+      } else {
+        applyTheme('system');
+      }
+    })();
+  </script>
 </head>
 <body>
   <div id="backdrop-base"></div>
@@ -49,14 +93,14 @@
   <div class="wrapper app-hidden main-panel" style="display: none;">
 
     <!-- Saldo inicial -->
-    <div id="startGroup" class="start-container">
+    <div id="startGroup" class="start-container" style="display: none;">
       <h2 class="modal-title">Saldo inicial</h2>
       <div class="start-input-row">
         <input id="startInput" name="startInput" type="text" placeholder="R$ 0,00" class="currency-input" />
         <button id="setStartBtn" class="add-button">OK</button>
       </div>
     </div>
-    <hr class="divider" id="dividerSaldo">
+    <hr class="divider" id="dividerSaldo" style="display: none;">
 
     <!-- Tabela & Acordeão -->
     <div>
@@ -74,44 +118,49 @@
   </div>
 
   <!-- Modal Sobre -->
-  <div id="settingsModal" class="bottom-modal backdrop-blur hidden">
+  <div id="settingsModal" class="bottom-modal backdrop-blur hidden sheet-modal" aria-labelledby="settingsSheetTitle">
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
-      <h2>Sobre</h2>
       <button id="closeSettingsModal" class="modal-close-btn" aria-label="Fechar">✕</button>
-      <div class="modal-content">
-  <button id="toggleThemeBtn" class="theme-toggle-btn">Modo Claro/Escuro</button>
-  <!-- conteúdo futuro -->
-      </div>
+      <header class="sheet-header settings-modal-header">
+        <h2 id="settingsSheetTitle">Ajustes</h2>
+      </header>
+      <div class="modal-content"></div>
     </div>
   </div>
 
   <!-- Modal Cartões -->
-  <div id="cardModal" class="bottom-modal backdrop-blur hidden">
+  <div id="cardModal" class="bottom-modal backdrop-blur hidden sheet-modal">
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
-      <h2>Novo Cartão</h2>
       <button id="closeCardModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <header class="sheet-header">
+        <h2>Novo Cartão</h2>
+      </header>
+      <div class="modal-content">
+        <input id="cardName" name="cardName" placeholder="Nome">
+        <div class="card-dates">
+          <input id="cardClose" name="cardClose" type="number" min="1" max="31" placeholder="Fechamento">
+          <input id="cardDue" name="cardDue" type="number" min="1" max="31" placeholder="Vencimento">
+        </div>
+        <div class="card-modal-footer">
+          <button id="addCardBtn" class="add-button">Adicionar</button>
+        </div>
+        <small>Fechamento define a fatura.</small>
 
-      <input id="cardName" name="cardName" placeholder="Nome">
-      <div class="card-dates">
-        <input id="cardClose" name="cardClose" type="number" min="1" max="31" placeholder="Fechamento">
-        <input id="cardDue" name="cardDue" type="number" min="1" max="31" placeholder="Vencimento">
+        <ul id="cardList" class="card-list"></ul>
       </div>
-      <button id="addCardBtn" class="add-button">Adicionar</button>
-      <small>Fechamento define a fatura.</small>
-
-      <ul id="cardList" class="card-list"></ul>
-
     </div>
   </div>
 
   <!-- Modal Seletor de Ano -->
-  <div id="yearModal" class="bottom-modal backdrop-blur hidden">
+  <div id="yearModal" class="bottom-modal backdrop-blur hidden sheet-modal">
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
-      <h2>Selecionar Ano</h2>
       <button id="closeYearModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <header class="sheet-header">
+        <h2>Selecionar Ano</h2>
+      </header>
       <div class="modal-content">
         <div id="yearList" class="year-list"></div>
       </div>
@@ -119,15 +168,18 @@
   </div>
 
   <!-- Modal Transações -->
-  <div id="txModal" class="bottom-modal backdrop-blur hidden">
+  <div id="txModal" class="bottom-modal backdrop-blur hidden sheet-modal">
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
-      <h2>Lançar operação</h2>
       <button id="closeTxModal" class="modal-close-btn" aria-label="Fechar">✕</button>
-      <div class="form-grid">
-        <div class="value-input-wrapper">
-          <input
-            id="value"
+      <header class="sheet-header tx-modal-header">
+        <h2>Lançar operação</h2>
+      </header>
+      <div class="modal-content">
+        <div class="form-grid">
+          <div class="value-input-wrapper">
+            <input
+              id="value"
             name="value"
             type="tel"
             placeholder="Valor"
@@ -175,17 +227,22 @@
         <label class="form-row" id="invoiceParcelRow" style="display:none; align-items:center; gap:8px;">
           <input type="checkbox" id="invoiceParcel"> Parcelar
         </label>
-        <button id="addBtn" class="add-button">Adicionar</button>
+        </div>
+        <div class="sheet-footer tx-modal-footer">
+          <button id="addBtn" class="add-button">Adicionar</button>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- Modal Planejados -->
-  <div id="plannedModal" class="bottom-modal backdrop-blur hidden">
+  <div id="plannedModal" class="bottom-modal backdrop-blur hidden sheet-modal">
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
-      <h2>Planejados</h2>
       <button id="closePlannedModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <header class="sheet-header">
+        <h2>Planejados</h2>
+      </header>
       <div class="modal-content">
         <ul id="plannedList" class="planned-list"></ul>
       </div>
@@ -264,12 +321,28 @@
     </div>
   </div>
 
-  <!-- Modal País / Moeda (profiles) -->
-  <div id="currencyProfileModal" class="bottom-modal backdrop-blur hidden" role="dialog" aria-modal="true" aria-labelledby="currencyProfileTitle">
+  <!-- Modal Confirmar excluir transação -->
+  <div id="confirmDeleteModal" class="bottom-modal backdrop-blur hidden" role="dialog" aria-modal="true" aria-labelledby="confirmDeleteTitle">
     <div class="bottom-modal-box">
       <div class="modal-drag"></div>
-      <h2 id="currencyProfileTitle">País / Moeda</h2>
+      <h2 id="confirmDeleteTitle">Excluir Transação</h2>
+      <button id="closeConfirmDelete" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <div class="form-grid">
+        <p id="deleteMessage" style="margin: 6px 0 4px; color: var(--txt-main); text-align:center;">Deseja realmente excluir esta transação?</p>
+        <button id="confirmDeleteYes" class="action-btn danger-btn">Excluir</button>
+        <button id="confirmDeleteNo" class="action-btn cancel-btn">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal País / Moeda (profiles) -->
+  <div id="currencyProfileModal" class="bottom-modal backdrop-blur hidden sheet-modal" role="dialog" aria-modal="true" aria-labelledby="currencyProfileTitle">
+    <div class="bottom-modal-box">
+      <div class="modal-drag"></div>
       <button id="closeCurrencyProfileModal" class="modal-close-btn" aria-label="Fechar">✕</button>
+      <header class="sheet-header">
+        <h2 id="currencyProfileTitle">País / Moeda</h2>
+      </header>
       <div class="modal-content">
         <ul id="currencyProfileList" style="list-style:none;padding:6px 0;margin:0;display:block;">
           <!-- items injected by JS -->
@@ -294,10 +367,42 @@
   <script>
   (function(){
     try{
+      // Check for previous authentication
+      function hasPreviousAuth() {
+        try {
+          var keys = Object.keys(localStorage);
+          var hasFirebaseAuth = keys.some(function(key) { 
+            return key.indexOf('firebase:authUser:') === 0 || key.indexOf('firebase:host:') !== -1;
+          });
+          var hasIndexedDBAuth = keys.some(function(key) { 
+            return key.indexOf('firebaseLocalStorageDb#') === 0 || key.indexOf('firebase-heartbeat') !== -1;
+          });
+          return hasFirebaseAuth || hasIndexedDBAuth;
+        } catch (e) {
+          return false;
+        }
+      }
+      
       // Mark skeleton boot so CSS can hide the start-balance box
       document.documentElement.classList.add('skeleton-boot');
       var wrap = document.querySelector('.wrapper');
-      if (wrap) wrap.classList.remove('app-hidden');
+      if (wrap) {
+        wrap.classList.remove('app-hidden');
+        wrap.style.display = '';
+      }
+      
+      // If user had previous auth, show all app elements immediately for skeleton
+      if (hasPreviousAuth()) {
+        console.log('Skeleton: Previous auth detected, showing full app skeleton');
+        var header = document.querySelector('.app-header');
+        var floatingPill = document.querySelector('.floating-pill');
+        var floatingAddButton = document.querySelector('.floating-add-button');
+        
+        if (header) header.style.display = '';
+        if (floatingPill) floatingPill.style.display = '';
+        if (floatingAddButton) floatingAddButton.style.display = '';
+      }
+      
       var acc = document.getElementById('accordion');
       if (!acc || acc.children.length) return;
       var now = new Date();
@@ -340,15 +445,14 @@
   })();
   </script>
   
-  <!-- Carrega módulos utilitários como scripts globais -->
-  <script src="js/utils/date-utils-global.js"></script>
-  <script src="js/utils/format-utils-global.js"></script>
-  <script src="js/utils/data-utils-global.js"></script>
-  <script src="js/utils/currency-profiles.js"></script>
-  
-  <script type="module" src="auth.js?v=1.4.9(a61)"></script>
-  <script type="module" src="login.view.js?v=1.4.9(a61)"></script>
-  <script type="module" src="main.js?v=1.4.9(a61)"></script>
+  <!-- Load the compat layer and modules from the new locations -->
+  <script type="module" src="src/compat/globals.js"></script>
+  <!-- Preload currency profiles into the global scope -->
+  <script src="public/js/utils/currency-profiles.js"></script>
+  <!-- Authentication and Firebase are configured within main.js. -->
+  <script type="module" src="public/login.view.js"></script>
+  <script type="module" src="src/main.js"></script>
+
   <!-- Styles moved to style.css -->
 
   <!-- Toast de erro -->
