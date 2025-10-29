@@ -31,8 +31,9 @@ export const productionConfig = {
   measurementId: 'G-JZYYGSJKTZ'
 };
 
-// By default, pick test config when NODE_ENV is not production
-const isProd = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
-export const firebaseConfig = isProd ? productionConfig : testConfig;
+// Use PRODUCTION by default for the web/PWA runtime. NODE_ENV is not
+// reliably available in the browser, so defaulting to production here
+// ensures the app connects to the PROD Firebase project.
+export const firebaseConfig = productionConfig;
 
 export default firebaseConfig;
