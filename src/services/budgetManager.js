@@ -158,7 +158,10 @@ export function upsertBudgetFromTransaction(transaction, context = {}) {
   target.initialValue = initialValue;
   target.lastUpdated = nowISO;
   target.triggerTxId = transaction && transaction.id != null ? String(transaction.id) : (target.triggerTxId ? String(target.triggerTxId) : null);
-  target.triggerTxIso = startDate;
+  // For ad-hoc budgets, the trigger transaction is the planned launch
+  // at the cycle end (endDate). Mark triggerTxIso accordingly so UI and
+  // balance calculators can reliably hide/ignore this reservation entry.
+  target.triggerTxIso = endDate;
 
   const recalculated = recomputeBudget(target, allTxs) || target;
   const updated = budgets.filter((b) => b.id !== recalculated.id).concat(recalculated);

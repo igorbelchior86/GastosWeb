@@ -92,7 +92,15 @@ export function createOpenEditFlow(ctx) {
     const basicDetached = typeof isDetachedOccurrence === 'function'
       ? isDetachedOccurrence(tx)
       : (!!tx.parentId && !tx.recurrence);
-    const isDetached = !!tx.parentId && parentHasException && basicDetached;
+    // Heuristic: if there is a concrete detached child at targetIso, treat as detached
+    const detachedChildAtIso = (() => {
+      try {
+        if (!parentForDetach || !targetIso) return null;
+        const pid = parentForDetach.id;
+        return txs.find(item => item && item.parentId === pid && !item.recurrence && item.opDate === targetIso) || null;
+      } catch (_) { return null; }
+    })();
+    const isDetached = !!(basicDetached || detachedChildAtIso || (tx.parentId && parentHasException));
 
     const hasRecurrence = !!( (tx.recurrence && String(tx.recurrence).trim()) || tx.parentId || heuristicMaster );
     const modalEl = ensureModal();
@@ -108,6 +116,22 @@ export function createOpenEditFlow(ctx) {
       editTx(id);
     };
 
+    // If this is a detached occurrence for the target date, edit it directly
+    if (isDetached && tx && tx.id != null) {
+      // Preserve whether the planned modal was open
+      const reopen = plannedEl && !plannedEl.classList.contains('hidden');
+      reopenPlannedAfterEditRef.set(!!reopen);
+      if (reopen) {
+        plannedEl.classList.add('hidden');
+        updateModalOpenState && updateModalOpenState();
+      }
+      pendingEditModeRef.set(null);
+      pendingEditTxIdRef.set(tx.id);
+      pendingEditTxIsoRef.set(targetIso || tx.opDate || null);
+      editTx(tx.id);
+      return;
+    }
+
     if (hasRecurrence && !isDetached && modalEl) {
       const reopen = plannedEl && !plannedEl.classList.contains('hidden');
       reopenPlannedAfterEditRef.set(!!reopen);
@@ -116,7 +140,12 @@ export function createOpenEditFlow(ctx) {
         updateModalOpenState && updateModalOpenState();
       }
       pendingEditModeRef.set(null);
-      pendingEditTxIdRef.set(master ? master.id : tx.id);
+      // If there is a detached child for this occurrence, edit the child directly; otherwise edit master
+      if (detachedChildAtIso && detachedChildAtIso.id != null) {
+        pendingEditTxIdRef.set(detachedChildAtIso.id);
+      } else {
+        pendingEditTxIdRef.set(master ? master.id : tx.id);
+      }
       const isoToSet = targetIso || tx.opDate || null;
       pendingEditTxIsoRef.set(isoToSet);
       modalEl.classList.remove('hidden');

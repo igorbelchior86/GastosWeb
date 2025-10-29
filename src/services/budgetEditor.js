@@ -67,12 +67,15 @@ export function removeAdHocBudget(budget, options = {}){
     let pruned = updated.filter(t => {
       try {
         if (!t) return true;
+        // Remove exact trigger by id
         if (budget.triggerTxId && String(t.id) === String(budget.triggerTxId)) return false;
-        // Fallback match by (trigger date + tag)
+        // Fallback match by (trigger date + tag) but ONLY if it is a planned cash reservation
         const trigISO = iso(budget.triggerTxIso);
         if (trigISO) {
           const d = iso(t.opDate || t.postDate);
-          if (d === trigISO && String(t.budgetTag || '') === tag) return false;
+          const isCash = String(t.method || 'Dinheiro') === 'Dinheiro';
+          const isPlanned = t.planned === true;
+          if (d === trigISO && String(t.budgetTag || '') === tag && isCash && isPlanned && !t.isBudgetMaterialization) return false;
         }
         return true;
       } catch(_) { return true; }

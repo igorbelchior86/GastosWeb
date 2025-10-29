@@ -48,12 +48,19 @@ export function computeDailyBalances(transactions = [], startBalance = 0, startD
     const raw = typeof saveBudgets === 'function' ? saveBudgets(loadBudgets()) : (loadBudgets() || []);
     const active = (raw || []).filter(b => b && b.status === 'active');
     triggerIdSet = new Set(active.map(b => (b && b.triggerTxId != null ? String(b.triggerTxId) : null)).filter(Boolean));
-    triggerKeySet = new Set(active.map(b => {
-      const iso = b && (b.triggerTxIso || b.startDate);
-      const tag = b && b.tag;
-      if (!iso || !tag) return null;
-      return `${String(iso).slice(0,10)}|${String(tag)}`;
-    }).filter(Boolean));
+    const keys = [];
+    active.forEach((b) => {
+      if (!b) return;
+      const tag = b.tag;
+      const iso1 = b && (b.triggerTxIso || b.startDate);
+      if (iso1 && tag) keys.push(`${String(iso1).slice(0,10)}|${String(tag)}`);
+      // Backward/compat: ad-hoc triggers may reside at endDate
+      if (String(b.budgetType) === 'ad-hoc') {
+        const iso2 = b.endDate;
+        if (iso2 && tag) keys.push(`${String(iso2).slice(0,10)}|${String(tag)}`);
+      }
+    });
+    triggerKeySet = new Set(keys);
   } catch (_) {
     triggerIdSet = new Set();
     triggerKeySet = new Set();
@@ -63,11 +70,13 @@ export function computeDailyBalances(transactions = [], startBalance = 0, startD
       // Never treat budget materialization transactions as triggers; they must impact cash.
       if (t && t.isBudgetMaterialization) return false;
       if (!t || String(t.method || 'Dinheiro') !== 'Dinheiro') return false;
+      // Exact id match: always a trigger (planned reservation entry)
       if (t.id != null && triggerIdSet && triggerIdSet.has(String(t.id))) return true;
       const tag = t.budgetTag || null;
       if (!tag || !iso) return false;
       const key = `${String(iso).slice(0,10)}|${String(tag)}`;
-      return triggerKeySet && triggerKeySet.has(key);
+      // Key fallback (tag+date): only consider PLANNED entries as triggers
+      return (triggerKeySet && triggerKeySet.has(key) && t.planned === true);
     } catch (_) { return false; }
   };
 
@@ -175,15 +184,15 @@ export function computeDailyBalances(transactions = [], startBalance = 0, startD
     accConta += deltasConta[iso] || 0;
     let proj = accProj;
     let conta = accConta;
-    // Subtract budget reservations for both balances.
+    // Budgets should NOT impact the "saldo em conta" (available balance).
+    // They only reduce the projected balance.
     try {
-      // For projected and available, do NOT antecipar devoluções futuras.
+      // For projected, do NOT antecipar devoluções futuras.
       // We freeze the return logic at today for dates in the future while
       // still allowing future cycle deductions to accumulate.
       const resvProj = calcReservedTotal ? (calcReservedTotal(iso, transactions, { freezeAtISO: todayISO }) || 0) : 0;
-      const resvConta = calcReservedTotal ? (calcReservedTotal(iso, transactions, { freezeAtISO: todayISO }) || 0) : 0;
       if (Number.isFinite(resvProj)) proj -= resvProj;
-      if (Number.isFinite(resvConta)) conta -= resvConta;
+      // No reservation subtraction for conta
     } catch (_) {}
     byDay[iso] = { projetado: proj, emConta: conta };
   });

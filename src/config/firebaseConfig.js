@@ -34,6 +34,22 @@ export const productionConfig = {
 // Use PRODUCTION by default for the web/PWA runtime. NODE_ENV is not
 // reliably available in the browser, so defaulting to production here
 // ensures the app connects to the PROD Firebase project.
-export const firebaseConfig = productionConfig;
+// Runtime override via URL or localStorage
+function resolveEnvOverride() {
+  try {
+    const url = new URL(window.location.href);
+    const q = (url.searchParams.get('env') || '').toLowerCase();
+    const ls = (localStorage.getItem('ui:env') || '').toLowerCase();
+    return q || ls || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+const env = resolveEnvOverride();
+// Default to PRODUCTION unless explicitly overridden to TEST
+export const firebaseConfig = (env === 'test' || env === 'development')
+  ? testConfig
+  : productionConfig;
 
 export default firebaseConfig;

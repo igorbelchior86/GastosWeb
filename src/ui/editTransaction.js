@@ -40,7 +40,7 @@ export function setupEditTransaction() {
    */
   function editTx(id) {
     const txs = (typeof getTransactions === 'function' ? getTransactions() : transactions) || [];
-    const t = txs.find(x => x && x.id === id);
+    let t = txs.find(x => x && x.id === id);
     if (!t) return;
     
     // ALWAYS set the pending ID
@@ -51,6 +51,25 @@ export function setupEditTransaction() {
     if (!g.pendingEditTxIso) {
       g.pendingEditTxIso = t.opDate;
     }
+
+    // If we are editing a recurring master but a detached child exists for the
+    // selected occurrence date, prefer the detached child so we show its edited values.
+    try {
+      const iso = g.pendingEditTxIso;
+      const compareIds = (a, b) => {
+        try { return (typeof sameId === 'function') ? sameId(a, b) : String(a) === String(b); }
+        catch { return String(a) === String(b); }
+      };
+      const isMaster = !!(t && t.recurrence && String(t.recurrence).trim());
+      if (isMaster && iso) {
+        const child = txs.find(x => x && x.parentId && compareIds(x.parentId, t.id) && !x.recurrence && x.opDate === iso);
+        if (child) {
+          t = child;
+          // Also update the pending ID so subsequent saves/edit reopen target the child
+          g.pendingEditTxId = child.id;
+        }
+      }
+    } catch (_) {}
     
     // Check if we already have a pendingEditMode set (user selected an option from the context modal)
     const alreadyScoped = !!g.pendingEditMode;

@@ -114,7 +114,14 @@ export async function load(key, defaultValue = null) {
  * @returns {Promise<void>}
  */
 export async function save(key, value) {
-  if (useMock || !firebaseDb || !PATH) return mockSave(key, value);
+  // When PATH or DB is not ready yet, persist locally AND mark dirty
+  // so the change is flushed to Firebase once the profile is available.
+  if (useMock || !firebaseDb || !PATH) {
+    await mockSave(key, value);
+    try { markDirty(key); } catch (_) {}
+    try { await scheduleBgSync(); } catch (_) {}
+    return;
+  }
   try {
     const remoteKey = scopedDbSegment(key);
     // Defensive: Firebase RTDB rejects undefined values inside the payload.

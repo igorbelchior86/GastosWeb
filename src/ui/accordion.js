@@ -259,18 +259,15 @@ export function initAccordion(config) {
         // therefore hidden from the executed list.
         if (triggerSet && Array.isArray(dayTx)) {
           try {
-            const candidates = (dayTx || []).filter(t => t && t.budgetTag === tag);
-            let trig = null;
-            if (candidates.length === 1) {
-              trig = candidates[0];
-            } else if (candidates.length > 1) {
-              trig = candidates.reduce((best, cur) => {
-                const a = Math.abs(Number(best && best.val) || 0);
-                const b = Math.abs(Number(cur && cur.val) || 0);
-                return b > a ? cur : best;
-              }, candidates[0]);
-            }
-            if (trig) triggerSet.add(trig);
+            // Only mark PLANNED cash reservation on the cycle start date
+            const candidates = (dayTx || []).filter(t => t
+              && t.budgetTag === tag
+              && String(t.method || 'Dinheiro') === 'Dinheiro'
+              && t.planned === true
+              && !t.isBudgetMaterialization
+              && normalizeBudgetDate(t.opDate || t.postDate) === iso
+            );
+            if (candidates.length > 0) triggerSet.add(candidates[0]);
           } catch (_) {}
         }
         if (budgetTriggerIds) budgetTriggerIds.add(String(master.id));
@@ -287,6 +284,7 @@ export function initAccordion(config) {
     if (!budget || !Array.isArray(dayTransactions)) return null;
     const tag = budget.tag;
     if (!tag) return null;
+    // Exact id match (when available)
     if (budget.triggerTxId != null) {
       const targetId = String(budget.triggerTxId);
       const byId = dayTransactions.find((tx) => tx && String(tx.id) === targetId);
@@ -294,11 +292,16 @@ export function initAccordion(config) {
     }
     const startISO = normalizeBudgetDate(budget.startDate);
     const triggerISO = normalizeBudgetDate(budget.triggerTxIso);
+    // Fallback: only consider PLANNED cash entries as the reservation trigger
     return dayTransactions.find((tx) => {
       if (!tx) return false;
+      if (tx.isBudgetMaterialization) return false;
       if (tx.budgetTag !== tag) return false;
-      const txDate = normalizeBudgetDate(tx.opDate);
+      const isCash = String(tx.method || 'Dinheiro') === 'Dinheiro';
+      if (!isCash || tx.planned !== true) return false;
+      const txDate = normalizeBudgetDate(tx.opDate || tx.postDate);
       if (triggerISO && txDate === triggerISO) return true;
+      // Legacy: older ad-hoc may have used start date as trigger
       return txDate === startISO;
     }) || null;
   }
@@ -743,33 +746,42 @@ export function initAccordion(config) {
         if (budget.triggerTxId != null) {
           budgetTriggerIds.add(String(budget.triggerTxId));
         }
-        const iso = normalizeBudgetDate(budget.triggerTxIso || budget.startDate);
-        if (iso) {
+        const isoCandidates = [];
+        const trigISO = normalizeBudgetDate(budget.triggerTxIso || budget.startDate);
+        if (trigISO) isoCandidates.push(trigISO);
+        // For ad-hoc budgets created in older versions, the trigger may be at endDate
+        if (String(budget.budgetType) === 'ad-hoc') {
+          const endISO = normalizeBudgetDate(budget.endDate);
+          if (endISO && !isoCandidates.includes(endISO)) isoCandidates.push(endISO);
+        }
+        isoCandidates.forEach((iso) => {
+          if (!iso) return;
           if (!budgetTriggersByIso.has(iso)) budgetTriggersByIso.set(iso, []);
           budgetTriggersByIso.get(iso).push({
             tag: budget.tag,
             id: budget.triggerTxId != null ? String(budget.triggerTxId) : null,
           });
-        }
+        });
       });
     }
     const isBudgetTriggerTransaction = (tx) => {
       if (!budgetsFeature || !tx) return false;
-      try {
-        if (budgetTriggerSet && budgetTriggerSet.has(tx)) return true;
-      } catch (_) {}
-      if (budgetTriggerIds && tx.id != null && budgetTriggerIds.has(String(tx.id))) {
-        return true;
-      }
+      // Hide the exact chosen trigger (by ref) or by stored trigger id.
+      try { if (budgetTriggerSet && budgetTriggerSet.has(tx)) return true; } catch (_) {}
+      if (budgetTriggerIds && tx.id != null && budgetTriggerIds.has(String(tx.id))) return true;
       const iso = normalizeBudgetDate(tx.opDate || tx.postDate);
       if (!iso) return false;
       const candidates = budgetTriggersByIso && budgetTriggersByIso.get(iso);
       if (!candidates || !candidates.length) return false;
+      // If we only know tag+date (id missing), hide planned cash entries that match the budget tag
       return candidates.some((info) => {
         if (!info) return false;
-        if (info.tag && tx.budgetTag && info.tag !== tx.budgetTag) return false;
-        if (info.id) return info.id === String(tx.id);
-        return true;
+        const sameTag = !info.tag || !tx.budgetTag || info.tag === tx.budgetTag;
+        if (!sameTag) return false;
+        if (info.id) return String(tx.id) === info.id;
+        // Fallback: planned cash reservation on the trigger date for the tag
+        const isCash = String(tx.method || 'Dinheiro') === 'Dinheiro';
+        return isCash && tx.planned === true;
       });
     };
     
@@ -1290,14 +1302,21 @@ export function initAccordion(config) {
           if (budget.triggerTxId != null) {
             budgetTriggerIds.add(String(budget.triggerTxId));
           }
-          const iso = normalizeBudgetDate(budget.triggerTxIso || budget.startDate);
-          if (iso) {
+          const isoCandidates = [];
+          const trigISO = normalizeBudgetDate(budget.triggerTxIso || budget.startDate);
+          if (trigISO) isoCandidates.push(trigISO);
+          if (String(budget.budgetType) === 'ad-hoc') {
+            const endISO = normalizeBudgetDate(budget.endDate);
+            if (endISO && !isoCandidates.includes(endISO)) isoCandidates.push(endISO);
+          }
+          isoCandidates.forEach((iso) => {
+            if (!iso) return;
             if (!budgetTriggersByIso.has(iso)) budgetTriggersByIso.set(iso, []);
             budgetTriggersByIso.get(iso).push({
               tag: budget.tag,
               id: budget.triggerTxId != null ? String(budget.triggerTxId) : null,
             });
-          }
+          });
         });
       }
       
@@ -1669,6 +1688,7 @@ export function initAccordion(config) {
 
     const isBudgetTriggerTx = (tx) => {
       if (!budgetsFeature || !tx) return false;
+      if (!tx.isBudgetMaterialization) return false;
       try {
         if (budgetTriggerSet && budgetTriggerSet.has(tx)) return true;
       } catch (_) {}
@@ -1681,7 +1701,7 @@ export function initAccordion(config) {
         if (!info) return false;
         if (info.tag && tx.budgetTag && info.tag !== tx.budgetTag) return false;
         if (info.id) return info.id === String(tx.id);
-        return true;
+        return false; // don't hide all by tag when no id
       });
     };
     // Backward‑compat alias to match other render paths

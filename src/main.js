@@ -424,7 +424,7 @@ function resolvePathForUser(user){
   return personalPath;
 }
 
-const APP_VERSION = 'v1.5.0(c09)';
+const APP_VERSION = 'v1.5.0(c17)';
 
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -456,23 +456,26 @@ if (!USE_MOCK) {
 
 
 
+  // Delegate saves/loads to FirebaseService, which handles PATH unset by
+  // persisting locally and queueing for later flush. This avoids writes
+  // under a null/undefined path and keeps devices in sync reliably.
   save = async (k, v) => {
-    if (!navigator.onLine) {
-      markDirty(k);
-      if (k === 'tx') cacheSet('tx', v);
-      if (k === 'cards') cacheSet('cards', v);
-      if (k === 'startBal') cacheSet('startBal', v);
-      if (k === 'startSet') cacheSet('startSet', v);
-      if (k === 'budgets') cacheSet('budgets', v);
-      return; // no remote write while offline
+    try {
+      return await FirebaseSvc.save(k, v);
+    } catch (_) {
+      // Fallback: cache locally and mark dirty so a later flush can sync
+      try {
+        if (k === 'tx') cacheSet('tx', v);
+        if (k === 'cards') cacheSet('cards', v);
+        if (k === 'startBal') cacheSet('startBal', v);
+        if (k === 'startSet') cacheSet('startSet', v);
+        if (k === 'budgets') cacheSet('budgets', v);
+      } catch (_) {}
+      try { markDirty && markDirty(k); } catch (_) {}
     }
-    const remoteKey = scopedDbSegment(k);
-    return set(ref(db, `${PATH}/${remoteKey}`), v);
   };
   load = async (k, d) => {
-    const remoteKey = scopedDbSegment(k);
-    const s = await get(ref(db, `${PATH}/${remoteKey}`));
-    return s.exists() ? s.val() : d;
+    try { return await FirebaseSvc.load(k, d); } catch (_) { return d; }
   };
 } else {
   PATH = 'mock_365';
@@ -1251,7 +1254,7 @@ const startGroup=$('startGroup'),startInput=$('startInput'),setStartBtn=$('setSt
 if (startInput) startInputRef = startInput;
 
 
-function ensureStartSetFromBalance(o={}){const{persist=true,refresh=true}=o;if(state.startSet===true||state.startBalance==null||Number.isNaN(Number(state.startBalance)))return;state.startSet=true;try{cacheSet('startSet',true);}catch(_){ }if(persist&&typeof save==='function'&&PATH){Promise.resolve().then(()=>save('startSet',true)).catch(()=>{});}if(refresh){try{initStart();}catch(_){}}}
+function ensureStartSetFromBalance(o={}){const{persist=true,refresh=true}=o;if(state.startSet===true||state.startBalance==null||Number.isNaN(Number(state.startBalance)))return;state.startSet=true;try{cacheSet('startSet',true);}catch(_){ }try{if(!state.startDate){const today=(typeof utilTodayISO==='function'?utilTodayISO():new Date().toISOString().slice(0,10));setStartDate(today,{emit:false});cacheSet('startDate',today);if(persist&&typeof save==='function'){Promise.resolve().then(()=>save('startDate',today)).catch(()=>{});}}}catch(_){ }if(persist&&typeof save==='function'){Promise.resolve().then(()=>save('startSet',true)).catch(()=>{});}if(refresh){try{initStart();}catch(_){}}}
 
 
 if(resetBtn){resetBtn.hidden=false;resetBtn.style.display='';resetBtn.addEventListener('click',()=>performResetAllData(true));}
