@@ -8,7 +8,7 @@
  * configured on window.APP_CACHE_BACKING.
  */
 
-import { scopedCacheKey } from './profile.js';
+import { scopedCacheKey, PROFILE_CACHE_KEYS } from './profile.js';
 
 // Retrieve an optional backing store that exposes idbGet/idbSet/idbRemove
 function resolveBacking() {
@@ -31,6 +31,22 @@ export function cacheGet(key, fallback) {
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (raw != null) return JSON.parse(raw);
+  } catch {
+    /* ignore */
+  }
+  // Legacy fallback: before profile scoping for BR, some keys were stored
+  // without a profile prefix. If the scoped key is missing, try the
+  // unscoped variant and, if found, migrate it into the scoped key.
+  try {
+    if (PROFILE_CACHE_KEYS && PROFILE_CACHE_KEYS.has && PROFILE_CACHE_KEYS.has(key)) {
+      const legacyStorageKey = `cache_${key}`;
+      const legacyRaw = window.localStorage.getItem(legacyStorageKey);
+      if (legacyRaw != null) {
+        const value = JSON.parse(legacyRaw);
+        try { window.localStorage.setItem(storageKey, JSON.stringify(value)); } catch (_) {}
+        return value;
+      }
+    }
   } catch {
     /* ignore */
   }

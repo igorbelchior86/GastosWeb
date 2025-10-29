@@ -7,7 +7,10 @@
  */
 
 export const DEFAULT_PROFILE = { id: 'BR', locale: 'pt-BR', currency: 'BRL', decimalPlaces: 2 };
-export const LEGACY_PROFILE_ID = DEFAULT_PROFILE.id;
+// Legacy behaviour used to treat the default profile (BR) as unscoped.
+// After data migration, ALL profiles (including BR) must be scoped under
+// profiles/<ID> in RTDB and use profile‑scoped cache keys.
+export const LEGACY_PROFILE_ID = null;
 export const PROFILE_DATA_KEYS = new Set(['tx', 'cards', 'startBal', 'startDate', 'startSet', 'budgets']);
 export const PROFILE_CACHE_KEYS = new Set([...PROFILE_DATA_KEYS, 'dirtyQueue']);
 
@@ -64,8 +67,8 @@ export function getCurrentProfileId() {
 export function scopedCacheKey(key) {
   if (!PROFILE_CACHE_KEYS.has(key)) return key;
   const profileId = getCurrentProfileId();
-  if (!profileId || profileId === LEGACY_PROFILE_ID) return key;
-  return `${profileId}::${key}`;
+  if (!profileId) return key;
+  return `${String(profileId)}::${key}`;
 }
 
 /**
@@ -78,6 +81,6 @@ export function scopedCacheKey(key) {
 export function scopedDbSegment(key) {
   if (!PROFILE_DATA_KEYS.has(key)) return key;
   const profileId = getCurrentProfileId();
-  if (!profileId || profileId === LEGACY_PROFILE_ID) return key;
-  return `profiles/${profileId}/${key}`;
+  if (!profileId) return key;
+  return `profiles/${String(profileId)}/${key}`;
 }

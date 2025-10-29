@@ -59,6 +59,8 @@ export function runBootstrap() {
     if (state) state.startBalance = val;
     return val;
   });
+  const setStartDate = g.setStartDate || appState.setStartDate;
+  const setStartSet = g.setStartSet || appState.setStartSet;
   const syncStartInputFromState = g.syncStartInputFromState || (() => {});
   const ensureStartSetFromBalance = g.ensureStartSetFromBalance || (() => {});
   const normalizeISODate = g.normalizeISODate || ((iso) => iso);
@@ -151,20 +153,21 @@ export function runBootstrap() {
       return;
     }
     // salva o novo saldo e renderiza novamente
-    setStartBalance(numberValue);
-    cacheSet('startBal', state.startBalance);
+    setStartBalance(numberValue); // reactive: emits and updates subscribers
+    try { cacheSet('startBal', appState.getStartBalance()); } catch(_) {}
     syncStartInputFromState();
     // Define a data de início local para ancorar o saldo "em conta"
     try {
       const isoToday = todayISO();
-      appState.setStartDate(isoToday, { emit: false });
-      cacheSet('startDate', isoToday);
+      setStartDate(isoToday, { emit: true });
+      try { cacheSet('startDate', isoToday); } catch(_) {}
+      try { await save('startDate', isoToday); } catch(_) {}
     } catch (_) {}
     // Persist start balance and mark the start flow as completed (startSet=true)
     try {
-      await save('startBal', state.startBalance);
+      await save('startBal', appState.getStartBalance());
     } catch(_) {}
-    state.startSet = true;
+    setStartSet(true, { emit: true });
     try { cacheSet('startSet', true); } catch(_) {}
     try { await save('startSet', true); } catch(_) {}
     initStart();
@@ -326,7 +329,9 @@ export function runBootstrap() {
           setStartBalance(liveBal);
           cacheSet('startBal', state.startBalance);
           syncStartInputFromState();
-          ensureStartSetFromBalance();
+          // Avoid persisting startDate during early UI boot to prevent
+          // overwriting a remote date that may still arrive via realtime.
+          ensureStartSetFromBalance({ persist: false });
           initStart(); renderTable();
         }
       } catch (_) { /* ignore boot fetch when not logged yet */ }

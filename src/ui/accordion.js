@@ -1775,7 +1775,10 @@ export function initAccordion(config) {
         cardImpact += (invoiceTotals[cardName] + adj);
       });
       
-      const dayBalance = balanceMap.has(iso) ? balanceMap.get(iso) : 0;
+      // Use same fallback as main render path: when there is no explicit
+      // entry for this day in the balance map (e.g., before startDate or
+      // during early hydration), derive the balance from the previous day.
+      const dayBalance = balanceMap.has(iso) ? balanceMap.get(iso) : getBalanceBefore(iso);
       const dow = (() => { try { return weekdayName(viewYear, mIdx + 1, d); } catch (_) { return dateObj.toLocaleDateString('pt-BR', { weekday: 'long' }); } })();
       
       // Create day details element

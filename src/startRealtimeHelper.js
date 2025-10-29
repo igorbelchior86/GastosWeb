@@ -130,10 +130,15 @@ export function createStartRealtime(ctx) {
     // undefined, these values will be null, disabling the associated listeners.
     const txRef        = profileRef ? profileRef('tx') : null;
     const cardsRefDB   = profileRef ? profileRef('cards') : null;
+    // Primary (scoped) refs
     const balRef       = profileRef ? profileRef('startBal') : null;
     const startDateRef = profileRef ? profileRef('startDate') : null;
     const budgetsRefDB = profileRef ? profileRef('budgets') : null;
     const startSetRef  = profileRef ? profileRef('startSet') : null;
+    // Fallback unscoped refs (legacy path support: PATH/<key>)
+    const balRefRoot       = (firebaseDb && PATH && ref) ? ref(firebaseDb, `${PATH}/startBal`)   : null;
+    const startDateRefRoot = (firebaseDb && PATH && ref) ? ref(firebaseDb, `${PATH}/startDate`)  : null;
+    const startSetRefRoot  = (firebaseDb && PATH && ref) ? ref(firebaseDb, `${PATH}/startSet`)   : null;
 
     const listeners = [];
 
@@ -141,9 +146,9 @@ export function createStartRealtime(ctx) {
     if (registerHydrationTarget) {
       registerHydrationTarget('tx', !!txRef);
       registerHydrationTarget('cards', !!cardsRefDB);
-      registerHydrationTarget('startBal', !!balRef);
-      registerHydrationTarget('startDate', !!startDateRef);
-      registerHydrationTarget('startSet', !!startSetRef);
+      registerHydrationTarget('startBal', !!(balRef || balRefRoot));
+      registerHydrationTarget('startDate', !!(startDateRef || startDateRefRoot));
+      registerHydrationTarget('startSet', !!(startSetRef || startSetRefRoot));
     }
 
     // Hydrate from cache and signal potential completion of hydration
@@ -301,8 +306,14 @@ export function createStartRealtime(ctx) {
     }
 
     // Listener for start balance changes
-    if (balRef && onValue) {
-      listeners.push(onValue(balRef, (snap) => {
+    let startBalSource = null; // 'scoped' | 'root'
+    const handleStartBal = (snap, source = 'scoped') => {
+        // Prefer scoped value when present. If we've already adopted the scoped
+        // value for this session, ignore root updates to avoid overriding.
+        if (startBalSource === 'scoped' && source === 'root') {
+          if (markHydrationTargetReady) markHydrationTargetReady('startBal');
+          return;
+        }
         const raw = snap.exists() ? snap.val() : null;
         const next = normalizeStartBalance(raw);
         const current = normalizeStartBalance(state?.startBalance);
@@ -313,54 +324,63 @@ export function createStartRealtime(ctx) {
         }
         try {
           if (typeof setStartBalance === 'function') {
-            setStartBalance(next, { emit: false });
+            // Emit so main.js subscriber updates its local `state` snapshot
+            // before we call renderTable, ensuring balances use the new anchor
+            setStartBalance(next, { emit: true });
           } else if (state) {
             state.startBalance = next;
           }
+          // Record the source so subsequent lower-priority updates are ignored
+          if (next != null) startBalSource = source;
           cacheSet && cacheSet('startBal', state?.startBalance ?? next);
           syncStartInputFromState && syncStartInputFromState();
-          ensureStartSetFromBalance && ensureStartSetFromBalance();
+          // Do NOT persist startDate here; wait for explicit user action or
+          // final hydration to avoid overwriting an existing remote date.
+          ensureStartSetFromBalance && ensureStartSetFromBalance({ persist: false });
           initStart && initStart();
           // Render table when balance changes to ensure balances are recalculated
           renderTable && renderTable();
         } finally {
           if (markHydrationTargetReady) markHydrationTargetReady('startBal');
         }
-      }));
+    };
+    if (onValue) {
+      if (balRef)      listeners.push(onValue(balRef, (snap) => handleStartBal(snap, 'scoped')));
+      if (balRefRoot)  listeners.push(onValue(balRefRoot, (snap) => handleStartBal(snap, 'root')));
     }
 
     // Listener for start date changes
-    if (startDateRef && onValue) {
-      listeners.push(onValue(startDateRef, (snap) => {
+    const handleStartDate = (snap) => {
         const raw = snap.exists() ? snap.val() : null;
         const normalized = normalizeISODate ? normalizeISODate(raw) : raw;
-        // Strategy:
-        // - If remote provides a concrete date and local is empty, adopt it.
-        // - If remote is null/empty, preserve any local startDate set by the user.
+        try { console.log(`📅 Firebase: Start date = ${normalized ?? 'not set'}`); } catch (_) {}
         if (!normalized) {
-          if (markHydrationTargetReady) markHydrationTargetReady('startDate');
-          return; // keep local value
-        }
-        if (normalized === state.startDate) {
           if (markHydrationTargetReady) markHydrationTargetReady('startDate');
           return;
         }
         try {
-          if (!state.startDate) {
-            state.startDate = normalized;
+          if (state.startDate !== normalized) {
+            if (typeof setStartDate === 'function') {
+              setStartDate(normalized, { emit: true });
+            } else {
+              state.startDate = normalized;
+            }
             try { cacheSet && cacheSet('startDate', normalized); } catch (_) {}
             initStart && initStart();
+            // Re-render to reflect new anchor date immediately
+            renderTable && renderTable();
           }
-          // Don't call renderTable here - let the transaction listener handle it
         } finally {
           if (markHydrationTargetReady) markHydrationTargetReady('startDate');
         }
-      }));
+    };
+    if (onValue) {
+      if (startDateRef)      listeners.push(onValue(startDateRef, handleStartDate));
+      if (startDateRefRoot)  listeners.push(onValue(startDateRefRoot, handleStartDate));
     }
 
     // Listener for start set flag changes
-    if (startSetRef && onValue) {
-      listeners.push(onValue(startSetRef, (snap) => {
+    const handleStartSet = (snap) => {
         const val = snap.exists() ? !!snap.val() : false;
         if (val === state.startSet) {
           if (markHydrationTargetReady) markHydrationTargetReady('startSet');
@@ -374,7 +394,10 @@ export function createStartRealtime(ctx) {
         } finally {
           if (markHydrationTargetReady) markHydrationTargetReady('startSet');
         }
-      }));
+    };
+    if (onValue) {
+      if (startSetRef)      listeners.push(onValue(startSetRef, handleStartSet));
+      if (startSetRefRoot)  listeners.push(onValue(startSetRefRoot, handleStartSet));
     }
 
     // Expose the list of unsubscribe functions via the provided ref object

@@ -10,7 +10,7 @@
 
 import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
 import { getDatabase, ref, set, get, onValue } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js';
-import { scopedDbSegment } from '../utils/profile.js';
+import { scopedDbSegment, getCurrentProfileId } from '../utils/profile.js';
 import { cacheGet, cacheSet } from '../utils/cache.js';
 
 let firebaseApp = null;
@@ -96,6 +96,7 @@ export async function load(key, defaultValue = null) {
   if (useMock || !firebaseDb || !PATH) return mockLoad(key, defaultValue);
   try {
     const remoteKey = scopedDbSegment(key);
+    try { console.log(`🔥 load ${key} → ${PATH}/${remoteKey} (profile=${getCurrentProfileId?.()})`); } catch(_) {}
     const snapshot = await get(ref(firebaseDb, `${PATH}/${remoteKey}`));
     return snapshot.exists() ? snapshot.val() : defaultValue;
   } catch (err) {
@@ -134,6 +135,7 @@ export async function save(key, value) {
     } catch (_) {
       payload = value;
     }
+    try { console.log(`🔥 save ${key} → ${PATH}/${remoteKey} (profile=${getCurrentProfileId?.()})`, payload); } catch(_) {}
     const res = await set(ref(firebaseDb, `${PATH}/${remoteKey}`), payload);
     // Success: remove key from profile-scoped dirty queue
     try {

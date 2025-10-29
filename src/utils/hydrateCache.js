@@ -86,7 +86,7 @@ export function hydrateCache(options = {}) {
     }
   }
   
-  if (ensureStartSetFromBalance) ensureStartSetFromBalance();
+  if (ensureStartSetFromBalance) ensureStartSetFromBalance({ persist: false });
   if (render && !isHydrating) {
     // Render UI after hydration if allowed
     try {

@@ -5,7 +5,7 @@ import { initTxUtils } from './ui/transactionUtils.js';
 import { setupInvoiceHandlers,openPayInvoiceModal as openPayInvoiceModalMod,addTx as addTxMod, setupPaidStatusControl } from './ui/transactionModal.js';
 import { DEFAULT_PROFILE,LEGACY_PROFILE_ID,PROFILE_DATA_KEYS,PROFILE_CACHE_KEYS,getRuntimeProfile,getCurrencyName,getCurrentProfileId,scopedCacheKey,scopedDbSegment } from './utils/profile.js';
 import { cacheGet, cacheSet, cacheRemove, cacheClearProfile } from './utils/cache.js';
-import { appState,setStartBalance,setStartDate,setStartSet,setBootHydrated,setTransactions,getTransactions,setCards,getCards,subscribeState,setMonthlyTotals,setBudgetsByTag } from './state/appState.js';
+import { getState, setStartBalance,setStartDate,setStartSet,setBootHydrated,setTransactions,getTransactions,setCards,getCards,subscribeState,setMonthlyTotals,setBudgetsByTag } from './state/appState.js';
 
 import { resetHydration as hydrationReset,registerHydrationTarget as hydrationRegisterTarget,markHydrationTargetReady as hydrationTargetReady,completeHydration as hydrationComplete,isHydrating as hydrationIsInProgress,maybeCompleteHydration as hydrationMaybeComplete } from './ui/hydration.js';
 
@@ -63,7 +63,7 @@ import { createStartRealtime } from './startRealtimeHelper.js';
 
 import { askMoveToToday as askMoveToTodayMod,askConfirmLogout as askConfirmLogoutMod,askConfirmReset as askConfirmResetMod,scheduleAfterKeyboard as scheduleAfterKeyboardMod,flushKeyboardDeferredTasks as flushKeyboardDeferredTasksMod } from './ui/modalHelpers.js';
 
-const state = appState;
+let state = getState();
 const featureFlags = getFeatureFlagsApi();
 
 try {
@@ -346,7 +346,7 @@ try{
 import { setupIdbCache } from './idbHelper.js';
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
 
-import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, update } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 import { firebaseConfig } from './config/firebaseConfig.js';
 import { AuthService } from './services/authService.js';
@@ -367,6 +367,13 @@ try {
 async function initPreferencesAfterFirebase() {
   try {
     await hydratePreferences(firebaseConfig);
+    // After preferences (including ui:profile) hydrate, rebind realtime
+    // listeners so we listen to the correct profile-scoped paths even
+    // on cold boot when listeners may have been attached earlier.
+    try {
+      if (typeof cleanupProfileListeners === 'function') cleanupProfileListeners();
+      if (typeof startRealtimeFn === 'function') startRealtimeFn();
+    } catch (_) {}
   } catch (err) {
     console.warn('Preference hydration failed:', err);
   }
@@ -447,6 +454,41 @@ window.addEventListener('load', () => {
 });
 let save, load;
 let firebaseDb;
+
+// ---------- One-off data migration to profile-scoped layout ----------
+async function migrateLegacyProfileData(db, path){
+  try {
+    if (!db || !path) return;
+    const markerKey = `${path}::migrated:profiles-v2`;
+    try { if (localStorage.getItem(markerKey) === '1') return; } catch (_) {}
+    const targetProfileId = DEFAULT_PROFILE.id || 'BR';
+    const keys = ['tx','cards','startBal','startDate','startSet','budgets'];
+    const updates = {};
+    let changed = false;
+    for (const k of keys){
+      const rootSnap = await get(ref(db, `${path}/${k}`));
+      const scopedSnap = await get(ref(db, `${path}/profiles/${targetProfileId}/${k}`));
+      const hasRoot = rootSnap.exists();
+      const hasScoped = scopedSnap.exists();
+      if (!hasRoot) continue;
+      const rootVal = rootSnap.val();
+      const shouldCopy = !hasScoped || (Array.isArray(scopedSnap.val()) && scopedSnap.val().length === 0) || (scopedSnap.val() == null) || (typeof scopedSnap.val() === 'object' && Object.keys(scopedSnap.val() || {}).length === 0);
+      if (shouldCopy) {
+        updates[`profiles/${targetProfileId}/${k}`] = rootVal;
+        changed = true;
+      }
+      // Remove legacy root keys to standardize
+      updates[k] = null;
+      changed = true;
+    }
+    if (changed) {
+      await update(ref(db, path), updates);
+    }
+    try { localStorage.setItem(markerKey, '1'); } catch (_) {}
+  } catch (err) {
+    console.warn('[migration] failed or skipped:', err);
+  }
+}
 
 if (!USE_MOCK) {
   const cfg = firebaseConfig;
@@ -648,7 +690,14 @@ if (!USE_MOCK) {
   if (readyUser) { 
     PATH = resolvePathForUser(readyUser); 
     try { FirebaseSvc.setPath(PATH); } catch(_) {}
-    startRealtimeFn && startRealtimeFn(); 
+    // Run migration before attaching realtime listeners
+    try {
+      migrateLegacyProfileData(firebaseDb, PATH).finally(() => {
+        try { startRealtimeFn && startRealtimeFn(); } catch (_) {}
+      });
+    } catch (_) {
+      startRealtimeFn && startRealtimeFn();
+    }
     setTimeout(() => { 
       try { 
         if (typeof recalculateHeaderOffset === 'function') recalculateHeaderOffset(); 
@@ -661,7 +710,14 @@ if (!USE_MOCK) {
         document.removeEventListener('auth:state', h); 
         PATH = resolvePathForUser(u); 
         try { FirebaseSvc.setPath(PATH); } catch(_) {}
-        startRealtimeFn && startRealtimeFn(); 
+        // Run migration before attaching realtime listeners
+        try {
+          migrateLegacyProfileData(firebaseDb, PATH).finally(() => {
+            try { startRealtimeFn && startRealtimeFn(); } catch (_) {}
+          });
+        } catch (_) {
+          startRealtimeFn && startRealtimeFn();
+        }
         setTimeout(() => { 
           try { 
             if (typeof recalculateHeaderOffset === 'function') recalculateHeaderOffset(); 
@@ -674,6 +730,20 @@ if (!USE_MOCK) {
     };
     document.addEventListener('auth:state', h);
   }
+
+  // Re-bind realtime listeners when currency profile changes so profile-scoped
+  // keys (e.g., profiles/<ID>/startBal) are re-subscribed correctly.
+  try {
+    window.addEventListener('currencyProfileChanged', () => {
+      try { cleanupProfileListeners(); } catch (_) {}
+      // Defer slightly to allow UI to settle and APP_PROFILE to update
+      setTimeout(() => {
+        try { startRealtimeFn && startRealtimeFn(); } catch (_) {}
+        try { if (typeof recalculateHeaderOffset === 'function') recalculateHeaderOffset(); } catch (_) {}
+        try { renderTable && renderTable(); } catch (_) {}
+      }, 50);
+    });
+  } catch (_) {}
 } else {
   hydrationReset();
   const [liveTx, liveCards, liveBal] = await Promise.all([
@@ -850,6 +920,9 @@ const recurrence=$('recurrence'),parcelasBlock=$('parcelasBlock'),installments=$
 const notify=(msg,type='error')=>{const t=document.getElementById('toast');if(!t)return;t.textContent=msg;t.style.setProperty('--icon',type==='error'?'\u2715':'\u2713');t.classList.remove('success','error');t.classList.add(type);void t.offsetWidth;t.classList.add('show');setTimeout(()=>{t.classList.remove('show');},5000);};
 
 let makeLine=null,addTx=null;if(typeof window!=='undefined')window.addTx=addTx;
+// Ensure accordionApi is declared before any render calls that may happen
+// via realtime listeners, avoiding TDZ errors.
+let accordionApi = null;
 
 const globalGastos = typeof window !== 'undefined'
   ? (window.__gastos = window.__gastos || {})
@@ -857,6 +930,8 @@ const globalGastos = typeof window !== 'undefined'
 
 Object.assign(globalGastos, {
   appVersion: APP_VERSION,
+  // Expose a snapshot of state for UI helpers that read from window.__gastos
+  state: state,
   txModal,
   toggleTxModal,
   desc,
@@ -891,6 +966,8 @@ Object.assign(globalGastos, {
   occursOn,
   save,
   load,
+  cacheSet,
+  cacheGet,
   renderTable,
   safeRenderTable,
   showToast,
@@ -940,6 +1017,10 @@ Object.assign(globalGastos, {
   getBudgetStorageKey,
   upsertBudgetFromTransaction,
   refreshBudgetCache,
+  // Expose state mutators for start values so bootstrap uses reactive setters
+  setStartBalance,
+  setStartDate,
+  setStartSet,
   yearSelectorApi,
   getViewYear: () => VIEW_YEAR,
   VIEW_YEAR,
@@ -984,6 +1065,19 @@ if (!globalGastos.computeMonthlyTotals) {
     try { return computeMonthlyTotals(list); } catch (_) { return {}; }
   };
 }
+
+// Keep window.__gastos.state in sync with appState so UI components that
+// read from it (e.g., accordion small labels) have the latest anchors.
+try {
+  subscribeState(({ changedKeys, state: s }) => {
+    try {
+      if (changedKeys.some(k => k === 'startBalance' || k === 'startDate' || k === 'startSet')) {
+        state = s;
+        if (window.__gastos) window.__gastos.state = { ...s };
+      }
+    } catch (_) {}
+  });
+} catch (_) {}
 if (!globalGastos.computeDailyBalances) {
   globalGastos.computeDailyBalances = (list, sb, sd) => {
     try {
@@ -1233,6 +1327,12 @@ function resetAppStateForProfileChange(reason = 'profile-change') {
     try { renderTable(); } catch (_) {}
     try { initStart(); } catch (_) {}
     updateModalOpenState();
+
+    // Immediately reattach realtime listeners so scoped startBal for the
+    // newly selected profile is loaded after reset (hard refresh/order-safe).
+    try { cleanupProfileListeners(); } catch (_) {}
+    try { startRealtimeFn && startRealtimeFn(); } catch (_) {}
+    try { if (typeof recalculateHeaderOffset === 'function') recalculateHeaderOffset(); } catch (_) {}
   } catch (err) {
     console.warn('resetAppStateForProfileChange failed:', err);
   }
@@ -1704,7 +1804,15 @@ function renderTable(){
 function clearTableContent(){if(typeof tbody!=='undefined'&&tbody)tbody.innerHTML='';}
 
 
-function renderTransactionGroups(groups){accordionApi.renderAccordion();}
+function renderTransactionGroups(groups){
+  try {
+    if (accordionApi && typeof accordionApi.renderAccordion === 'function') {
+      accordionApi.renderAccordion();
+    }
+  } catch (e) {
+    console.warn('renderTransactionGroups skipped (accordion not ready yet)', e);
+  }
+}
 
 
 
@@ -1742,7 +1850,7 @@ try {
   }
 } catch (_) {}
 
-const accordionApi = initAccordion({
+accordionApi = initAccordion({
   acc: document.getElementById('accordion'),
   getTransactions: getTransactionsWithMaterializations,
   transactions,
