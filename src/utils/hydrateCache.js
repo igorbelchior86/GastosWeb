@@ -1,5 +1,5 @@
 import { normalizeStartBalance } from './startBalance.js';
-import { setBootHydrated } from '../state/appState.js';
+import { setBootHydrated, setStartBalance as appSetStartBalance, setStartDate as appSetStartDate, setStartSet as appSetStartSet } from '../state/appState.js';
 
 /**
  * Provides a helper to hydrate the application state from cached storage. The
@@ -56,19 +56,23 @@ export function hydrateCache(options = {}) {
     : cacheGet('cards', [{ name: 'Dinheiro', close: 0, due: 0 }]);
   setCards(normalizedCards);
   const cards = getCards ? getCards() : normalizedCards;
-  // 3) Start values
+  // 3) Start values (update BOTH appState and snapshot to keep UI in sync)
   if (state) {
-    state.startBalance = normalizeStartBalance(cacheGet('startBal', null));
-    state.startDate = g.normalizeISODate
+    const cachedBal = normalizeStartBalance(cacheGet('startBal', null));
+    const cachedDate = g.normalizeISODate
       ? g.normalizeISODate(cacheGet('startDate', null))
       : cacheGet('startDate', null);
-    state.startSet = cacheGet('startSet', false);
-    if (state.startDate == null && (state.startBalance === 0 || state.startBalance === '0')) {
-      state.startBalance = null;
-      try {
-        cacheSet && cacheSet('startBal', null);
-      } catch (_) {}
-    }
+    const cachedSet = cacheGet('startSet', false);
+
+    try { appSetStartBalance && appSetStartBalance(cachedBal, { emit: false }); } catch (_) {}
+    try { appSetStartDate && appSetStartDate(cachedDate, { emit: false }); } catch (_) {}
+    try { appSetStartSet && appSetStartSet(!!cachedSet, { emit: false }); } catch (_) {}
+
+    state.startBalance = cachedBal;
+    state.startDate = cachedDate;
+    state.startSet = !!cachedSet;
+
+    // Do not coerce 0 to null; zero is a valid start balance.
   }
   // Keep input in sync
   if (syncStartInputFromState) syncStartInputFromState();

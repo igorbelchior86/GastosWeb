@@ -23,6 +23,10 @@ export function applyCurrencyProfile(profileId, options = {}) {
     }
 
     const profile = profiles[profileId];
+    // Detect previous profile to determine whether this is an actual change
+    const prevProfileId = (window.APP_PROFILE && window.APP_PROFILE.id) || null;
+    const initial = prevProfileId == null;
+    const changed = prevProfileId !== profileId;
     
     // Create and set the number formatter
     createAppFormatter(profile);
@@ -44,7 +48,7 @@ export function applyCurrencyProfile(profileId, options = {}) {
 
     // Dispatch event for other components to respond to profile changes
     const event = new CustomEvent('currencyProfileChanged', {
-      detail: { profileId, profile }
+      detail: { profileId, profile, previousProfileId: prevProfileId, initial, changed }
     });
     window.dispatchEvent(event);
 

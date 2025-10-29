@@ -20,7 +20,7 @@ import {
   linkWithRedirect,
   signOut as fbSignOut
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-import { firebaseConfig } from './firebase.test.config.js';
+import { firebaseConfig } from '../src/config/firebaseConfig.js';
 
 function getOrInitApp() {
   try { return getApps().length ? getApp() : initializeApp(firebaseConfig); }

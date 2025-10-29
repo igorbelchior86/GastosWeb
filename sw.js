@@ -57,6 +57,12 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const { request } = event;
   if (request.method !== 'GET') return; // não cachear POST/PUT
+  try {
+    const url = new URL(request.url);
+    // Não interceptar requests de outros domínios (ex.: Google, CDNs) para evitar
+    // respostas opacas incorretas e interferência em fluxos de autenticação.
+    if (url.origin !== self.location.origin) return;
+  } catch (_) {}
 
   // Navegações (HTML): network-first com fallback para cache
   if (request.mode === 'navigate') {

@@ -80,7 +80,19 @@ export function createStartRealtime(ctx) {
 
     // Clean up any existing listeners and reset the hydration state.
     try { cleanupProfileListeners && cleanupProfileListeners(); } catch (_) {}
-    try { resetHydration && resetHydration(); } catch (_) {}
+    // Avoid re‑adding skeleton on boot if UI already left the skeleton state
+    // (bootstrap may have removed it to prevent flash). Only call resetHydration
+    // when the skeleton flag is still present.
+    try {
+      const hasSkeleton = (typeof document !== 'undefined')
+        ? document.documentElement.classList.contains('skeleton-boot')
+        : false;
+      if (!hasSkeleton && typeof resetHydration === 'function') {
+        // Skip resetHydration to prevent flicker
+      } else if (typeof resetHydration === 'function') {
+        resetHydration();
+      }
+    } catch (_) {}
 
     // On iOS PWAs the Firebase redirect flow can continue after load; wait for
     // completion before starting listeners to prevent spurious redirects.
@@ -317,15 +329,18 @@ export function createStartRealtime(ctx) {
         const raw = snap.exists() ? snap.val() : null;
         const next = normalizeStartBalance(raw);
         const current = normalizeStartBalance(state?.startBalance);
-        console.log(`💰 Firebase: Start balance = ${next ?? 'not set'}`);
+        console.log(`💰 Firebase: Start balance = ${next ?? 'not set'} (source=${source})`);
+        // Do not downgrade a valid local value to null due to early root listener
+        if (next == null && current != null) {
+          if (markHydrationTargetReady) markHydrationTargetReady('startBal');
+          return;
+        }
         if (next === current) {
           if (markHydrationTargetReady) markHydrationTargetReady('startBal');
           return;
         }
         try {
           if (typeof setStartBalance === 'function') {
-            // Emit so main.js subscriber updates its local `state` snapshot
-            // before we call renderTable, ensuring balances use the new anchor
             setStartBalance(next, { emit: true });
           } else if (state) {
             state.startBalance = next;
@@ -334,11 +349,8 @@ export function createStartRealtime(ctx) {
           if (next != null) startBalSource = source;
           cacheSet && cacheSet('startBal', state?.startBalance ?? next);
           syncStartInputFromState && syncStartInputFromState();
-          // Do NOT persist startDate here; wait for explicit user action or
-          // final hydration to avoid overwriting an existing remote date.
           ensureStartSetFromBalance && ensureStartSetFromBalance({ persist: false });
           initStart && initStart();
-          // Render table when balance changes to ensure balances are recalculated
           renderTable && renderTable();
         } finally {
           if (markHydrationTargetReady) markHydrationTargetReady('startBal');
@@ -354,12 +366,13 @@ export function createStartRealtime(ctx) {
         const raw = snap.exists() ? snap.val() : null;
         const normalized = normalizeISODate ? normalizeISODate(raw) : raw;
         try { console.log(`📅 Firebase: Start date = ${normalized ?? 'not set'}`); } catch (_) {}
-        if (!normalized) {
+        // Do not clear an existing local anchor with a null remote during boot races
+        if (!normalized && state.startDate) {
           if (markHydrationTargetReady) markHydrationTargetReady('startDate');
           return;
         }
         try {
-          if (state.startDate !== normalized) {
+          if (normalized && state.startDate !== normalized) {
             if (typeof setStartDate === 'function') {
               setStartDate(normalized, { emit: true });
             } else {
@@ -367,7 +380,6 @@ export function createStartRealtime(ctx) {
             }
             try { cacheSet && cacheSet('startDate', normalized); } catch (_) {}
             initStart && initStart();
-            // Re-render to reflect new anchor date immediately
             renderTable && renderTable();
           }
         } finally {
@@ -382,6 +394,11 @@ export function createStartRealtime(ctx) {
     // Listener for start set flag changes
     const handleStartSet = (snap) => {
         const val = snap.exists() ? !!snap.val() : false;
+        // Ignore a false coming from remote if we already have a valid local start balance/date
+        if (val === false && (state.startBalance != null || state.startDate)) {
+          if (markHydrationTargetReady) markHydrationTargetReady('startSet');
+          return;
+        }
         if (val === state.startSet) {
           if (markHydrationTargetReady) markHydrationTargetReady('startSet');
           return;
@@ -390,7 +407,6 @@ export function createStartRealtime(ctx) {
           state.startSet = val;
           try { cacheSet && cacheSet('startSet', state.startSet); } catch (_) {}
           initStart && initStart();
-          // Don't call renderTable here - let the transaction listener handle it
         } finally {
           if (markHydrationTargetReady) markHydrationTargetReady('startSet');
         }

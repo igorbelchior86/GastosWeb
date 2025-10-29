@@ -92,16 +92,18 @@ export function runBootstrap() {
       return;
     }
 
-    // LÓGICA BINÁRIA SIMPLES:
-    // Não configurou saldo? Mostra
-    // Configurou saldo? Esconde
-    const showStart = (startBalance === null || startBalance === undefined);
+    // LÓGICA BINÁRIA SIMPLES (robusta a estados intermediários):
+    // - Se já foi marcado como configurado (startSet=true), SEMPRE esconder
+    // - Caso contrário, mostrar apenas quando startBalance ainda é nulo/indefinido
+    const showStart = (!startSet) && (startBalance === null || startBalance === undefined);
 
     // exibe ou oculta todo o container de saldo inicial
-    startContainer.style.display = showStart ? 'block' : 'none';
-    dividerSaldo.style.display = showStart ? 'block' : 'none';
-    // (mantém linha antiga para compatibilidade)
-    startGroup.style.display = showStart ? 'flex' : 'none';
+    const nextContainer = showStart ? 'block' : 'none';
+    const nextDivider = showStart ? 'block' : 'none';
+    const nextGroup = showStart ? 'flex' : 'none';
+    if (startContainer && startContainer.style.display !== nextContainer) startContainer.style.display = nextContainer;
+    if (dividerSaldo && dividerSaldo.style.display !== nextDivider) dividerSaldo.style.display = nextDivider;
+    if (startGroup && startGroup.style.display !== nextGroup) startGroup.style.display = nextGroup;
     // mantém o botão habilitado; a função addTx impede lançamentos
     try { addBtn.classList.toggle('disabled', showStart); } catch (_) {}
 
@@ -240,10 +242,9 @@ export function runBootstrap() {
     // exibe conteúdo após carregar dados localmente
     const wrap = document.querySelector('.wrapper');
     wrap.classList.remove('app-hidden');
-    // Remove skeleton flag so start-balance obeys real logic
-    try { document.documentElement.classList.remove('skeleton-boot'); } catch (_) {}
-    // AGORA chama initStart DEPOIS de remover skeleton-boot
-    initStart();
+    // NÃO remover skeleton aqui; deixar o ciclo de hidratação (ui/hydration)
+    // controlar quando a UI sai do modo skeleton para evitar flicker e exibir
+    // a caixa de saldo prematuramente. Também não chamar initStart aqui.
     // iOS/Safari: force layout settle so bottom extent is correct
     // tiny scroll nudge prevents initial underflow that hides last days
     try {
@@ -291,51 +292,77 @@ export function runBootstrap() {
       updateEndSpacer();
     } catch (_) {}
 
-    if (typeof PATH === 'string') {
+    // Always attempt a one-shot fetch from Firebase via service wrappers.
+    // The service internally respects PATH/profile scoping and falls back
+    // gracefully when offline or unauthenticated. This ensures that after
+    // a hard refresh or cache clear we rehydrate start balance promptly.
+    try {
+      const [liveTx, liveCards, liveBalRaw, liveStartDateRaw, liveStartSetRaw] = await Promise.all([
+        load('tx', []),
+        load('cards', cards),
+        load('startBal', state.startBalance),
+        load('startDate', appState.getStartDate()),
+        load('startSet', appState.getStartSet())
+      ]);
+      const liveBal = normalizeStartBalance(liveBalRaw);
+      // Compare against appState (source of truth for UI decisions), not the
+      // snapshot on window.__gastos, to avoid missing updates when cache was
+      // already hydrated into the snapshot but appState wasn't yet updated.
+      const currentBal = normalizeStartBalance(appState.getStartBalance());
+
+      const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
+      const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
+
+      // Converte objeto → array se necessário
+      const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
+
+      if (hasLiveTx) {
+        // Sanitize and persist if needed (one-time migration path on boot)
+        const s = sanitizeTransactions(fixedTx);
+        const current = getTransactions ? getTransactions() : transactions;
+        if (JSON.stringify(s.list) !== JSON.stringify(current)) {
+          setTransactions(s.list);
+          try { cacheSet('tx', getTransactions()); } catch (_) { cacheSet('tx', s.list); }
+          if (s.changed) { try { save('tx', getTransactions()); } catch (_) {} }
+          renderTable();
+        }
+      }
+      if (hasLiveCards) {
+        const normalized = Array.isArray(liveCards) ? liveCards : Object.values(liveCards || {});
+        if (!normalized.some(c => c && c.name === 'Dinheiro')) normalized.unshift({ name: 'Dinheiro', close: 0, due: 0 });
+        setCards(normalized);
+        try { cacheSet('cards', getCards()); } catch (_) { cacheSet('cards', normalized); }
+        refreshMethods(); renderCardList(); renderTable();
+      }
+      if (liveBal !== currentBal) {
+        setStartBalance(liveBal);
+        cacheSet('startBal', state.startBalance);
+        syncStartInputFromState();
+        // Avoid persisting startDate during early UI boot to prevent
+        // overwriting a remote date that may still arrive via realtime.
+        ensureStartSetFromBalance({ persist: false });
+        initStart(); renderTable();
+      }
+
+      // Apply startDate early when available to anchor balances immediately
       try {
-        const [liveTx, liveCards, liveBalRaw] = await Promise.all([
-          load('tx', []),
-          load('cards', cards),
-          load('startBal', state.startBalance)
-        ]);
-        const liveBal = normalizeStartBalance(liveBalRaw);
-        const currentBal = normalizeStartBalance(state.startBalance);
-
-        const hasLiveTx    = Array.isArray(liveTx)    ? liveTx.length    > 0 : liveTx    && Object.keys(liveTx).length    > 0;
-        const hasLiveCards = Array.isArray(liveCards) ? liveCards.length > 0 : liveCards && Object.keys(liveCards).length > 0;
-
-        // Converte objeto → array se necessário
-        const fixedTx = Array.isArray(liveTx) ? liveTx : Object.values(liveTx || {});
-
-        if (hasLiveTx) {
-          // Sanitize and persist if needed (one-time migration path on boot)
-          const s = sanitizeTransactions(fixedTx);
-          const current = getTransactions ? getTransactions() : transactions;
-          if (JSON.stringify(s.list) !== JSON.stringify(current)) {
-            setTransactions(s.list);
-            try { cacheSet('tx', getTransactions()); } catch (_) { cacheSet('tx', s.list); }
-            if (s.changed) { try { save('tx', getTransactions()); } catch (_) {} }
-            renderTable();
-          }
-        }
-        if (hasLiveCards) {
-          const normalized = Array.isArray(liveCards) ? liveCards : Object.values(liveCards || {});
-          if (!normalized.some(c => c && c.name === 'Dinheiro')) normalized.unshift({ name: 'Dinheiro', close: 0, due: 0 });
-          setCards(normalized);
-          try { cacheSet('cards', getCards()); } catch (_) { cacheSet('cards', normalized); }
-          refreshMethods(); renderCardList(); renderTable();
-        }
-        if (liveBal !== currentBal) {
-          setStartBalance(liveBal);
-          cacheSet('startBal', state.startBalance);
-          syncStartInputFromState();
-          // Avoid persisting startDate during early UI boot to prevent
-          // overwriting a remote date that may still arrive via realtime.
-          ensureStartSetFromBalance({ persist: false });
+        const liveStartDate = (g.normalizeISODate ? g.normalizeISODate(liveStartDateRaw) : liveStartDateRaw) || null;
+        if (liveStartDate && liveStartDate !== appState.getStartDate()) {
+          setStartDate(liveStartDate, { emit: true });
+          try { cacheSet('startDate', liveStartDate); } catch (_) {}
           initStart(); renderTable();
         }
-      } catch (_) { /* ignore boot fetch when not logged yet */ }
-    }
+      } catch (_) {}
+      // Apply startSet early to avoid showing the input box once remote flags arrive
+      try {
+        const liveStartSet = !!liveStartSetRaw;
+        if (liveStartSet !== appState.getStartSet()) {
+          setStartSet(liveStartSet, { emit: true });
+          try { cacheSet('startSet', liveStartSet); } catch (_) {}
+          initStart();
+        }
+      } catch (_) {}
+    } catch (_) { /* ignore boot fetch when not logged yet */ }
     // se online, tenta esvaziar fila pendente
     if (navigator.onLine) flushQueue();
   })();

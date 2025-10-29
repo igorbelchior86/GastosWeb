@@ -137,13 +137,9 @@ export async function signInWithGoogle() {
   const isIOS = /iphone|ipad|ipod/.test(ua);
   const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
                      ('standalone' in navigator && navigator.standalone);
-  // Heuristics: prefer redirect when running as an installed PWA/service
-  // worker controlled page or when crossOriginIsolated is true. Some COOP
-  // setups block popup communication even when crossOriginIsolated is false,
-  // so service worker presence is a pragmatic signal to avoid popups.
+  // We strongly prefer popup for reliability and UX consistency.
+  // Use redirect only as a fallback when the popup is blocked or unsupported.
   const crossOriginIsolated = !!window.crossOriginIsolated;
-  const hasServiceWorkerController = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
-  const useRedirect = crossOriginIsolated || hasServiceWorkerController || (standalone && !isIOS);
   const user = auth.currentUser;
   try {
     // If offline, don't attempt popup/redirect flows which require network
@@ -153,31 +149,19 @@ export async function signInWithGoogle() {
       throw err;
     }
     if (user && user.isAnonymous) {
-      // Link anonymous session to Google to retain data. Prefer popup but
-      // fall back to redirect when popups are blocked or COOP is active.
+      // Link anonymous session to Google to retain data. Prefer popup; fallback to redirect on known popup failures.
       try {
-        if (crossOriginIsolated) {
-          // Avoid popup in COOP contexts
-          return await linkWithRedirect(user, provider);
-        }
+        // Even in COOP contexts we try popup first; if browser blocks, we'll catch and fallback.
         return await linkWithPopup(user, provider);
       } catch (linkErr) {
         console.warn('linkWithPopup failed, falling back to redirect:', linkErr);
-        try {
-          return await linkWithRedirect(user, provider);
-        } catch (redirErr) {
-          console.error('linkWithRedirect also failed', redirErr);
-          throw redirErr;
-        }
+        return await linkWithRedirect(user, provider);
       }
     }
-    // In COOP/service-worker/other restrictive environments avoid popups.
-    if (useRedirect) {
-      return await signInWithRedirect(auth, provider);
-    }
-    // Otherwise attempt popup and fallback to redirect on known popup errors
+    // Attempt popup first and fallback to redirect on known popup errors
     // or internal assertion failures. Be defensive about network state.
     try {
+      // iOS PWA and regular browsers: popup first for consistent UX
       return await signInWithPopup(auth, provider);
     } catch (err) {
       console.warn('signInWithPopup failed, attempting redirect fallback', err && (err.code || err.message));
@@ -192,12 +176,7 @@ export async function signInWithGoogle() {
       }
 
       if (shouldFallback) {
-        try {
-          return await signInWithRedirect(auth, provider);
-        } catch (rerr) {
-          console.error('signInWithRedirect fallback failed', rerr);
-          throw rerr;
-        }
+        return await signInWithRedirect(auth, provider);
       }
       throw err;
     }

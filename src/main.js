@@ -734,7 +734,10 @@ if (!USE_MOCK) {
   // Re-bind realtime listeners when currency profile changes so profile-scoped
   // keys (e.g., profiles/<ID>/startBal) are re-subscribed correctly.
   try {
-    window.addEventListener('currencyProfileChanged', () => {
+    window.addEventListener('currencyProfileChanged', (evt) => {
+      const d = (evt && evt.detail) || {};
+      // Ignore initial application or no-op changes to avoid boot flicker
+      if (d.initial === true || d.changed === false) return;
       try { cleanupProfileListeners(); } catch (_) {}
       // Defer slightly to allow UI to settle and APP_PROFILE to update
       setTimeout(() => {
@@ -1340,6 +1343,14 @@ function resetAppStateForProfileChange(reason = 'profile-change') {
 
 if (typeof window !== 'undefined') {
   const handleProfileReset = (evt) => {
+    // Skip heavy reset when the event corresponds to the initial
+    // profile application or when the profile did not actually change.
+    if (evt && evt.type === 'currencyProfileChanged') {
+      const d = evt.detail || {};
+      if (d.initial === true || d.changed === false) {
+        return; // no-op on initial or no-change
+      }
+    }
     const reason = evt && evt.type === 'profileChangeReset'
       ? `profileChangeReset:${evt.detail?.profileId || 'unknown'}`
       : 'currencyProfileChanged';
