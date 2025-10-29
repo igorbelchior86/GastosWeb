@@ -256,7 +256,13 @@ export function getReservedTotalForDate(dateISO, transactions, opts = {}) {
         const start = cursor;
         const end = nextFrom(start, rec) || start;
         const k = `${tag}|${start}`;
-        if (!countedStarts.has(k) && !materializedStarts.has(k)) {
+        // Extra guard: if a persisted budget exists for this (tag,start), skip synthetic
+        const hasPersistedForStart = (() => {
+          try {
+            return (budgets || []).some(b => b && b.status === 'active' && b.tag === tag && normalizeISODate(b.startDate) === start);
+          } catch (_) { return false; }
+        })();
+        if (!countedStarts.has(k) && !materializedStarts.has(k) && !hasPersistedForStart) {
           let initial = computeInitialForRange(allTxs, tag, start, end);
           if (initial <= 0) {
             const v = Number(master.val);

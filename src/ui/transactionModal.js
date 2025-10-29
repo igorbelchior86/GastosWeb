@@ -913,13 +913,8 @@ export async function addTx() {
       const newInstallments = parseInt(installments && installments.value, 10) || 1;
       const newBudgetTag = normalizeTag((window.__gastos?.pendingBudgetTag) || extractFirstHashtag(newDesc));
       const recurrenceActive = isRecurrenceActive(newRecurrence);
-      // Only validate future date with recurrence if NOT in edit-mode for an existing recurring transaction
-      // When editing via single/future/all mode, the user is editing a specific occurrence, not the master
-      if (recurrenceActive && isFutureDate(newOpDate) && !g.pendingEditMode) {
-        if (blockMessage('A data selecionada é incompatível com recorrências. Use a data de hoje ou desative a recorrência.')) {
-          return;
-        }
-      }
+      // Permitir recorrência com data futura: será lançada como planejada e o orçamento
+      // será criado para o ciclo futuro. O controle Paid/Planned já força Planejada.
       if (recurrenceActive && hasActiveRecurringBudgetForTag(newBudgetTag)) {
         if (blockMessage(`Já existe um orçamento recorrente ativo para ${newBudgetTag}.`)) {
           return;

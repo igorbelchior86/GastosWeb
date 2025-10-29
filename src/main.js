@@ -424,7 +424,7 @@ function resolvePathForUser(user){
   return personalPath;
 }
 
-const APP_VERSION = 'v1.5.0(c06)';
+const APP_VERSION = 'v1.5.0(c09)';
 
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
