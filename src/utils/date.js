@@ -142,3 +142,44 @@ export function occursOn(tx, iso) {
       return false;
   }
 }
+
+/**
+ * Return localized weekday name for a calendar date without relying on
+ * the runtime timezone/Intl formatting. Uses Tomohiko Sakamoto's
+ * algorithm to compute day of week deterministically from y/m/d.
+ *
+ * @param {number} y full year (e.g., 2025)
+ * @param {number} m month 1-12
+ * @param {number} d day 1-31
+ * @param {string} [locale] optional BCP47 (defaults to navigator.language when available)
+ * @returns {string} Weekday name (e.g., 'domingo', 'segunda‑feira') in the requested locale.
+ */
+export function weekdayName(y, m, d, locale) {
+  try {
+    const docLang = (typeof document !== 'undefined' && document.documentElement && document.documentElement.lang) ? document.documentElement.lang : '';
+    const L = (typeof locale === 'string' && locale)
+      || (docLang && String(docLang))
+      || (typeof navigator !== 'undefined' ? (navigator.language || 'pt-PT') : 'pt-PT');
+    // Tomohiko Sakamoto’s algorithm
+    const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let Y = y;
+    if (m < 3) Y -= 1;
+    const w = (Y + Math.floor(Y / 4) - Math.floor(Y / 100) + Math.floor(Y / 400) + t[m - 1] + d) % 7; // 0=Sunday
+    // Locale maps
+    const ptBR = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+    const ptPT = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+    const enUS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const l = String(L).toLowerCase();
+    const base = l.startsWith('pt') ? (l.includes('br') ? ptBR : ptPT) : enUS;
+    return base[w] || ptPT[w];
+  } catch (_) {
+    // Fallback to a safe computation via UTC to avoid TZ drift
+    try {
+      const w = new Date(Date.UTC(y, (m - 1), d)).getUTCDay();
+      const pt = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+      return pt[w];
+    } catch (err) {
+      return '';
+    }
+  }
+}

@@ -74,9 +74,7 @@ export function runBootstrap() {
   // initial balance input based on whether a start date/balance has
   // already been configured. Originally defined in main.js.
   function initStart() {
-    // Don't run during skeleton boot to prevent flash
-    if (typeof document !== 'undefined' && document.documentElement.classList.contains('skeleton-boot')) {
-      console.log('[initStart] Skipping - skeleton-boot active');
+    if (document.documentElement.classList.contains('skeleton-boot')) {
       return;
     }
     
@@ -89,7 +87,6 @@ export function runBootstrap() {
     // para evitar flash. Só mostra quando temos certeza (após hidratação).
     const isHydrated = appState.isBootHydrated();
     if (!isHydrated && startBalance === null) {
-      console.log('[initStart] Waiting for hydration before showing start box');
       return;
     }
 
@@ -97,8 +94,6 @@ export function runBootstrap() {
     // Não configurou saldo? Mostra
     // Configurou saldo? Esconde
     const showStart = (startBalance === null || startBalance === undefined);
-
-    console.log('[initStart] SIMPLE CHECK:', { startBalance, isHydrated, showStart });
 
     // exibe ou oculta todo o container de saldo inicial
     startContainer.style.display = showStart ? 'block' : 'none';
@@ -159,16 +154,12 @@ export function runBootstrap() {
     setStartBalance(numberValue);
     cacheSet('startBal', state.startBalance);
     syncStartInputFromState();
-    const anchorISO = normalizeISODate(state.startDate) || todayISO();
-    if (anchorISO !== state.startDate) {
-      state.startDate = anchorISO;
-      cacheSet('startDate', state.startDate);
-      try { save('startDate', state.startDate); } catch (_) {}
-    } else if (!state.startDate) {
-      // garante persistência mesmo se valor já vier normalizado de outra instância
-      cacheSet('startDate', anchorISO);
-      try { save('startDate', anchorISO); } catch (_) {}
-    }
+    // Define a data de início local para ancorar o saldo "em conta"
+    try {
+      const isoToday = todayISO();
+      appState.setStartDate(isoToday, { emit: false });
+      cacheSet('startDate', isoToday);
+    } catch (_) {}
     // Persist start balance and mark the start flow as completed (startSet=true)
     try {
       await save('startBal', state.startBalance);
@@ -204,7 +195,15 @@ export function runBootstrap() {
       }
     };
   }
-  if (typeof openCardBtn !== 'undefined' && openCardBtn && openCardBtn) openCardBtn.onclick = () => showCardModal();
+  if (openCardBtn) {
+    if (openCardBtn.dataset.panoramaHook !== '1') {
+      openCardBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        showCardModal();
+      });
+    }
+  }
   if (typeof closeCardModal !== 'undefined' && closeCardModal) closeCardModal.onclick = hideCardModal;
   if (cardModal) {
     cardModal.onclick = e => {
@@ -234,7 +233,6 @@ export function runBootstrap() {
     refreshMethods();
     renderCardList();
     // NÃO chama initStart aqui - espera remover skeleton-boot primeiro
-    try { console.debug('bootstrap: about to call safeRenderTable, type =', typeof safeRenderTable); } catch(_) {}
     safeRenderTable();
     // exibe conteúdo após carregar dados localmente
     const wrap = document.querySelector('.wrapper');

@@ -4,10 +4,12 @@
 // dependencies via the config object passed to `initAccordion` and
 // exposes a `renderAccordion` function used by the main application.
 
-import { formatToISO, todayISO, occursOn } from '../utils/date.js';
+import { formatToISO, todayISO, occursOn, weekdayName } from '../utils/date.js';
 import { postDateForCard } from '../utils/date.js';
 import { getMonthCache, setMonthCache, getCurrentMonth, isMonthStale } from '../utils/monthlyCache.js';
 import { syncCurrentMonth, smartSync } from '../utils/deltaSync.js';
+import { loadBudgets, saveBudgets } from '../services/budgetStorage.js';
+import { recomputeBudget } from '../services/budgetCalculations.js';
 
 /**
  * Initialize the accordion renderer.
@@ -42,8 +44,13 @@ export function initAccordion(config) {
     txByDate,
     safeFmtCurrency,
     SALARY_WORDS,
-    makeLine
+    makeLine,
+    getReservedTotalForDate,
+    isBudgetsFeatureEnabled,
   } = config;
+
+  // Inject polished styles for budget cards rendered inside the accordion
+  ensureBudgetCardStyles();
   const resolveViewYear = () => {
     if (typeof getViewYear === 'function') {
       const dynamicYear = Number(getViewYear());
@@ -53,6 +60,391 @@ export function initAccordion(config) {
     if (Number.isFinite(fallbackYear)) return fallbackYear;
     return new Date().getFullYear();
   };
+
+  const resolveReservedTotalForDate =
+    typeof getReservedTotalForDate === 'function'
+      ? getReservedTotalForDate
+      : () => 0;
+
+  const resolveBudgetsFeatureEnabled =
+    typeof isBudgetsFeatureEnabled === 'function'
+      ? isBudgetsFeatureEnabled
+      : () => false;
+
+  function getReservedAdjustmentForDate(iso) {
+    if (!iso || !resolveBudgetsFeatureEnabled()) return 0;
+    try {
+      const txs = typeof getTransactions === 'function' ? getTransactions() : transactions || [];
+      const raw = resolveReservedTotalForDate(iso, txs);
+      const numeric = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(numeric) ? numeric : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function normalizeBudgetDate(value) {
+    if (!value) return null;
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    const str = String(value).trim();
+    if (!str) return null;
+    const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : null;
+  }
+
+  function formatDayMonth(iso) {
+    if (!iso) return '';
+    try {
+      const date = new Date(`${iso}T00:00:00`);
+      return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  function formatDayMonthShort(iso) {
+    if (!iso) return '';
+    try {
+      const date = new Date(`${iso}T00:00:00`);
+      const day = String(date.getDate()).padStart(2, '0');
+      let mon = date.toLocaleDateString('pt-BR', { month: 'short' });
+      mon = (mon || '').replace('.', '');
+      mon = mon.charAt(0).toUpperCase() + mon.slice(1);
+      return `${day} de ${mon}`;
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  function formatTagLabel(tag) {
+    if (!tag) return '';
+    const clean = String(tag).replace(/^#+/, '').trim();
+    if (!clean) return '';
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+  }
+
+  function computeInitialValueForRange(transactionsList, tag, startIso, endIso) {
+    if (!Array.isArray(transactionsList) || !tag) return 0;
+    const start = normalizeBudgetDate(startIso);
+    const end = normalizeBudgetDate(endIso);
+    return transactionsList.reduce((sum, tx) => {
+      if (!tx || tx.budgetTag !== tag) return sum;
+      const iso = normalizeBudgetDate(tx.opDate || tx.postDate);
+      if (!iso) return sum;
+      if (start && iso < start) return sum;
+      if (end && iso >= end) return sum;
+      const val = Number(tx.val);
+      if (!Number.isFinite(val)) return sum;
+      return sum + Math.abs(val);
+    }, 0);
+  }
+
+  function computeSpentForRange(transactionsList, tag, startIso, endIso) {
+    if (!Array.isArray(transactionsList) || !tag) return 0;
+    const start = normalizeBudgetDate(startIso);
+    const end = normalizeBudgetDate(endIso);
+    return transactionsList.reduce((sum, tx) => {
+      if (!tx || tx.budgetTag !== tag) return sum;
+      if (tx.planned === true) return sum;
+      const iso = normalizeBudgetDate(tx.opDate || tx.postDate);
+      if (!iso) return sum;
+      if (start && iso < start) return sum;
+      if (end && iso >= end) return sum;
+      const val = Number(tx.val);
+      if (!Number.isFinite(val)) return sum;
+      return sum + Math.abs(val);
+    }, 0);
+  }
+
+  function findNextOccurrence(master, afterIso) {
+    if (!master || !afterIso) return null;
+    const maxScan = 365;
+    for (let offset = 1; offset <= maxScan; offset++) {
+      const date = new Date(`${afterIso}T00:00:00`);
+      date.setDate(date.getDate() + offset);
+      const iso = date.toISOString().slice(0, 10);
+      try {
+        if (occursOn(master, iso)) return iso;
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return null;
+  }
+
+  function buildBudgetDisplayMap(list, txs) {
+    const map = new Map();
+    const mastersById = new Map();
+    (txs || []).forEach((tx) => {
+      if (tx && tx.recurrence) {
+        mastersById.set(String(tx.id), tx);
+      }
+    });
+
+    const addBudget = (budget) => {
+      if (!budget) return;
+      const key = normalizeBudgetDate(budget.startDate);
+      if (!key) return;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(budget);
+    };
+
+    (list || []).forEach((budget) => {
+      if (!budget || budget.status !== 'active') return;
+      addBudget(budget);
+    });
+    (list || []).forEach((budget) => {
+      if (!budget || budget.status !== 'active' || budget.budgetType !== 'recurring') return;
+      const master = budget.recurrenceId != null ? mastersById.get(String(budget.recurrenceId)) : null;
+      if (!master) return;
+      let start = normalizeBudgetDate(budget.endDate);
+      const cyclesLimit = 4;
+      for (let i = 0; i < cyclesLimit && start; i++) {
+        const next = findNextOccurrence(master, start);
+        if (!next) break;
+        const initial = computeInitialValueForRange(txs, budget.tag, start, next) || Number(budget.initialValue || 0);
+        const synthetic = {
+          ...budget,
+          id: `${budget.id || budget.tag || 'budget'}__future_${i + 1}`,
+          startDate: start,
+          endDate: next,
+          initialValue: initial,
+          reservedValue: initial,
+          spentValue: 0,
+          triggerTxId: master.id != null ? String(master.id) : null,
+          triggerTxIso: start,
+          status: 'future',
+          isSynthetic: true,
+        };
+        addBudget(synthetic);
+        start = next;
+      }
+    });
+    return map;
+  }
+
+  function deriveFallbackBudgetsForDay(iso, txs, budgetTriggerIds, budgetTriggersByIso, dayTx, triggerSet) {
+    const results = [];
+    const prev = (() => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })();
+    const masters = (txs || []).filter(t => t && t.recurrence && t.budgetTag);
+    for (const master of masters) {
+      try {
+        if (!occursOn(master, iso)) continue;
+        if (occursOn(master, prev)) continue; // not start of cycle
+        const next = findNextOccurrence(master, iso) || iso;
+        const tag = master.budgetTag;
+        // For recurring budgets, initialValue is the absolute value of the master transaction
+        const initial = Math.abs(Number(master.val) || 0);
+        const spent = computeSpentForRange(txs, tag, iso, next);
+        const synthetic = {
+          id: `${master.id || tag}_fb_${iso}`,
+          tag,
+          budgetType: 'recurring',
+          status: 'active',
+          startDate: iso,
+          endDate: next,
+          initialValue: initial,
+          reservedValue: Math.max(initial - spent, 0),
+          spentValue: spent,
+          recurrenceId: master.id != null ? String(master.id) : null,
+          triggerTxId: master.id != null ? String(master.id) : null,
+          triggerTxIso: iso,
+          isSynthetic: true,
+        };
+        results.push(synthetic);
+        // Mark a concrete transaction on this day as the trigger so lists can hide it
+        // Prefer the most significant transaction (largest absolute value) when
+        // multiple transactions share the same budget tag on the same day. This
+        // avoids tiny rounding/test transactions being chosen as the trigger and
+        // therefore hidden from the executed list.
+        if (triggerSet && Array.isArray(dayTx)) {
+          try {
+            const candidates = (dayTx || []).filter(t => t && t.budgetTag === tag);
+            let trig = null;
+            if (candidates.length === 1) {
+              trig = candidates[0];
+            } else if (candidates.length > 1) {
+              trig = candidates.reduce((best, cur) => {
+                const a = Math.abs(Number(best && best.val) || 0);
+                const b = Math.abs(Number(cur && cur.val) || 0);
+                return b > a ? cur : best;
+              }, candidates[0]);
+            }
+            if (trig) triggerSet.add(trig);
+          } catch (_) {}
+        }
+        if (budgetTriggerIds) budgetTriggerIds.add(String(master.id));
+        if (budgetTriggersByIso) {
+          if (!budgetTriggersByIso.has(iso)) budgetTriggersByIso.set(iso, []);
+          budgetTriggersByIso.get(iso).push({ tag, id: master.id != null ? String(master.id) : null });
+        }
+      } catch (_) { /* ignore */ }
+    }
+    return results;
+  }
+
+  function findTriggerTransaction(budget, dayTransactions) {
+    if (!budget || !Array.isArray(dayTransactions)) return null;
+    const tag = budget.tag;
+    if (!tag) return null;
+    if (budget.triggerTxId != null) {
+      const targetId = String(budget.triggerTxId);
+      const byId = dayTransactions.find((tx) => tx && String(tx.id) === targetId);
+      if (byId) return byId;
+    }
+    const startISO = normalizeBudgetDate(budget.startDate);
+    const triggerISO = normalizeBudgetDate(budget.triggerTxIso);
+    return dayTransactions.find((tx) => {
+      if (!tx) return false;
+      if (tx.budgetTag !== tag) return false;
+      const txDate = normalizeBudgetDate(tx.opDate);
+      if (triggerISO && txDate === triggerISO) return true;
+      return txDate === startISO;
+    }) || null;
+  }
+
+  function createBudgetCardElement(budget, dayTransactions, triggerSet) {
+    const card = document.createElement('div');
+    card.className = 'budget-card op-line';
+    card.dataset.cardType = 'budget';
+
+    const header = document.createElement('div');
+    header.className = 'budget-card__header';
+    header.style.display = 'flex';
+    header.style.flexDirection = 'column';
+    header.style.gap = '4px';
+
+    const titleRow = document.createElement('div');
+    titleRow.style.display = 'flex';
+    titleRow.style.justifyContent = 'space-between';
+    titleRow.style.alignItems = 'center';
+
+    const tagLabel = document.createElement('span');
+    tagLabel.className = 'budget-tag-pill';
+    tagLabel.textContent = formatTagLabel(budget.tag) || 'Orçamento';
+
+    const periodLabel = document.createElement('span');
+    periodLabel.className = 'budget-card__period';
+    periodLabel.style.fontSize = '0.85em';
+    periodLabel.style.color = 'var(--text-secondary, #b3b3b3)';
+    const start = formatDayMonthShort(normalizeBudgetDate(budget.startDate));
+    const end = formatDayMonthShort(normalizeBudgetDate(budget.endDate));
+    periodLabel.textContent = `${start} - ${end}`;
+
+    titleRow.appendChild(tagLabel);
+    titleRow.appendChild(periodLabel);
+    // Inline actions (⋯)
+    if (!budget.isSynthetic) {
+      try {
+        import('./budgetActions.js')
+          .then((mod) => {
+            if (mod && typeof mod.attachBudgetSwipe === 'function') {
+              mod.attachBudgetSwipe(card, budget, { refreshBudgets: () => {} });
+            }
+          })
+          .catch(() => {});
+      } catch (_) {}
+    }
+
+    // Mark trigger tx (hide in list) but do NOT show time/meta here
+    const triggerTx = findTriggerTransaction(budget, dayTransactions);
+    if (triggerTx && triggerSet) { try { triggerSet.add(triggerTx); } catch (_) {} }
+
+    header.appendChild(titleRow);
+
+    const details = document.createElement('div');
+    details.className = 'budget-card__details';
+    details.style.display = 'flex';
+    details.style.justifyContent = 'space-between';
+    details.style.marginTop = '8px';
+    details.style.fontSize = '0.95em';
+
+    // Match Panorama card logic exactly: compute period spending on UI,
+    // ignoring only the trigger (reserva) by id; end is inclusive.
+    // IMPORTANT: For recurring budgets with children (materialized by txByDate),
+    // prefer dayTransactions which includes these children. Fall back to allTxs for non-recurring budgets.
+    const allTxs = (typeof getTransactions === 'function' ? getTransactions() : transactions) || [];
+    const trigId = budget && budget.triggerTxId != null ? String(budget.triggerTxId) : null;
+    const startIso = normalizeBudgetDate(budget.startDate);
+    const endIso   = normalizeBudgetDate(budget.endDate);
+    
+    // For synthetic/recurring budgets, use dayTransactions if available; otherwise fall back to allTxs
+    const sourceTxs = (budget.isSynthetic || budget.budgetType === 'recurring') && Array.isArray(dayTransactions) 
+      ? dayTransactions 
+      : allTxs;
+    
+    const spentValue = (sourceTxs || []).reduce((sum, tx) => {
+      if (!tx || tx.budgetTag !== budget.tag) return sum;
+      if (trigId && String(tx.id) === trigId) return sum; // não contar a reserva
+      if (tx.planned === true) return sum;
+      const iso = normalizeBudgetDate(tx.opDate || tx.postDate);
+      if (!iso) return sum;
+      if (startIso && iso < startIso) return sum;
+      if (endIso && iso > endIso) return sum;
+      const v = Number(tx.val);
+      if (!Number.isFinite(v)) return sum;
+      return sum + Math.abs(v);
+    }, 0);
+    const totalForCard = Number(budget.initialValue || 0);
+    const reservedValue = Math.max(totalForCard - spentValue, 0);
+    const exceeded = Math.max(spentValue - totalForCard, 0);
+
+    // Main emphasis
+    const mainLabel = document.createElement('span');
+    mainLabel.className = 'budget-card__main';
+    if (exceeded > 0) {
+      mainLabel.textContent = `Excedeu ${safeFmtCurrency(exceeded)}`;
+      mainLabel.dataset.state = 'over';
+    } else {
+      mainLabel.textContent = `Restam ${safeFmtCurrency(reservedValue)}`;
+      mainLabel.dataset.state = reservedValue <= totalForCard * 0.2 ? 'warn' : 'ok';
+    }
+
+    const subRight = document.createElement('span');
+    subRight.className = 'budget-card__total';
+    subRight.textContent = `Total ${safeFmtCurrency(totalForCard)}`;
+
+    details.appendChild(mainLabel);
+    details.appendChild(subRight);
+
+    const progress = document.createElement('div');
+    progress.className = 'budget-card__progress';
+    progress.style.height = '5px';
+    progress.style.background = 'rgba(255,255,255,0.12)';
+    progress.style.borderRadius = '2px';
+    progress.style.marginTop = '6px';
+    progress.style.overflow = 'hidden';
+
+    const fill = document.createElement('div');
+    fill.className = 'budget-card__progress-fill';
+    fill.style.height = '100%';
+    fill.style.borderRadius = '2px';
+    const denominator = Number(budget.initialValue || 0) || 0;
+    const ratio = denominator > 0 ? Math.min(1, spentValue / denominator) : 0;
+    fill.style.width = `${Math.round(ratio * 100)}%`;
+    if (exceeded > 0) {
+      fill.dataset.state = 'over';
+    } else if (ratio >= 0.8) {
+      fill.dataset.state = 'warn';
+    } else {
+      fill.dataset.state = 'ok';
+    }
+
+    progress.appendChild(fill);
+
+    card.appendChild(header);
+    card.appendChild(details);
+    card.appendChild(progress);
+    // Open compact history on tap (tap title area only)
+    card.addEventListener('click', (e) => {
+      const withinActions = e.target.closest('.budget-actions-btn') || e.target.closest('.budget-actions-menu');
+      if (withinActions) return;
+      try { window.__gastos?.showBudgetHistory?.(budget.tag); } catch (_) {}
+    });
+
+    return card;
+  }
+
 
   // Local alias for postDate calculation: compute due date for a given opDate and card.
   function post(opISO, cardName) {
@@ -99,30 +491,47 @@ export function initAccordion(config) {
    */
   function buildRunningBalanceMap() {
     const { minDate, maxDate } = calculateDateRange();
+    // Use the getTransactions that was passed during initialization
+    // (it should already be getTransactionsWithMaterializations if passed from main)
+    const txList = typeof getTransactions === 'function' ? getTransactions() : transactions || [];
+    const txCount = txList?.length || 0;
+    console.log(`📊 Balance: Computing for ${txCount} transaction(s), range ${minDate} to ${maxDate}`, 'Details:', txList.map(t => ({ id: t?.id, desc: t?.desc, val: t?.val })));
+    // Build a quick lookup of budget trigger transactions to avoid
+    // double-counting: the trigger reserves value via reservedAdjustment
+    // and should NOT impact cash on the opDate.
+    const budgetsEnabled = resolveBudgetsFeatureEnabled();
+    const triggerIdSet = new Set();
+    const triggerKeySet = new Set(); // key = `${iso}|${tag}`
+    if (budgetsEnabled) {
+      try {
+        const active = (loadBudgets() || []).filter(b => b && b.status === 'active');
+        active.forEach(b => {
+          if (!b) return;
+          if (b.triggerTxId != null) triggerIdSet.add(String(b.triggerTxId));
+          const iso = normalizeBudgetDate(b.triggerTxIso || b.startDate);
+          if (iso && b.tag) triggerKeySet.add(`${iso}|${b.tag}`);
+        });
+      } catch (_) {}
+    }
     const balanceMap = new Map();
     let runningBalance = 0;
     const hasAnchor = !!state.startDate;
     const anchorISO = hasAnchor ? String(state.startDate) : null;
-    const startDateObj = new Date(minDate);
-    const endDateObj = new Date(maxDate);
+    // If anchor is before minDate, start from anchor to include retroactive transactions
+    const effectiveMinDate = (hasAnchor && anchorISO && anchorISO < minDate) ? anchorISO : minDate;
     
-    console.log('[accordion] buildRunningBalanceMap:', {
-      'state.startDate': state.startDate,
-      'state.startBalance': state.startBalance,
-      hasAnchor,
-      anchorISO,
-      minDate,
-      maxDate
-    });
+    // Parse date components directly to avoid UTC/timezone issues
+    const parseISO = (iso) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    };
     
-    // If the anchor occurs before the current range, seed the running balance at the anchor.
-    if (hasAnchor && anchorISO && anchorISO < minDate && anchorISO <= maxDate) {
-      runningBalance = (state.startBalance != null) ? state.startBalance : 0;
-      console.log('[accordion] Anchor before range - seeding balance:', runningBalance);
-    }
-    const txs = getTransactions ? getTransactions() : transactions;
+    const startDateObj = parseISO(effectiveMinDate);
+    const endDateObj = parseISO(maxDate);
+    
+    // txList já foi definido acima
     for (let current = new Date(startDateObj); current <= endDateObj; current.setDate(current.getDate() + 1)) {
-      const iso = current.toISOString().slice(0, 10);
+      const iso = formatToISO(current);
       
       // Days BEFORE startDate should show zero balance
       if (hasAnchor && iso < anchorISO) {
@@ -130,21 +539,41 @@ export function initAccordion(config) {
         continue;
       }
       
-      // ON the startDate, initialize with startBalance
-      if (hasAnchor && iso === anchorISO) {
+      // Initialize balance on anchor date or first date of range
+      if (iso === anchorISO && hasAnchor) {
         runningBalance = (state.startBalance != null) ? state.startBalance : 0;
-        console.log(`[accordion] ON startDate ${iso} - setting balance to:`, runningBalance);
+      } else if (!hasAnchor && iso === minDate) {
+        runningBalance = (state.startBalance != null) ? state.startBalance : 0;
       }
       
-      // If no anchor is set, use startBalance on the first date (legacy behavior)
-      if (!hasAnchor && iso === minDate) {
-        runningBalance = (state.startBalance != null) ? state.startBalance : 0;
-      }
       // Determine the impact on this day using existing logic
       const dayTx = txByDate(iso);
-      // 1) Cash transactions impact the balance on opDate
+      // Identify derived budget trigger masters that start today
+      const derivedTriggerIds = new Set();
+      try {
+        const prevIso = (() => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })();
+        (txList || []).forEach((t) => {
+          if (!t || !t.recurrence || !t.budgetTag) return;
+          try {
+            if (occursOn(t, iso) && !occursOn(t, prevIso) && t.id != null) {
+              derivedTriggerIds.add(String(t.id));
+            }
+          } catch (_) {}
+        });
+      } catch (_) {}
+      // 1) Cash transactions impact the balance on opDate, except
+      //    budget trigger transactions which only create a reservation.
       const cashImpact = dayTx
         .filter(t => t.method === 'Dinheiro')
+        .filter(t => {
+          if (!budgetsEnabled || !t) return true;
+          if (t.id != null && (triggerIdSet.has(String(t.id)) || derivedTriggerIds.has(String(t.id)))) return false;
+          const tag = t.budgetTag || null;
+          if (!tag) return true;
+          const key = `${iso}|${tag}`;
+          if (triggerKeySet.has(key)) return false;
+          return true;
+        })
         .reduce((s, t) => s + (t.val || 0), 0);
       // 2) Card invoices impact the balance on due dates
       const invoicesByCard = {};
@@ -153,14 +582,14 @@ export function initAccordion(config) {
         invoicesByCard[cardName].push(tx);
       };
       // Non‑recurring card transactions: due on their postDate
-      txs.forEach(t => {
+      txList.forEach(t => {
         if (t.method === 'Dinheiro' || t.recurrence) return;
         if (t.postDate === iso) addToGroup(t.method, t);
       });
       // Recurring card transactions: search up to 60 days back for occurrences due on this date
       const scanStart = new Date(iso);
       scanStart.setDate(scanStart.getDate() - 60);
-      txs.filter(t => t.recurrence && t.method !== 'Dinheiro').forEach(master => {
+      txList.filter(t => t.recurrence && t.method !== 'Dinheiro').forEach(master => {
         for (let d2 = new Date(scanStart); d2 <= new Date(iso); d2.setDate(d2.getDate() + 1)) {
           const occIso = d2.toISOString().slice(0, 10);
           if (!occursOn(master, occIso)) continue;
@@ -174,7 +603,7 @@ export function initAccordion(config) {
       Object.keys(invoicesByCard).forEach(cardName => {
         invoiceTotals[cardName] = invoicesByCard[cardName].reduce((s, t) => s + t.val, 0);
       });
-      const sumAdjustFor = (cardName, dueISO) => txs
+      const sumAdjustFor = (cardName, dueISO) => txList
         .filter(t => t.invoiceAdjust && t.invoiceAdjust.card === cardName && t.invoiceAdjust.dueISO === dueISO)
         .reduce((s, t) => s + (Number(t.invoiceAdjust.amount) || 0), 0);
       let cardImpact = 0;
@@ -184,7 +613,8 @@ export function initAccordion(config) {
       });
       const dayTotal = cashImpact + cardImpact;
       runningBalance += dayTotal;
-      balanceMap.set(iso, runningBalance);
+      const reservedAdjustment = getReservedAdjustmentForDate(iso);
+      balanceMap.set(iso, runningBalance - reservedAdjustment);
     }
     return balanceMap;
   }
@@ -301,6 +731,47 @@ export function initAccordion(config) {
     // Build the running balance map once per render
     const balanceMap = buildRunningBalanceMap();
     const txs = getTransactions ? getTransactions() : transactions;
+    const budgetsFeature = resolveBudgetsFeatureEnabled();
+    const activeBudgets = budgetsFeature ? (function(){ try { return (saveBudgets(loadBudgets()) || []).filter((b) => b && b.status === 'active'); } catch(_) { return (loadBudgets() || []).filter((b) => b && b.status === 'active'); } })() : [];
+    const budgetsByStart = budgetsFeature ? buildBudgetDisplayMap(activeBudgets, txs) : new Map();
+    const budgetTriggerSet = budgetsFeature ? new WeakSet() : null;
+    const budgetTriggerIds = budgetsFeature ? new Set() : null;
+    const budgetTriggersByIso = budgetsFeature ? new Map() : null;
+    if (budgetsFeature) {
+      activeBudgets.forEach((budget) => {
+        if (!budget) return;
+        if (budget.triggerTxId != null) {
+          budgetTriggerIds.add(String(budget.triggerTxId));
+        }
+        const iso = normalizeBudgetDate(budget.triggerTxIso || budget.startDate);
+        if (iso) {
+          if (!budgetTriggersByIso.has(iso)) budgetTriggersByIso.set(iso, []);
+          budgetTriggersByIso.get(iso).push({
+            tag: budget.tag,
+            id: budget.triggerTxId != null ? String(budget.triggerTxId) : null,
+          });
+        }
+      });
+    }
+    const isBudgetTriggerTransaction = (tx) => {
+      if (!budgetsFeature || !tx) return false;
+      try {
+        if (budgetTriggerSet && budgetTriggerSet.has(tx)) return true;
+      } catch (_) {}
+      if (budgetTriggerIds && tx.id != null && budgetTriggerIds.has(String(tx.id))) {
+        return true;
+      }
+      const iso = normalizeBudgetDate(tx.opDate || tx.postDate);
+      if (!iso) return false;
+      const candidates = budgetTriggersByIso && budgetTriggersByIso.get(iso);
+      if (!candidates || !candidates.length) return false;
+      return candidates.some((info) => {
+        if (!info) return false;
+        if (info.tag && tx.budgetTag && info.tag !== tx.budgetTag) return false;
+        if (info.id) return info.id === String(tx.id);
+        return true;
+      });
+    };
     
     const now = new Date();
     const curMonth = now.getMonth();
@@ -369,11 +840,21 @@ export function initAccordion(config) {
       mSum.className = 'month-divider';
       // Obter o último dia do mês
       const monthEndISO = new Date(viewYear, mIdx + 1, 0).toISOString().slice(0, 10);
-      
-      // Simplesmente pegar o saldo do último dia do mês que já está calculado corretamente
-      const monthEndBalance = balanceMap.has(monthEndISO)
-        ? balanceMap.get(monthEndISO)
-        : getBalanceBefore(monthEndISO);
+
+      // Preferir o mapa de saldos diário já calculado (inclui reservas de orçamento)
+      // e exposto globalmente por main.js. Fallback para o balanceMap local.
+      let monthEndBalance;
+      try {
+        const db = (window.__gastos && window.__gastos.dailyBalances) || null;
+        if (db && db[monthEndISO] && Number.isFinite(Number(db[monthEndISO].projetado))) {
+          monthEndBalance = Number(db[monthEndISO].projetado);
+        }
+      } catch (_) {}
+      if (monthEndBalance == null) {
+        monthEndBalance = balanceMap.has(monthEndISO)
+          ? balanceMap.get(monthEndISO)
+          : getBalanceBefore(monthEndISO);
+      }
       
       let metaLabel = '';
       let metaValue = '';
@@ -401,7 +882,7 @@ export function initAccordion(config) {
         const placeholder = document.createElement('div');
         placeholder.className = 'month-lazy-placeholder';
         placeholder.dataset.monthIndex = mIdx;
-        placeholder.innerHTML = '<div class="lazy-loading">Carregando mês...</div>';
+        placeholder.innerHTML = '<div class="lazy-loading" aria-hidden="true"></div>';
         mDet.appendChild(placeholder);
       } else {
         // Full rendering for priority months - keep original logic for now
@@ -475,27 +956,28 @@ export function initAccordion(config) {
         // Retrieve the running balance for this day
         const dayBalance = balanceMap.has(iso) ? balanceMap.get(iso) : getBalanceBefore(iso);
         
-        // DEBUG: Log balance for days around startDate
-        if (state.startDate && (iso === state.startDate || 
-            (iso >= '2025-09-20' && iso <= '2025-09-24'))) {
-          console.log(`[accordion] Day ${iso} balance:`, {
-            hasInMap: balanceMap.has(iso),
-            mapValue: balanceMap.get(iso),
-            finalBalance: dayBalance,
-            isStartDate: iso === state.startDate
-          });
-        }
-        
-        const dow = dateObj.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
+        const dow = (() => { try { return weekdayName(viewYear, mIdx + 1, d); } catch (_) { return dateObj.toLocaleDateString('pt-BR', { weekday: 'long' }); } })();
         const dDet = document.createElement('details');
         dDet.className = 'day';
         dDet.dataset.key = `d-${iso}`;
-        dDet.dataset.has = String(dayTx.length > 0);
+        // dataset.has will be set after filtering out budget trigger rows
         dDet.open = openKeys.includes(dDet.dataset.key);
         if (iso === todayISO()) dDet.classList.add('today');
         const dSum = document.createElement('summary');
         dSum.className = 'day-summary';
-        const saldoFormatado = isSkeletonMode ? '<span class="skeleton skeleton-pill" style="width: 70px; height: 14px;"></span>' : safeFmtCurrency(dayBalance, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // Prefer dual balances (projected vs available) if computed; fallback to legacy dayBalance
+        let projBalance = dayBalance;
+        let contaBalance = dayBalance;
+        try {
+          const db = (window.__gastos && window.__gastos.dailyBalances) || null;
+          if (db && db[iso]) {
+            const pb = Number(db[iso].projetado);
+            const cb = Number(db[iso].emConta);
+            if (Number.isFinite(pb)) projBalance = pb;
+            if (Number.isFinite(cb)) contaBalance = cb;
+          }
+        } catch (_) {}
+        const saldoFormatado = isSkeletonMode ? '<span class="skeleton skeleton-pill" style="width: 70px; height: 14px;"></span>' : safeFmtCurrency(projBalance, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const baseLabel = `${String(d).padStart(2,'0')} - ${dow.charAt(0).toUpperCase() + dow.slice(1)}`;
         const hasCardDue = currentCards.some(card => card.due === d);
         const hasSalary = dayTx.some(t => SALARY_WORDS.some(w => t.desc.toLowerCase().includes(w)));
@@ -503,9 +985,34 @@ export function initAccordion(config) {
         if (hasCardDue) labelParts.push('<span class="icon-invoice"></span>');
         if (hasSalary) labelParts.push('<span class="icon-salary"></span>');
         const labelWithDue = labelParts.join('');
-        dSum.innerHTML = `<span>${labelWithDue}</span><span class="day-balance" style="margin-left:auto">${saldoFormatado}</span>`;
-        if (dayBalance < 0) dDet.classList.add('negative');
+        const startDt = (function(){ try { return (window.__gastos && window.__gastos.state && window.__gastos.state.startDate) || null; } catch(_) { return null; } })();
+        const showConta = !startDt || iso >= startDt;
+        const subSmall = isSkeletonMode ? '' : (showConta ? `<span class=\"day-sub\">Em conta: ${safeFmtCurrency(contaBalance, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>` : '');
+        const balanceClass = (projBalance < 0) ? 'neg' : (projBalance > 0 ? 'pos' : 'zero');
+        dSum.innerHTML = `<span>${labelWithDue}</span><span class=\"right-col\"><span class=\"day-balance ${balanceClass}\">${saldoFormatado}</span>${subSmall}</span>`;
+        // Remove negative-day highlight by not tagging the element
         dDet.appendChild(dSum);
+
+        if (budgetsFeature) {
+          let dayBudgets = budgetsByStart.get(iso) || [];
+          if (!dayBudgets.length) {
+            const fb = deriveFallbackBudgetsForDay(iso, txs, budgetTriggerIds, budgetTriggersByIso, dayTx, budgetTriggerSet);
+            if (fb.length) dayBudgets = fb;
+          }
+          if (dayBudgets.length > 0) {
+            const section = document.createElement('div');
+            section.className = 'day-section budgets-section';
+            const header = document.createElement('div');
+            header.className = 'section-title';
+            header.textContent = 'Orçamentos';
+            section.appendChild(header);
+            dayBudgets.forEach((budget) => {
+              const cardEl = createBudgetCardElement(budget, dayTx, budgetTriggerSet);
+              section.appendChild(cardEl);
+            });
+            dDet.appendChild(section);
+          }
+        }
         // Always clear any existing invoices
         const createdInvoicesForDay = new Set();
         Object.keys(invoicesByCard).forEach(cardName => {
@@ -628,7 +1135,9 @@ export function initAccordion(config) {
           dDet.appendChild(det);
         });
         // Planned operations section
-        const plannedOps = dayTx
+        const visibleTx = dayTx.filter(tx => !isBudgetTriggerTransaction(tx));
+        dDet.dataset.has = String(visibleTx.length > 0);
+        const plannedOps = visibleTx
           .filter(t => t.planned)
           .sort((a, b) => {
             const dateCmp = a.opDate.localeCompare(b.opDate);
@@ -642,7 +1151,7 @@ export function initAccordion(config) {
           // Add section title
           const plannedTitle = document.createElement('div');
           plannedTitle.className = 'section-title';
-          plannedTitle.textContent = 'Planejados:';
+          plannedTitle.textContent = 'Planejados';
           plannedContainer.appendChild(plannedTitle);
           
           if (isSkeletonMode || typeof makeLine !== 'function') {
@@ -667,7 +1176,7 @@ export function initAccordion(config) {
           dDet.appendChild(plannedContainer);
         }
         // Executed operations section
-        const executedOps = dayTx
+        const executedOps = visibleTx
           .filter(t => !t.planned)
           .sort((a, b) => {
             const dateCmp = a.opDate.localeCompare(b.opDate);
@@ -681,7 +1190,7 @@ export function initAccordion(config) {
           // Add section title
           const executedTitle = document.createElement('div');
           executedTitle.className = 'section-title';
-          executedTitle.textContent = 'Executados:';
+          executedTitle.textContent = 'Executados';
           executedContainer.appendChild(executedTitle);
           
           if (isSkeletonMode || typeof makeLine !== 'function') {
@@ -713,6 +1222,8 @@ export function initAccordion(config) {
     // Single DOM operation: clear and append all months at once
     accEl.innerHTML = '';
     accEl.appendChild(fragment);
+    // Enhance expand/collapse animations for months and days
+    try { enhanceAccordionAnimations(accEl); } catch (_) {}
     // Restore open invoice panels
     openInvoices.forEach(pd => {
       const det = accEl.querySelector(`details.invoice[data-pd="${pd}"]`);
@@ -723,9 +1234,7 @@ export function initAccordion(config) {
     
     const endTime = performance.now();
     const renderTime = endTime - startTime;
-    if (renderTime > 50) { // Lower threshold to track improvements
-      console.info('Accordion render:', renderTime.toFixed(2) + 'ms for', accEl.querySelectorAll('details.month').length, 'months');
-    }
+    const monthCount = accEl.querySelectorAll('details.month').length;
   }
   
   // Lazy loading setup - listens for month expansion
@@ -762,12 +1271,35 @@ export function initAccordion(config) {
   // Load full month content on demand
   function loadFullMonthContent(monthEl, monthIndex, placeholder) {
     try {
-      placeholder.innerHTML = '<div class="lazy-loading">Carregando transações...</div>';
+      placeholder.innerHTML = '<div class="lazy-loading" aria-hidden="true"></div>';
       
       // Get fresh data
       const viewYear = resolveViewYear();
       const txs = getTransactions ? getTransactions() : transactions;
       const daysInMonth = new Date(viewYear, monthIndex + 1, 0).getDate();
+      // Resolve budgets context locally for lazy-loaded months (was only in first render)
+      const budgetsFeature = resolveBudgetsFeatureEnabled();
+      const activeBudgets = budgetsFeature ? loadBudgets().filter((b) => b && b.status === 'active') : [];
+      const budgetsByStart = budgetsFeature ? buildBudgetDisplayMap(activeBudgets, txs) : new Map();
+      const budgetTriggerSet = budgetsFeature ? new WeakSet() : null;
+      const budgetTriggerIds = budgetsFeature ? new Set() : null;
+      const budgetTriggersByIso = budgetsFeature ? new Map() : null;
+      if (budgetsFeature) {
+        activeBudgets.forEach((budget) => {
+          if (!budget) return;
+          if (budget.triggerTxId != null) {
+            budgetTriggerIds.add(String(budget.triggerTxId));
+          }
+          const iso = normalizeBudgetDate(budget.triggerTxIso || budget.startDate);
+          if (iso) {
+            if (!budgetTriggersByIso.has(iso)) budgetTriggersByIso.set(iso, []);
+            budgetTriggersByIso.get(iso).push({
+              tag: budget.tag,
+              id: budget.triggerTxId != null ? String(budget.triggerTxId) : null,
+            });
+          }
+        });
+      }
       
       // Calculate balances for this specific month
       // We need to compute from the start of the year to this month to get accurate balances
@@ -796,7 +1328,8 @@ export function initAccordion(config) {
         const cashImpact = cashNonRecurring + cashRecurring;
         
         runningBalance += cashImpact;
-        monthBalanceMap.set(iso, runningBalance);
+        const reservedAdjustment = getReservedAdjustmentForDate(iso);
+        monthBalanceMap.set(iso, runningBalance - reservedAdjustment);
       }
       
       const simpleGetBalanceBefore = (iso) => {
@@ -808,15 +1341,187 @@ export function initAccordion(config) {
       };
       
       // Render full month content with calculated balances
-      const content = renderFullMonthContent(monthIndex, viewYear, daysInMonth, txs, monthBalanceMap, simpleGetBalanceBefore);
+      const content = renderFullMonthContent(
+        monthIndex,
+        viewYear,
+        daysInMonth,
+        txs,
+        monthBalanceMap,
+        simpleGetBalanceBefore,
+        budgetsFeature,
+        budgetsByStart,
+        budgetTriggerSet,
+        budgetTriggerIds,
+        budgetTriggersByIso
+      );
       
       // Replace placeholder with real content
       placeholder.replaceWith(...content);
+      // Hook up animations for the freshly added nodes
+      try { enhanceAccordionAnimations(monthEl); } catch (_) {}
       
     } catch (error) {
       console.error('❌ Failed to load month content:', error);
       placeholder.innerHTML = '<div class="lazy-error">Erro ao carregar</div>';
     }
+  }
+
+  // ------- Premium open/close animations for details elements -------
+  function enhanceAccordionAnimations(scope) {
+    const root = scope || document;
+    const detailsList = root.querySelectorAll('details.month, details.day');
+    detailsList.forEach((det) => {
+      // Wrap non-summary children in a collapsible body
+      let body = det.querySelector(':scope > .acc-body');
+      if (!body) {
+        body = document.createElement('div');
+        body.className = 'acc-body';
+        const children = Array.from(det.children).filter((el) => el.tagName.toLowerCase() !== 'summary');
+        children.forEach((el) => body.appendChild(el));
+        det.appendChild(body);
+      }
+      body.style.overflow = 'hidden';
+      body.style.willChange = 'height';
+      body.style.transition = 'height .28s cubic-bezier(.22,.61,.36,1)';
+
+      // Set initial height based on open state
+      if (det.open) {
+        body.style.height = 'auto';
+      } else {
+        body.style.height = '0px';
+      }
+
+      // Avoid duplicating listeners
+      if (det.__animBound) return;
+      det.__animBound = true;
+
+      // OPEN animation (after UA toggles to open)
+      det.addEventListener('toggle', () => {
+        const target = det.querySelector(':scope > .acc-body');
+        if (!target) return;
+        if (det.open) {
+          // If this is a month with a lazy placeholder still present, load it synchronously
+          if (det.classList.contains('month')) {
+            const placeholder = det.querySelector(':scope > .month-lazy-placeholder');
+            if (placeholder) {
+              const idx = parseInt(placeholder.dataset.monthIndex, 10);
+              if (!Number.isNaN(idx)) {
+                try { loadFullMonthContent(det, idx, placeholder); } catch (_) {}
+              }
+            }
+          }
+          // expand
+          target.style.height = '0px';
+          // Two RAFs ensure the 0px style is committed before measuring for all cycles
+          requestAnimationFrame(() => {
+            void target.offsetHeight;
+            requestAnimationFrame(() => {
+              target.style.height = target.scrollHeight + 'px';
+            });
+          });
+          // After transition, set to auto so content inside can grow naturally
+          const onEnd = (e) => {
+            if (e.propertyName === 'height') {
+              target.style.height = 'auto';
+              target.removeEventListener('transitionend', onEnd);
+            }
+          };
+          target.addEventListener('transitionend', onEnd);
+        }
+      });
+
+      // CLOSE animation (intercept default toggle and collapse smoothly)
+      const summary = det.querySelector(':scope > summary');
+      if (summary) {
+        summary.addEventListener('click', (ev) => {
+          const isMonth = det.matches('details.month');
+          if (isMonth) {
+            // Intercept both open and close to guarantee animation on every cycle
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (!det.open) {
+              // Ensure month content is loaded before measuring height (prevents choppy first open)
+              const placeholder = det.querySelector(':scope > .month-lazy-placeholder');
+              if (placeholder) {
+                const idx = parseInt(placeholder.dataset.monthIndex, 10);
+                if (!Number.isNaN(idx)) {
+                  try { loadFullMonthContent(det, idx, placeholder); } catch (_) {}
+                }
+              }
+              det.open = true;
+              const target = ensureAccBody(det);
+              target.style.height = '0px';
+              // Double RAF to guarantee 0px is committed before measuring and animating
+              requestAnimationFrame(() => {
+                void target.offsetHeight;
+                requestAnimationFrame(() => {
+                  target.style.height = target.scrollHeight + 'px';
+                });
+              });
+              const onEnd = (e) => {
+                if (e.propertyName !== 'height') return;
+                target.removeEventListener('transitionend', onEnd);
+                target.style.height = 'auto';
+              };
+              target.addEventListener('transitionend', onEnd);
+              return;
+            }
+            // Close month smoothly
+            if (det.__animatingClose) return;
+            det.__animatingClose = true;
+            const target = ensureAccBody(det);
+            const h = target.scrollHeight;
+            target.style.height = h + 'px';
+            void target.offsetHeight;
+            target.style.height = '0px';
+            const onEnd = (e) => {
+              if (e.propertyName !== 'height') return;
+              target.removeEventListener('transitionend', onEnd);
+              det.open = false;
+              det.__animatingClose = false;
+            };
+            target.addEventListener('transitionend', onEnd);
+            return;
+          }
+          // DAY: intercept only close (open handled via toggle)
+          if (!det.open) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (det.__animatingClose) return;
+          det.__animatingClose = true;
+          const target = det.querySelector(':scope > .acc-body');
+          if (!target) { det.open = false; det.__animatingClose = false; return; }
+          const h = target.scrollHeight;
+          target.style.height = h + 'px';
+          void target.offsetHeight;
+          target.style.height = '0px';
+          const onEnd = (e) => {
+            if (e.propertyName !== 'height') return;
+            target.removeEventListener('transitionend', onEnd);
+            det.open = false;
+            det.__animatingClose = false;
+          };
+          target.addEventListener('transitionend', onEnd);
+        }, true);
+      }
+    });
+  }
+
+  // Ensure wrapper exists around details content and has transition styles
+  function ensureAccBody(det) {
+    let body = det.querySelector(':scope > .acc-body');
+    if (!body) {
+      body = document.createElement('div');
+      body.className = 'acc-body';
+      const children = Array.from(det.children).filter((el) => el.tagName.toLowerCase() !== 'summary');
+      children.forEach((el) => body.appendChild(el));
+      det.appendChild(body);
+      body.style.overflow = 'hidden';
+      body.style.willChange = 'height';
+      body.style.transition = 'height .28s cubic-bezier(.22,.61,.36,1)';
+      body.style.height = det.open ? 'auto' : '0px';
+    }
+    return body;
   }
   
   // Fast path rendering using cached current month data
@@ -938,14 +1643,14 @@ export function initAccordion(config) {
     const placeholder = document.createElement('div');
     placeholder.className = 'month-lazy-placeholder';
     placeholder.dataset.monthIndex = month;
-    placeholder.innerHTML = '<div class="lazy-loading">Expandir para carregar...</div>';
+    placeholder.innerHTML = '<div class="lazy-loading" aria-hidden="true"></div>';
     det.appendChild(placeholder);
     
     return det;
   }
   
   // Extract full month content rendering
-  function renderFullMonthContent(monthIndex, viewYear, daysInMonth, txs, balanceMap, getBalanceBefore) {
+  function renderFullMonthContent(monthIndex, viewYear, daysInMonth, txs, balanceMap, getBalanceBefore, budgetsFeature, budgetsByStart, budgetTriggerSet, budgetTriggerIds, budgetTriggersByIso) {
     const elements = [];
     
     // Get all required helpers from already resolved context variables
@@ -961,6 +1666,26 @@ export function initAccordion(config) {
       const recurring = (txs || []).filter(t => t.recurrence && occursOn(t, iso));
       return [...direct, ...recurring];
     };
+
+    const isBudgetTriggerTx = (tx) => {
+      if (!budgetsFeature || !tx) return false;
+      try {
+        if (budgetTriggerSet && budgetTriggerSet.has(tx)) return true;
+      } catch (_) {}
+      if (budgetTriggerIds && tx.id != null && budgetTriggerIds.has(String(tx.id))) return true;
+      const iso = normalizeBudgetDate(tx.opDate || tx.postDate);
+      if (!iso) return false;
+      const candidates = budgetTriggersByIso && budgetTriggersByIso.get(iso);
+      if (!candidates || !candidates.length) return false;
+      return candidates.some((info) => {
+        if (!info) return false;
+        if (info.tag && tx.budgetTag && info.tag !== tx.budgetTag) return false;
+        if (info.id) return info.id === String(tx.id);
+        return true;
+      });
+    };
+    // Backward‑compat alias to match other render paths
+    const isBudgetTriggerTransaction = (tx) => isBudgetTriggerTx(tx);
     
     const openKeys = []; // No preserved open state for lazy loaded content
     const isSkeletonMode = false;
@@ -1031,7 +1756,7 @@ export function initAccordion(config) {
       });
       
       const dayBalance = balanceMap.has(iso) ? balanceMap.get(iso) : 0;
-      const dow = dateObj.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
+      const dow = (() => { try { return weekdayName(viewYear, mIdx + 1, d); } catch (_) { return dateObj.toLocaleDateString('pt-BR', { weekday: 'long' }); } })();
       
       // Create day details element
       const dDet = document.createElement('details');
@@ -1042,7 +1767,19 @@ export function initAccordion(config) {
       
       const dSum = document.createElement('summary');
       dSum.className = 'day-summary';
-      const saldoFormatado = safeFmtCurrency(dayBalance, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      // Prefer dual balances (projected vs available) if computed; fallback to legacy dayBalance
+      let projBalance = dayBalance;
+      let contaBalance = dayBalance;
+      try {
+        const db = (window.__gastos && window.__gastos.dailyBalances) || null;
+        if (db && db[iso]) {
+          const pb = Number(db[iso].projetado);
+          const cb = Number(db[iso].emConta);
+          if (Number.isFinite(pb)) projBalance = pb;
+          if (Number.isFinite(cb)) contaBalance = cb;
+        }
+      } catch (_) {}
+      const saldoFormatado = safeFmtCurrency(projBalance, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const baseLabel = `${String(d).padStart(2,'0')} - ${dow.charAt(0).toUpperCase() + dow.slice(1)}`;
       const hasCardDue = currentCards.some(card => card.due === d);
       const hasSalary = dayTx.some(t => SALARY_WORDS.some(w => t.desc.toLowerCase().includes(w)));
@@ -1050,10 +1787,26 @@ export function initAccordion(config) {
       if (hasCardDue) labelParts.push('<span class="icon-invoice"></span>');
       if (hasSalary) labelParts.push('<span class="icon-salary"></span>');
       const labelWithDue = labelParts.join('');
-      dSum.innerHTML = `<span>${labelWithDue}</span><span class="day-balance" style="margin-left:auto">${saldoFormatado}</span>`;
-      if (dayBalance < 0) dDet.classList.add('negative');
+      const startDt = (function(){ try { return (window.__gastos && window.__gastos.state && window.__gastos.state.startDate) || null; } catch(_) { return null; } })();
+      const showConta = !startDt || iso >= startDt;
+      const subSmall = showConta ? `<span class=\"day-sub\">Em conta: ${safeFmtCurrency(contaBalance, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>` : '';
+      const balanceClass = (projBalance < 0) ? 'neg' : (projBalance > 0 ? 'pos' : 'zero');
+      dSum.innerHTML = `<span>${labelWithDue}</span><span class=\"right-col\"><span class=\"day-balance ${balanceClass}\">${saldoFormatado}</span>${subSmall}</span>`;
+      // Remove negative-day highlight by not tagging the element
       dDet.appendChild(dSum);
       
+      if (budgetsFeature) {
+        let dayBudgets = budgetsByStart.get(iso) || [];
+        if (!dayBudgets.length) {
+          const fb = deriveFallbackBudgetsForDay(iso, txs, budgetTriggerIds, budgetTriggersByIso, dayTx, budgetTriggerSet);
+          if (fb.length) dayBudgets = fb;
+        }
+        dayBudgets.forEach((budget) => {
+          const cardEl = createBudgetCardElement(budget, dayTx, budgetTriggerSet);
+          dDet.appendChild(cardEl);
+        });
+      }
+
       // Add invoice details (simplified - just the list, no swipe actions for lazy loaded content)
       Object.keys(invoicesByCard).forEach(cardName => {
         const det = document.createElement('details');
@@ -1077,8 +1830,10 @@ export function initAccordion(config) {
         dDet.appendChild(det);
       });
       
-      // Planned operations
-      const plannedOps = dayTx.filter(t => t.planned);
+        // Planned operations
+      const visibleTx = dayTx.filter(tx => !isBudgetTriggerTransaction(tx));
+      dDet.dataset.has = String(visibleTx.length > 0);
+      const plannedOps = visibleTx.filter(t => t.planned);
       if (plannedOps.length > 0 && typeof makeLine === 'function') {
         const plannedContainer = document.createElement('div');
         plannedContainer.className = 'planned-cash';
@@ -1095,7 +1850,7 @@ export function initAccordion(config) {
       }
       
       // Executed operations
-      const executedOps = dayTx.filter(t => !t.planned);
+      const executedOps = visibleTx.filter(t => !t.planned);
       if (executedOps.length > 0 && typeof makeLine === 'function') {
         const executedContainer = document.createElement('div');
         executedContainer.className = 'executed-cash';
@@ -1118,4 +1873,73 @@ export function initAccordion(config) {
   }
   
   return { renderAccordion };
+}
+
+function ensureBudgetCardStyles() {
+  if (document.getElementById('budget-card-styles')) return;
+  const st = document.createElement('style');
+  st.id = 'budget-card-styles';
+  st.textContent = `
+    /* Gorgeous budget card for the accordion list */
+    .op-line.budget-card{
+      position: relative;
+      /* Match width and alignment of other day blocks (e.g., Executados) */
+      margin: 10px 0 8px;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      transition: transform .15s ease, box-shadow .2s ease;
+      color: var(--txt-main, #EDEDEF);
+    }
+    .op-line.budget-card:active{ transform: scale(0.995); }
+
+    .op-line.budget-card .budget-card__header{ display:flex; gap:6px; }
+    .op-line.budget-card .budget-tag-pill{ display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; color:#2B8B66; background:rgba(93,211,158,0.16); border:1px solid #5DD39E; }
+    .op-line.budget-card .budget-card__period{
+      color: rgba(255,255,255,0.75); font-size:12px;
+    }
+    .op-line.budget-card .budget-card__meta{
+      color: rgba(255,255,255,0.65); font-size:12px; margin-top:-2px;
+    }
+    .op-line.budget-card .budget-card__details{
+      display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:13px; color: var(--txt-main, #EDEDEF);
+    }
+    .op-line.budget-card .budget-card__main{ font-weight:700; font-size:15px; }
+    .op-line.budget-card .budget-card__main[data-state="warn"]{ color:#FFC65A; }
+    .op-line.budget-card .budget-card__main[data-state="over"]{ color:#FF6B6B; }
+    .op-line.budget-card .budget-card__total{ opacity:.8; font-size:12px; }
+    .op-line.budget-card .budget-card__progress{
+      height:6px; background: rgba(255,255,255,0.22); border-radius: 6px; overflow:hidden; margin-top:10px; position:relative;
+    }
+    .op-line.budget-card .budget-card__progress::before{
+      content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0));
+    }
+    .op-line.budget-card .budget-card__progress-fill{
+      height:100%; border-radius:6px; transition: width .35s ease, background .2s ease;
+      background: linear-gradient(90deg, #5DD39E, #3ecf8e);
+    }
+    .op-line.budget-card .budget-card__progress-fill[data-state="warn"]{
+      background: linear-gradient(90deg, #FFB703, #FFA23A);
+    }
+    .op-line.budget-card .budget-card__progress-fill[data-state="over"]{
+      background: linear-gradient(90deg, #FF6B6B, #F05050);
+    }
+
+    /* Light theme tweaks */
+    html[data-theme="light"] .op-line.budget-card{ background:#ffffffec; border:1px solid rgba(0,0,0,0.10); box-shadow:0 6px 14px rgba(0,0,0,0.08); color:#111; }
+    html[data-theme="light"] .op-line.budget-card .budget-card__period{ color: rgba(0,0,0,0.6); }
+    html[data-theme="light"] .op-line.budget-card .budget-tag-pill{ color:#1f6b53; background:rgba(46,191,140,0.12); border-color:#2B8B66; }
+    html[data-theme="light"] .op-line.budget-card .budget-card__meta{ color: rgba(0,0,0,0.55); }
+    html[data-theme="light"] .op-line.budget-card .budget-card__details{ color:#111; }
+    html[data-theme="light"] .op-line.budget-card .budget-card__main[data-state="warn"]{ color:#B26A00; }
+    html[data-theme="light"] .op-line.budget-card .budget-card__main[data-state="over"]{ color:#C53030; }
+    html[data-theme="light"] .op-line.budget-card .budget-card__progress{ background: rgba(0,0,0,0.12); }
+  `;
+  document.head.appendChild(st);
 }

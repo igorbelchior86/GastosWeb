@@ -149,9 +149,13 @@ if (typeof window !== 'undefined') {
   // Subscribe to auth changes and dispatch DOM events for compatibility
   AuthService.onAuthChanged((user) => {
     try {
-      console.log('globals: auth state changed, dispatching auth:state event', user ? user.email : 'signed out');
-      document.dispatchEvent(new CustomEvent('auth:state', { 
-        detail: { user } 
+      if (user) {
+        console.log(`🔐 Auth: User signed in as ${user.email}`);
+      } else {
+        console.log('🔐 Auth: User signed out');
+      }
+      document.dispatchEvent(new CustomEvent('auth:state', {
+        detail: { user }
       }));
     } catch (err) {
       console.warn('Failed to dispatch auth:state event:', err);
@@ -162,10 +166,12 @@ if (typeof window !== 'undefined') {
   setTimeout(() => {
     try {
       const currentUser = AuthService.getCurrentUser();
-      console.log('globals: Initial auth check -', currentUser ? currentUser.email : 'not signed in');
-      document.dispatchEvent(new CustomEvent('auth:state', { 
-        detail: { user: currentUser } 
-      }));
+      if (currentUser) {
+        // Already logged in
+        document.dispatchEvent(new CustomEvent('auth:state', {
+          detail: { user: currentUser }
+        }));
+      }
     } catch (err) {
       console.warn('Failed to dispatch initial auth:state event:', err);
     }

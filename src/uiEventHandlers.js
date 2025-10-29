@@ -33,6 +33,7 @@
  * @param {Function} ctx.scrollTodayIntoView Callback that scrolls the page to the current day.
  * @param {Function} ctx.openSettings        Opens the settings modal.
  * @param {Function} ctx.closeSettings       Closes the settings modal.
+ * @param {Function} ctx.closeAllModals      Closes ALL open modals.
  * @param {?Element} ctx.settingsModalEl     The settings modal container.
  * @param {?Element} ctx.closeSettingsModalBtn Button inside the settings modal to close it.
  * @param {Function} ctx.updateModalOpenState Updates the global modal open state (used to toggle body scroll).
@@ -60,6 +61,7 @@ export function setupMainEventHandlers(ctx) {
     scrollTodayIntoView,
     openSettings,
     closeSettings,
+    closeAllModals,
     settingsModalEl,
     closeSettingsModalBtn,
     updateModalOpenState
@@ -76,6 +78,15 @@ export function setupMainEventHandlers(ctx) {
         openPlannedBtn.click();
       } else if (action === 'cards') {
         headerSeg.dataset.selected = 'cards';
+        // Try open Panorama first; fallback to legacy cards modal
+        try {
+          const g = window.__gastos || {};
+          if (g.openPanorama && typeof g.openPanorama === 'function') {
+            const opened = g.openPanorama();
+            if (opened) return;
+          }
+          if (typeof g.showCardModal === 'function') g.showCardModal();
+        } catch (_) {}
       }
     });
   }
@@ -138,6 +149,12 @@ export function setupMainEventHandlers(ctx) {
         setSelected(action);
         updateHighlight();
         if (action === 'home') {
+          // Home button: close ALL modals and scroll to today
+          console.log('[uiEventHandlers] Home button clicked, closeAllModals available:', !!closeAllModals);
+          if (closeAllModals) {
+            closeAllModals();
+            console.log('[uiEventHandlers] closeAllModals() called');
+          }
           // LÓGICA BINÁRIA: Se config saldo inicial visível = desabilitar auto scroll
           const startContainer = document.getElementById('startGroup') || document.querySelector('.start-container');
           const isStartVisible = startContainer && startContainer.style.display !== 'none';
@@ -145,9 +162,18 @@ export function setupMainEventHandlers(ctx) {
           if (!isStartVisible && scrollTodayIntoView) {
             scrollTodayIntoView();
           }
-          closeSettings && closeSettings();
         } else if (action === 'settings') {
-          openSettings && openSettings();
+          const settingsModal = document.getElementById('settingsModal');
+          const isSettingsOpen = settingsModal && !settingsModal.classList.contains('hidden');
+          
+          if (isSettingsOpen) {
+            // Settings already open: close it
+            closeSettings && closeSettings();
+          } else {
+            // Settings closed: close all others and open settings
+            closeAllModals && closeAllModals();
+            openSettings && openSettings();
+          }
           updateModalOpenState && updateModalOpenState();
         }
       });
@@ -184,8 +210,18 @@ export function setupMainEventHandlers(ctx) {
   // Transaction modal toggle: open and close handling.
   if (openTxBtn && toggleTxModal) {
     openTxBtn.onclick = () => {
-      // reset editing state externally before opening
-      toggleTxModal();
+      const txModal = document.getElementById('txModal');
+      const isTxOpen = txModal && !txModal.classList.contains('hidden');
+      
+      if (isTxOpen) {
+        // txModal already open: close it
+        toggleTxModal();
+      } else {
+        // txModal is closed: close all others and open txModal
+        closeAllModals && closeAllModals();
+        toggleTxModal();
+      }
+      updateModalOpenState && updateModalOpenState();
     };
   }
   if (closeTxModal && toggleTxModal) {

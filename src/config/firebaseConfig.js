@@ -31,8 +31,8 @@ export const productionConfig = {
   measurementId: 'G-JZYYGSJKTZ'
 };
 
-// By default, pick production config (unless explicitly in test mode)
-const isProd = typeof process === 'undefined' || !process.env || process.env.NODE_ENV !== 'test';
+// By default, pick test config when NODE_ENV is not production
+const isProd = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
 export const firebaseConfig = isProd ? productionConfig : testConfig;
 
 export default firebaseConfig;

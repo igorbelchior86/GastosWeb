@@ -11,6 +11,7 @@
 import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
 import { getDatabase, ref, set, get, onValue } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js';
 import { scopedDbSegment } from '../utils/profile.js';
+import { cacheGet, cacheSet } from '../utils/cache.js';
 
 let firebaseApp = null;
 let firebaseDb = null;
@@ -116,10 +117,34 @@ export async function save(key, value) {
   if (useMock || !firebaseDb || !PATH) return mockSave(key, value);
   try {
     const remoteKey = scopedDbSegment(key);
-    return set(ref(firebaseDb, `${PATH}/${remoteKey}`), value);
+    // Defensive: Firebase RTDB rejects undefined values inside the payload.
+    // JSON round‑trip the value to strip undefined properties from objects and
+    // convert undefined array entries to null. If serialization fails, fall
+    // back to the original value and let the underlying SDK validate it.
+    let payload = value;
+    try {
+      payload = JSON.parse(JSON.stringify(value));
+    } catch (_) {
+      payload = value;
+    }
+    const res = await set(ref(firebaseDb, `${PATH}/${remoteKey}`), payload);
+    // Success: remove key from profile-scoped dirty queue
+    try {
+      const dq = Array.isArray(cacheGet('dirtyQueue', [])) ? cacheGet('dirtyQueue', []) : [];
+      const next = dq.filter((k) => k !== key);
+      cacheSet('dirtyQueue', next);
+    } catch (_) {}
+    return res;
   } catch (err) {
     console.warn('firebase.save failed, persisting to mock', err);
     await mockSave(key, value);
+    // Mark profile-scoped dirty-queue for realtime merge and background sync
+    try {
+      const dq = Array.isArray(cacheGet('dirtyQueue', [])) ? cacheGet('dirtyQueue', []) : [];
+      if (!dq.includes(key)) cacheSet('dirtyQueue', dq.concat([key]));
+    } catch (_) {}
+    // Try to register a sync with the service worker
+    try { await scheduleBgSync(); } catch (_) {}
     throw err;
   }
 }
@@ -181,10 +206,11 @@ export async function startListeners(handlers = {}) {
   };
 }
 
-// Offline queue management stored in localStorage
+// Offline queue management stored in localStorage (profile‑scoped)
 function readDirtyQueue() {
   try {
-    return JSON.parse(localStorage.getItem('dirtyQueue') || '[]');
+    const arr = cacheGet('dirtyQueue', []);
+    return Array.isArray(arr) ? arr : [];
   } catch {
     return [];
   }
@@ -192,7 +218,7 @@ function readDirtyQueue() {
 
 function writeDirtyQueue(arr) {
   try {
-    localStorage.setItem('dirtyQueue', JSON.stringify(arr || []));
+    cacheSet('dirtyQueue', Array.isArray(arr) ? arr : []);
   } catch {
     /* ignore */
   }
@@ -205,7 +231,9 @@ function writeDirtyQueue(arr) {
  * @param {string} kind one of 'tx','cards','startBal','startSet'
  */
 export function markDirty(kind) {
-  const allowed = ['tx','cards','startBal','startSet'];
+  // Include budgets so resets while offline are synced, and keep
+  // startDate for completeness even if rarely queued explicitly.
+  const allowed = ['tx','cards','startBal','startDate','startSet','budgets'];
   if (!allowed.includes(kind)) return;
   const q = readDirtyQueue();
   if (!q.includes(kind)) q.push(kind);

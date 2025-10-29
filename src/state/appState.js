@@ -54,7 +54,17 @@ const DEFAULT_STATE = {
   preferences: {
     theme: 'system',           // 'light' | 'dark' | 'system'
     currencyProfile: 'BR',     // Profile ID (BR, PT, US, etc)
-  }
+  },
+  /**
+   * Pre-aggregated monthly totals (YYYY-MM -> { income, expense })
+   * @type {Object<string,{income:number,expense:number}>}
+   */
+  monthlyTotals: {},
+  /**
+   * Budgets indexado por tag (tag -> budget ativo/clonado)
+   * @type {Object<string,Object>}
+   */
+  budgetsByTag: {},
 };
 
 // Internal state object. This should never be mutated directly outside of
@@ -192,6 +202,9 @@ export function setTransactions(list = [], options = {}) {
   const normalized = Array.isArray(list) ? list.slice() : [];
   if (JSON.stringify(state.transactions) === JSON.stringify(normalized)) return state.transactions;
   state.transactions = normalized;
+  if (options.recompute !== false) {
+    try { window.__gastos?.computeMonthlyTotals?.(state.transactions); } catch (_) {}
+  }
   if (options.emit !== false) emit(['transactions']);
   return state.transactions;
 }
@@ -201,6 +214,11 @@ export function addTransaction(tx, options = {}) {
   const arr = Array.isArray(state.transactions) ? state.transactions.slice() : [];
   arr.push(tx);
   state.transactions = arr;
+  if (options.recompute !== false) {
+    try { window.__gastos?.computeMonthlyTotals?.(state.transactions); } catch (_) {}
+    try { window.__gastos?.rebuildBudgetsByTag?.(state.transactions); } catch (_) {}
+    try { window.__gastos?.computeDailyBalances?.(state.transactions, state.startBalance, state.startDate); } catch (_) {}
+  }
   if (options.emit !== false) emit(['transactions']);
   return tx;
 }
@@ -220,6 +238,11 @@ export function updateTransaction(id, patch = {}, options = {}) {
   }
   if (found) {
     state.transactions = arr;
+    if (options.recompute !== false) {
+      try { window.__gastos?.computeMonthlyTotals?.(state.transactions); } catch (_) {}
+      try { window.__gastos?.rebuildBudgetsByTag?.(state.transactions); } catch (_) {}
+      try { window.__gastos?.computeDailyBalances?.(state.transactions, state.startBalance, state.startDate); } catch (_) {}
+    }
     if (options.emit !== false) emit(['transactions']);
   }
   return found;
@@ -232,9 +255,42 @@ export function removeTransaction(id, options = {}) {
   const changed = next.length !== arr.length;
   if (changed) {
     state.transactions = next;
+    if (options.recompute !== false) {
+      try { window.__gastos?.computeMonthlyTotals?.(state.transactions); } catch (_) {}
+      try { window.__gastos?.rebuildBudgetsByTag?.(state.transactions); } catch (_) {}
+      try { window.__gastos?.computeDailyBalances?.(state.transactions, state.startBalance, state.startDate); } catch (_) {}
+    }
     if (options.emit !== false) emit(['transactions']);
   }
   return changed;
+}
+
+// Monthly totals helpers
+
+export function getMonthlyTotals() {
+  return { ...(state.monthlyTotals || {}) };
+}
+
+export function setMonthlyTotals(map = {}, options = {}) {
+  const normalized = map && typeof map === 'object' ? { ...map } : {};
+  const same = JSON.stringify(state.monthlyTotals) === JSON.stringify(normalized);
+  if (same) return state.monthlyTotals;
+  state.monthlyTotals = normalized;
+  if (options.emit !== false) emit(['monthlyTotals']);
+  return state.monthlyTotals;
+}
+
+export function getBudgetsByTag() {
+  return { ...(state.budgetsByTag || {}) };
+}
+
+export function setBudgetsByTag(map = {}, options = {}) {
+  const normalized = map && typeof map === 'object' ? { ...map } : {};
+  const same = JSON.stringify(state.budgetsByTag) === JSON.stringify(normalized);
+  if (same) return state.budgetsByTag;
+  state.budgetsByTag = normalized;
+  if (options.emit !== false) emit(['budgetsByTag']);
+  return state.budgetsByTag;
 }
 
 // Card helpers

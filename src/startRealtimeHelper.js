@@ -65,6 +65,13 @@ export function createStartRealtime(ctx) {
       syncStartInputFromState,
       ensureStartSetFromBalance,
       profileListenersRef,
+      // budgets sync
+      loadBudgets,
+      saveBudgets,
+      refreshBudgetCache,
+      rebuildBudgetsByTag,
+      // budget materialization
+      rebuildMaterializationCache,
     } = ctx || {};
 
     // Resolve the current PATH for database access. If getPath is
@@ -125,6 +132,7 @@ export function createStartRealtime(ctx) {
     const cardsRefDB   = profileRef ? profileRef('cards') : null;
     const balRef       = profileRef ? profileRef('startBal') : null;
     const startDateRef = profileRef ? profileRef('startDate') : null;
+    const budgetsRefDB = profileRef ? profileRef('budgets') : null;
     const startSetRef  = profileRef ? profileRef('startSet') : null;
 
     const listeners = [];
@@ -171,6 +179,7 @@ export function createStartRealtime(ctx) {
         try {
           const raw = snap.val() ?? [];
           const incoming = Array.isArray(raw) ? raw : Object.values(raw);
+          console.log(`📥 Firebase: Loaded ${incoming.length} transaction(s)`);
           const norm = normalizeTransactionRecord;
           const remote = (incoming || []).filter(t => t).map(t => norm ? norm(t) : t);
           const dirty = cacheGet ? cacheGet('dirtyQueue', []) : [];
@@ -180,19 +189,17 @@ export function createStartRealtime(ctx) {
             setTransactions && setTransactions(remote);
             transactionsRef.set(getTransactions ? getTransactions() : remote);
           } else {
+            // When we have pending local changes (add/edit/delete) or we're offline,
+            // prefer the LOCAL set of ids to avoid resurrecting deletions from remote.
             const local = ((transactionsRef.get() || []).map(t => (norm ? norm(t) : t)));
-            const byId = new Map(local.map(t => [t.id, t]));
-            for (const r of remote) {
-              const l = byId.get(r.id);
-              if (!l) {
-                byId.set(r.id, r);
-                continue;
-              }
+            const remoteById = new Map(remote.map(t => [t.id, t]));
+            const merged = local.map((l) => {
+              const r = remoteById.get(l.id);
+              if (!r) return l; // remote missing → keep local
               const lt = Date.parse(l.modifiedAt || l.ts || 0);
               const rt = Date.parse(r.modifiedAt || r.ts || 0);
-              if (rt >= lt) byId.set(r.id, r);
-            }
-            const merged = Array.from(byId.values());
+              return rt > lt ? r : l;
+            });
             setTransactions && setTransactions(merged);
             transactionsRef.set(getTransactions ? getTransactions() : merged);
           }
@@ -210,6 +217,15 @@ export function createStartRealtime(ctx) {
           }
           sortTransactions && sortTransactions();
           renderTable && renderTable();
+          // Rebuild materialization cache after transactions update
+          try { rebuildMaterializationCache && rebuildMaterializationCache(getTransactions ? getTransactions() : transactionsRef.get()); } catch (_) {}
+          // If Panorama is open, refresh it to mirror accordion calculations
+          try {
+            const pano = typeof document !== 'undefined' ? document.getElementById('panoramaModal') : null;
+            if (pano && !pano.classList.contains('hidden')) {
+              try { window.__gastos?.refreshPanorama?.(); } catch (_) {}
+            }
+          } catch (_) {}
           if (plannedModal && !plannedModal.classList.contains('hidden')) {
             if (typeof renderPlannedModal === 'function') {
               try { renderPlannedModal(); } catch (_) {}
@@ -260,12 +276,37 @@ export function createStartRealtime(ctx) {
       }));
     }
 
+    // Listener for budgets changes (keep devices in sync)
+    if (budgetsRefDB && onValue) {
+      listeners.push(onValue(budgetsRefDB, (snap) => {
+        try {
+          const raw = snap.val() ?? [];
+          const remote = Array.isArray(raw) ? raw : Object.values(raw || {});
+          // Normalize + enforce single-active-per-tag via saveBudgets
+          const normalized = typeof saveBudgets === 'function' ? saveBudgets(remote) : remote;
+          // Recompute caches so UI widgets use fresh values
+          try { refreshBudgetCache && refreshBudgetCache(getTransactions ? getTransactions() : transactionsRef.get()); } catch (_) {}
+          try { rebuildBudgetsByTag && rebuildBudgetsByTag(getTransactions ? getTransactions() : transactionsRef.get()); } catch (_) {}
+          // If panorama is open, refresh it
+          try {
+            const pano = typeof document !== 'undefined' ? document.getElementById('panoramaModal') : null;
+            if (pano && !pano.classList.contains('hidden')) {
+              window.__gastos?.refreshPanorama?.();
+            }
+          } catch (_) {}
+        } finally {
+          if (markHydrationTargetReady) markHydrationTargetReady('budgets');
+        }
+      }));
+    }
+
     // Listener for start balance changes
     if (balRef && onValue) {
       listeners.push(onValue(balRef, (snap) => {
         const raw = snap.exists() ? snap.val() : null;
         const next = normalizeStartBalance(raw);
         const current = normalizeStartBalance(state?.startBalance);
+        console.log(`💰 Firebase: Start balance = ${next ?? 'not set'}`);
         if (next === current) {
           if (markHydrationTargetReady) markHydrationTargetReady('startBal');
           return;
@@ -280,6 +321,7 @@ export function createStartRealtime(ctx) {
           syncStartInputFromState && syncStartInputFromState();
           ensureStartSetFromBalance && ensureStartSetFromBalance();
           initStart && initStart();
+          // Render table when balance changes to ensure balances are recalculated
           renderTable && renderTable();
         } finally {
           if (markHydrationTargetReady) markHydrationTargetReady('startBal');
@@ -292,19 +334,24 @@ export function createStartRealtime(ctx) {
       listeners.push(onValue(startDateRef, (snap) => {
         const raw = snap.exists() ? snap.val() : null;
         const normalized = normalizeISODate ? normalizeISODate(raw) : raw;
+        // Strategy:
+        // - If remote provides a concrete date and local is empty, adopt it.
+        // - If remote is null/empty, preserve any local startDate set by the user.
+        if (!normalized) {
+          if (markHydrationTargetReady) markHydrationTargetReady('startDate');
+          return; // keep local value
+        }
         if (normalized === state.startDate) {
           if (markHydrationTargetReady) markHydrationTargetReady('startDate');
           return;
         }
         try {
-          state.startDate = normalized;
-          try { cacheSet && cacheSet('startDate', state.startDate); } catch (_) {}
-          if (normalized && normalized !== raw && typeof save === 'function' && (typeof getPath === 'function' ? getPath() : false)) {
-            Promise.resolve().then(() => save('startDate', normalized)).catch(() => {});
+          if (!state.startDate) {
+            state.startDate = normalized;
+            try { cacheSet && cacheSet('startDate', normalized); } catch (_) {}
+            initStart && initStart();
           }
-          ensureStartSetFromBalance && ensureStartSetFromBalance({ persist: false, refresh: false });
-          initStart && initStart();
-          renderTable && renderTable();
+          // Don't call renderTable here - let the transaction listener handle it
         } finally {
           if (markHydrationTargetReady) markHydrationTargetReady('startDate');
         }
@@ -323,7 +370,7 @@ export function createStartRealtime(ctx) {
           state.startSet = val;
           try { cacheSet && cacheSet('startSet', state.startSet); } catch (_) {}
           initStart && initStart();
-          renderTable && renderTable();
+          // Don't call renderTable here - let the transaction listener handle it
         } finally {
           if (markHydrationTargetReady) markHydrationTargetReady('startSet');
         }
@@ -334,5 +381,16 @@ export function createStartRealtime(ctx) {
     if (profileListenersRef && typeof profileListenersRef.set === 'function') {
       profileListenersRef.set(listeners);
     }
+    
+    // Final render after all listeners are attached to ensure data consistency
+    // This ensures that if Firebase has already fired its listeners before we
+    // attached them, we still render with the latest state
+    try {
+      setTimeout(() => {
+        if (typeof renderTable === 'function') {
+          renderTable();
+        }
+      }, 100);
+    } catch (_) {}
   };
 }

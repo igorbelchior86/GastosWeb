@@ -203,6 +203,7 @@ export function setupSettings(settingsModalEl) {
     const savedTheme = currentPrefs.theme || 'system';
     const currentCurrencyProfile = currentPrefs.currencyProfile || 'BR';
     
+    const version = (typeof window !== 'undefined' && window.__gastos && window.__gastos.appVersion) || 'v?';
     const listHTML = `
       <h3 class="settings-section-title">Personalização</h3>
       <div class="settings-theme-card">
@@ -228,7 +229,7 @@ export function setupSettings(settingsModalEl) {
       <h3 class="settings-section-title">Sobre</h3>
       <div class="settings-list">
         <div class="settings-item">
-          <div class="version-number">v1.4.9(b85)</div>
+          <div class="version-number">${version}</div>
         </div>
         <div class="settings-item danger">
           <button id="resetDataBtn" class="settings-cta">

@@ -50,108 +50,51 @@ export function setupPlannedModal() {
   }
 
   /**
-   * Builds the list of planned transactions grouped by date.
-   * It includes both explicitly planned transactions (future-dated
-   * operations) and projected occurrences for recurring master
-   * transactions up to 90 days ahead. Duplicate occurrences are
-   * filtered out to avoid showing the same planned item twice.
+   * Builds the list of planned transactions grouped by date, using the
+   * same expansion logic as the accordion (txByDate). This ensures the
+   * modal mirrors the accordion as the single source of truth.
    */
   function preparePlannedList() {
     if (!plannedList) return;
     plannedList.innerHTML = '';
-    const plannedByDate = {};
-    const add = (tx) => {
-      if (!tx || !tx.opDate) return;
-      const key = tx.opDate;
-      if (!plannedByDate[key]) plannedByDate[key] = [];
-      plannedByDate[key].push(tx);
-    };
+
+    // Prefer helpers exposed by main.js; fall back to local logic if absent
+    const txByDate = (window.__gastos && window.__gastos.txByDate) || null;
+    const calcRange = (window.__gastos && window.__gastos.calculateDateRange) || null;
+
     const today = typeof todayISO === 'function' ? todayISO() : new Date().toISOString().slice(0, 10);
-    const todayDate = new Date(today + 'T00:00');
-    const txs = typeof getTransactions === 'function' ? getTransactions() : transactions || [];
-    
-    const matchesActual = (candidate) => {
-      return txs.some((other) => {
-        if (!other || other === candidate) return false;
-        if (other.planned) return false;
-        if (other.opDate !== candidate.opDate) return false;
-        const sameDesc = (other.desc || '').trim() === (candidate.desc || '').trim();
-        const sameVal = Math.abs(Number(other.val || 0)) === Math.abs(Number(candidate.val || 0));
-        const sameMethod = (other.method || '') === (candidate.method || '');
-        return sameDesc && sameVal && sameMethod;
-      });
+    const startISO = today;
+    // Match previous horizon but let it be capped by app range if available
+    const daysAhead = 90;
+    const plannedByDate = {};
+    const add = (iso, tx) => {
+      if (!tx) return;
+      if (!plannedByDate[iso]) plannedByDate[iso] = [];
+      plannedByDate[iso].push(tx);
     };
-    for (const tx of txs) {
-      if (!tx || !tx.opDate) continue;
-      
-      // Include explicitly planned transactions (planned: true)
-      if (tx.planned) {
-        const txDate = new Date(tx.opDate + 'T00:00');
-        const isFuture = tx.opDate >= today;
-        const isToday = tx.opDate === today;
-        const pendingPast = txDate < todayDate && !matchesActual(tx);
-        if (isFuture || isToday || pendingPast) {
-          add(tx);
-        }
-        continue;
-      }
-      
-      // Include child transactions of recurring series that are in the future
-      // (but NOT the master transaction itself, even if it's in the future)
-      if (tx.parentId && tx.opDate >= today) {
-        add(tx);
-      }
-    }
-    // Project recurring master transactions for the next 90 days
-    const DAYS_AHEAD = 90;
-    for (const master of txs) {
-      if (!master || !master.recurrence) continue;
-      for (let i = 1; i <= DAYS_AHEAD; i++) {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
+
+    if (typeof txByDate === 'function') {
+      // Iterate from today to today + daysAhead using the same expansion
+      for (let i = 0; i <= daysAhead; i++) {
+        const d = new Date(startISO + 'T00:00:00');
         d.setDate(d.getDate() + i);
         const iso = d.toISOString().slice(0, 10);
-        const occurs = typeof occursOn === 'function' ? occursOn(master, iso)
-          : (typeof g.occursOn === 'function' ? g.occursOn(master, iso) : false);
-        if (!occurs) continue;
-        if (master.exceptions && Array.isArray(master.exceptions) && master.exceptions.includes(iso)) {
-          continue;
-        }
-        if (master.recurrenceEnd && iso >= master.recurrenceEnd) {
-          continue;
-        }
-        // Avoid duplicate planned occurrences for the same day
-        const dup = (plannedByDate[iso] || []).some(t =>
-          (t.parentId && (sameId ? sameId(t.parentId, master.id) : (g.sameId && g.sameId(t.parentId, master.id)))) ||
-          ((t.desc || '') === (master.desc || '') && (t.method || '') === (master.method || '') &&
-            Math.abs(Number(t.val || 0)) === Math.abs(Number(master.val || 0)))
-        );
-        if (dup) {
-          continue;
-        }
-        // Skip if an actual transaction exists for this date that matches the master
-        const exists = txs.some(t =>
-          t && t.opDate === iso && (
-            (t.parentId && (sameId ? sameId(t.parentId, master.id) : (g.sameId && g.sameId(t.parentId, master.id)))) ||
-            ((t.desc || '') === (master.desc || '') && (t.method || '') === (master.method || '') &&
-              Math.abs(Number(t.val || 0)) === Math.abs(Number(master.val || 0)))
-          )
-        );
-        if (exists) {
-          continue;
-        }
-        add({
-          ...master,
-          id: `${master.id || 'r'}_${iso}`,
-          parentId: master.id || null,
-          opDate: iso,
-          postDate: typeof post === 'function' ? post(iso, master.method) : (g.post && g.post(iso, master.method)),
-          planned: true,
-          recurrence: master.recurrence,
+        const list = txByDate(iso) || [];
+        list.forEach((t) => {
+          // Não listar planejadas que são gatilho/ligadas a orçamentos (possuem budgetTag)
+          if (t && t.planned === true && !t.budgetTag) add(iso, t);
         });
       }
+    } else {
+      // Fallback: approximate using raw txs if txByDate isn't available
+      const txs = typeof getTransactions === 'function' ? getTransactions() : transactions || [];
+      const todayDate = new Date(startISO + 'T00:00:00');
+      const end = new Date(todayDate);
+      end.setDate(end.getDate() + daysAhead);
+      const between = (iso) => iso >= startISO && iso <= end.toISOString().slice(0, 10);
+      txs.forEach((t) => { if (t && t.planned && !t.budgetTag && t.opDate && between(t.opDate)) add(t.opDate, t); });
     }
-    // Render grouped planned transactions
+
     const sortedDates = Object.keys(plannedByDate).sort();
     if (!sortedDates.length) {
       const empty = document.createElement('p');
@@ -161,12 +104,21 @@ export function setupPlannedModal() {
       return;
     }
     const lineFactory = getLineFactory();
+    const formatDayMonthShort = (iso) => {
+      if (!iso) return '';
+      try {
+        const d = new Date(`${iso}T00:00:00`);
+        const dd = String(d.getDate()).padStart(2, '0');
+        let mon = d.toLocaleDateString('pt-BR', { month: 'short' }) || '';
+        mon = mon.replace('.', '');
+        mon = mon ? mon.charAt(0).toUpperCase() + mon.slice(1) : '';
+        return `${dd} de ${mon}`;
+      } catch (_) { return iso; }
+    };
     for (const date of sortedDates) {
       const group = plannedByDate[date].sort((a, b) => (a.ts || '').localeCompare(b.ts || ''));
-      const dateObj = new Date(date + 'T00:00');
-      const dateLabel = dateObj.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
       const groupHeader = document.createElement('h3');
-      groupHeader.textContent = `${dateLabel.charAt(0).toUpperCase()}${dateLabel.slice(1)}`;
+      groupHeader.textContent = formatDayMonthShort(date);
       plannedList.appendChild(groupHeader);
       const list = document.createElement('ul');
       list.className = 'planned-list';

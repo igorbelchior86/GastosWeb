@@ -137,26 +137,67 @@ export async function signInWithGoogle() {
   const isIOS = /iphone|ipad|ipod/.test(ua);
   const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
                      ('standalone' in navigator && navigator.standalone);
-  const useRedirect = (standalone && !isIOS);
+  // Heuristics: prefer redirect when running as an installed PWA/service
+  // worker controlled page or when crossOriginIsolated is true. Some COOP
+  // setups block popup communication even when crossOriginIsolated is false,
+  // so service worker presence is a pragmatic signal to avoid popups.
+  const crossOriginIsolated = !!window.crossOriginIsolated;
+  const hasServiceWorkerController = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+  const useRedirect = crossOriginIsolated || hasServiceWorkerController || (standalone && !isIOS);
   const user = auth.currentUser;
   try {
+    // If offline, don't attempt popup/redirect flows which require network
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      const err = new Error('Network unavailable');
+      err.code = 'auth/network-request-failed';
+      throw err;
+    }
     if (user && user.isAnonymous) {
-      // Link anonymous session to Google to retain data
-      return await linkWithPopup(user, provider);
+      // Link anonymous session to Google to retain data. Prefer popup but
+      // fall back to redirect when popups are blocked or COOP is active.
+      try {
+        if (crossOriginIsolated) {
+          // Avoid popup in COOP contexts
+          return await linkWithRedirect(user, provider);
+        }
+        return await linkWithPopup(user, provider);
+      } catch (linkErr) {
+        console.warn('linkWithPopup failed, falling back to redirect:', linkErr);
+        try {
+          return await linkWithRedirect(user, provider);
+        } catch (redirErr) {
+          console.error('linkWithRedirect also failed', redirErr);
+          throw redirErr;
+        }
+      }
     }
-    // Use popup for iOS PWAs; fallback to redirect in other PWAs
-    if (isIOS && standalone) {
-      return await signInWithPopup(auth, provider);
-    }
+    // In COOP/service-worker/other restrictive environments avoid popups.
     if (useRedirect) {
       return await signInWithRedirect(auth, provider);
     }
+    // Otherwise attempt popup and fallback to redirect on known popup errors
+    // or internal assertion failures. Be defensive about network state.
     try {
       return await signInWithPopup(auth, provider);
     } catch (err) {
-      // Fallback to redirect when popups are blocked
-      if (err && (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/operation-not-supported-in-this-environment')) {
-        return await signInWithRedirect(auth, provider);
+      console.warn('signInWithPopup failed, attempting redirect fallback', err && (err.code || err.message));
+      const msg = err && (err.message || '');
+      const shouldFallback = (
+        err && (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/operation-not-supported-in-this-environment' || err.code === 'auth/network-request-failed')
+      ) || /Pending promise was never set|Cross-Origin-Opener-Policy/i.test(msg);
+
+      if (!navigator.onLine) {
+        // Surface network error directly
+        throw err;
+      }
+
+      if (shouldFallback) {
+        try {
+          return await signInWithRedirect(auth, provider);
+        } catch (rerr) {
+          console.error('signInWithRedirect fallback failed', rerr);
+          throw rerr;
+        }
       }
       throw err;
     }

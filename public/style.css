@@ -120,6 +120,21 @@
      borders and shadows can be customized per theme. */
   --ops-op-line-border: none;
   --ops-op-line-shadow: 0 2px 6px rgba(0,0,0,.30);
+
+  /* Premium tx modal tokens */
+  --txmodal-surface-a: rgba(20,20,22,0.88);
+  --txmodal-surface-b: rgba(20,20,22,0.72);
+  --txmodal-border: rgba(255,255,255,0.10);
+  --txmodal-radius: 24px;
+  --txmodal-shadow-1: 0 10px 28px rgba(0,0,0,0.45);
+  --txmodal-shadow-2: 0 2px 8px rgba(0,0,0,0.35);
+  --tx-field-bg: #2a2b2f;
+  --tx-field-border: rgba(255,255,255,0.10);
+  --tx-field-focus: rgba(82,186,255,0.35);
+  --tx-pill-bg: rgba(255,255,255,0.06);
+  --tx-pill-active: #1f2024;
+  --tx-btn-grad-a: #23c15a;
+  --tx-btn-grad-b: #1da851;
 }
 
 @supports (top: constant(safe-area-inset-top)) {
@@ -234,6 +249,21 @@ html[data-theme="light"] {
      operation rows in the light theme. */
   --ops-op-line-border: 1px solid rgba(0,0,0,0.06);
   --ops-op-line-shadow: 0 1px 4px rgba(0,0,0,0.10);
+
+  /* Light overrides for premium tx modal */
+  --txmodal-surface-a: #ffffff;
+  --txmodal-surface-b: #f9fafb;
+  --txmodal-border: rgba(0,0,0,0.06);
+  --txmodal-radius: 24px;
+  --txmodal-shadow-1: 0 10px 28px rgba(0,0,0,0.10);
+  --txmodal-shadow-2: 0 2px 8px rgba(0,0,0,0.06);
+  --tx-field-bg: #f3f4f6;
+  --tx-field-border: rgba(0,0,0,0.08);
+  --tx-field-focus: rgba(0,122,255,0.20);
+  --tx-pill-bg: rgba(0,0,0,0.06);
+  --tx-pill-active: #ffffff;
+  --tx-btn-grad-a: #22c55e;
+  --tx-btn-grad-b: #16a34a;
 }
 
 /* Year selector overrides remain scoped to light mode.  These
@@ -254,6 +284,16 @@ html[data-theme="light"] {
   --divider: #e0e0e0;
 }
 
+/* ===================== PANORAMA (WIDGET) ===================== */
+.panorama-content .chart-area{ position:relative; min-height:220px; }
+.panorama-content .bars{ display:grid; grid-template-columns:1fr 1fr; gap:28px; align-items:end; position:relative; height:200px; }
+.panorama-content .bars .col{ display:grid; grid-template-rows:auto 1fr auto; row-gap:12px; align-items:end; position:relative; }
+.panorama-content .bars .col .bar-value{ position:absolute; left:50%; transform:translateX(-50%); font-weight:500; color:var(--txt-main); pointer-events:none; white-space:nowrap; letter-spacing: 0.2px; }
+.panorama-content .bars .col .bar-rect{ width:72px; border-radius:10px; box-shadow:0 6px 16px rgba(0,0,0,0.25); }
+.panorama-content .bars .col.income .bar-rect{ background: linear-gradient(180deg, #5DD39E, #3ecf8e); }
+.panorama-content .bars .col.expense .bar-rect{ background: linear-gradient(180deg, #FF6B6B, #F05050); }
+.panorama-content .bars .col .bar-label{ text-align:center; font-weight:800; font-size:20px; margin-top:8px; }
+
 html[data-theme="light"] html,
 html[data-theme="light"] body {
   /* Force a light app background when the light theme is enabled.
@@ -268,6 +308,21 @@ html[data-theme="light"] body {
    light theme as well (doesn't change the dark default). */
 html[data-theme="light"] #backdrop-base {
   background-color: var(--bg-main) !important;
+}
+
+/* Disable horizontal scrolling in ALL modals */
+.bottom-modal,
+.bottom-modal-box,
+.modal-content,
+#txModal,
+#cardModal,
+#plannedModal,
+#settingsModal,
+#confirmModal,
+#yearSelectModal,
+#yearModal,
+#currencyProfileModal {
+  overflow-x: hidden !important;
 }
 
 /* Light theme: reduce bottom padding so no visible gap remains */
@@ -295,6 +350,29 @@ html[data-theme="light"] #accordion,
 html[data-theme="light"] #accordion details,
 html[data-theme="light"] details.month {
   overflow: visible !important;
+}
+
+/* Premium light theme shadows for day cards (accordion) */
+html[data-theme="light"] summary.day-summary{
+  background:#fff;
+  border:1px solid rgba(0,0,0,0.06);
+  box-shadow:0 1px 2px rgba(0,0,0,0.04);
+  transition:box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+}
+html[data-theme="light"] summary.day-summary:hover{
+  transform:translateY(-1px);
+  box-shadow:0 6px 12px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.06) !important;
+  border-color:rgba(0,0,0,0.08);
+}
+html[data-theme="light"] details.day[open] > summary.day-summary{
+  background:#fff !important;
+  border:1px solid rgba(0,0,0,0.08) !important;
+  box-shadow:0 10px 18px rgba(0,0,0,0.14), 0 3px 6px rgba(0,0,0,0.08) !important;
+}
+/* Override any global glow in light theme */
+html[data-theme="light"] summary.day-summary:hover{
+  text-shadow:none;
+  filter:none;
 }
 
 html[data-theme="light"] summary.month-divider {
@@ -438,16 +516,8 @@ html[data-theme="light"] .month-header-title::after{
 
 /* Executed block container and lines */
 html[data-theme="light"] .section-title {
-  color: var(--txt-main) !important;
-  font-weight: 700;
-}
-
-html[data-theme="light"] .executed-cash .section-title {
-  border-bottom-color: var(--green) !important;
-}
-
-html[data-theme="light"] .planned-cash .section-title {
-  border-bottom-color: var(--blue) !important;
+  color: rgba(0,0,0,0.65) !important;
+  font-weight: 600;
 }
 
 html[data-theme="light"] .executed-cash{
@@ -457,11 +527,51 @@ html[data-theme="light"] .executed-cash{
   border: 1px solid var(--divider) !important;
   box-shadow: 0 6px 18px rgba(0,0,0,0.12) !important;
 }
+html[data-theme="light"] .planned-cash{
+  background: var(--bg-card) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+          backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--divider) !important;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12) !important;
+}
 html[data-theme="light"] .executed-cash .op-line{
   background: #fff !important;
   border: 1px solid rgba(0,0,0,0.06) !important;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.10) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 1px rgba(255,255,255,0.50) inset !important;
+  border-radius: 12px !important;
   color: var(--txt-main) !important;
+  transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+}
+html[data-theme="light"] .executed-cash .op-line:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.65) inset !important;
+  border-color: rgba(0,0,0,0.08) !important;
+}
+html[data-theme="light"] .executed-cash .op-line:active{
+  transform: translateY(0);
+  box-shadow: 0 3px 6px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.65) inset !important;
+}
+
+/* Planned cards: same premium treatment as executed */
+html[data-theme="light"] .planned-cash .op-line,
+html[data-theme="light"] .planned-list li .op-line{
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,0.06) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 1px rgba(255,255,255,0.50) inset !important;
+  border-radius: 12px !important;
+  color: var(--txt-main) !important;
+  transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+}
+html[data-theme="light"] .planned-cash .op-line:hover,
+html[data-theme="light"] .planned-list li .op-line:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.65) inset !important;
+  border-color: rgba(0,0,0,0.08) !important;
+}
+html[data-theme="light"] .planned-cash .op-line:active,
+html[data-theme="light"] .planned-list li .op-line:active{
+  transform: translateY(0);
+  box-shadow: 0 3px 6px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(255,255,255,0.65) inset !important;
 }
 
 /* Fine tuning: executed items typography and value colors for light theme */
@@ -763,7 +873,7 @@ html[data-theme="light"] #currencyProfileModal .currency-profile-details {
   font-weight: 700;
   margin: 28px 0 16px 0;
   letter-spacing: -0.4px;
-  text-transform: capitalize;
+  text-transform: none; /* preserve casing for "de" */
 }
 
 #plannedModal .subheader { 
@@ -806,7 +916,8 @@ html[data-theme="light"] #currencyProfileModal .currency-profile-details {
 }
 .value-input-wrapper input {
   width: 100%;
-  padding-right: 64px;
+  /* Reserve more room for bigger +/- buttons */
+  padding-right: 100px;
 }
 .value-toggle {
   position: absolute;
@@ -815,47 +926,37 @@ html[data-theme="light"] #currencyProfileModal .currency-profile-details {
   margin: auto 0;
   right: 12px;
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
 .value-toggle button {
-  width: 36px;
-  height: 36px;
-  border: none;
-  background: rgba(255,255,255,0.2);
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.12);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 50%;
   color: #fff;
-  font-size: 0.9em;
+  font-size: 1rem;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform .12s ease, filter .12s ease, background .12s ease, border-color .12s ease;
+  outline: none;
+  -webkit-tap-highlight-color: transparent; /* iOS: remove square tap flash */
+  appearance: none;
+  -webkit-appearance: none;
+  touch-action: manipulation;
 }
+.value-toggle button:focus { outline: none; box-shadow: none; }
+.value-toggle button::-moz-focus-inner { border: 0; }
 
 /* Desbotar botões não ativos e glow para o ativo */
-.value-toggle button:not(.active) {
-  opacity: 0.3;
-}
+.value-toggle button:not(.active) { opacity: .85; }
 
-.value-toggle button.active[data-type="expense"] {
-  box-shadow: 0 0 8px rgba(255, 0, 0, 0.6);
-}
-
-.value-toggle button.active[data-type="income"] {
-  box-shadow: 0 0 8px rgba(0, 255, 0, 0.6);
-}
-
-.value-toggle button[data-type="expense"] {
-  background: rgba(255, 0, 0, 0.2);
-}
-.value-toggle button[data-type="income"] {
-  background: rgba(0, 255, 0, 0.2);
-}
-.value-toggle button.active[data-type="expense"] {
-  background: rgba(255, 0, 0, 0.5);
-}
-.value-toggle button.active[data-type="income"] {
-  background: rgba(0, 255, 0, 0.5);
-}
+.value-toggle button[data-type="expense"] { background: rgba(220,38,38,0.18); border-color: rgba(220,38,38,0.28); }
+.value-toggle button[data-type="income"]  { background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.28); }
+.value-toggle button.active[data-type="expense"] { background: #dc2626; border-color: #b91c1c; filter: drop-shadow(0 6px 14px rgba(220,38,38,.4)); }
+.value-toggle button.active[data-type="income"]  { background: #22c55e; border-color: #16a34a; filter: drop-shadow(0 6px 14px rgba(34,197,94,.38)); }
 /* Method pill-switch */
 .method-switch {
   position: relative;
@@ -1296,7 +1397,7 @@ input,select,textarea{font-size:16px!important;box-sizing:border-box;}
 }
 
 /* ==== Category icons (monocromáticos via mask-image) ==== */
-.icon-card{mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M3 4h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v2h18V8H3zm0 6v2h6v-2H3z"/></svg>');-webkit-mask-image:inherit;}
+.icon-card{mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M3 4h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v2h18V8H3zm0 6v2h6v-2H3z"/></svg>');-webkit-mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M3 4h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v2h18V8H3zm0 6v2h6v-2H3z"/></svg>');}
 .icon-transporte{mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M5 11l1-5a3 3 0 0 1 3-2h6a3 3 0 0 1 3 2l1 5v6a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H7v1a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6zm3 6a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm8 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg>');-webkit-mask-image:inherit;}
 .icon-moradia{mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3l9 8h-3v9h-4v-5H10v5H6v-9H3l9-8z"/></svg>');-webkit-mask-image:inherit;}
 .icon-saude{mask-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M21 8a7 7 0 0 0-13.9-1H3v14h18V8h-0zM13 6h2v3h3v2h-3v3h-2v-3h-3V9h3V6z"/></svg>');-webkit-mask-image:inherit;}
@@ -1316,10 +1417,20 @@ input,select,textarea{font-size:16px!important;box-sizing:border-box;}
   display:inline-block;
   width:24px;
   height:24px;
-  vertical-align:-2px;
-  background:#fff;                       /* icon colour */
-  mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M8 2h8l-1.5 3H9.5L8 2z"/><path fill="white" d="M7 6h10v2H7z"/><path fill="white" d="M12 22c-4.5 0-8-3.3-8-7.5C4 11 6.2 9 9 8.2V8a3 3 0 016 0v.2c2.8.8 5 2.8 5 6.3C20 18.7 16.5 22 12 22z"/><path fill="white" d="M12 11.5c-1.1 0-2 .9-2 2h-1v1h1v1H9v1h1a2 2 0 004 0c0-1.1-.9-2-2-2h-1v-1h1a1 1 0 000-2z"/></svg>') no-repeat center/contain;
-  -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="white" d="M8 2h8l-1.5 3H9.5L8 2z"/><path fill="white" d="M7 6h10v2H7z"/><path fill="white" d="M12 22c-4.5 0-8-3.3-8-7.5C4 11 6.2 9 9 8.2V8a3 3 0 016 0v.2c2.8.8 5 2.8 5 6.3C20 18.7 16.5 22 12 22z"/><path fill="white" d="M12 11.5c-1.1 0-2 .9-2 2h-1v1h1v1H9v1h1a2 2 0 004 0c0-1.1-.9-2-2-2h-1v-1h1a1 1 0 000-2z"/></svg>') no-repeat center/contain;
+  background:#fff; /* icon colour */
+  /* Banknote outline + dollar stroke (works well as mask at 18–24px) */
+  mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+    <rect x="3" y="6" width="18" height="12" rx="2" ry="2" fill="none" stroke="white" stroke-width="2"/>\
+    <path d="M12 8c-1.8 0-3 .8-3 2 0 1.2 1.2 1.7 3 2 1.8.3 3 .8 3 2s-1.2 2-3 2-3-.8-3-2" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>\
+    <line x1="12" y1="7" x2="12" y2="9" stroke="white" stroke-width="2" stroke-linecap="round"/>\
+    <line x1="12" y1="15" x2="12" y2="17" stroke="white" stroke-width="2" stroke-linecap="round"/>\
+  </svg>') no-repeat center/contain;
+  -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+    <rect x="3" y="6" width="18" height="12" rx="2" ry="2" fill="none" stroke="white" stroke-width="2"/>\
+    <path d="M12 8c-1.8 0-3 .8-3 2 0 1.2 1.2 1.7 3 2 1.8.3 3 .8 3 2s-1.2 2-3 2-3-.8-3-2" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>\
+    <line x1="12" y1="7" x2="12" y2="9" stroke="white" stroke-width="2" stroke-linecap="round"/>\
+    <line x1="12" y1="15" x2="12" y2="17" stroke="white" stroke-width="2" stroke-linecap="round"/>\
+  </svg>') no-repeat center/contain;
 }
 
 /* —— STATUS ICONES ————————————————————— */
@@ -1507,8 +1618,28 @@ summary.day-summary .icon-invoice::before{
   -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M7 2h2v2h6V2h2v2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V2zm12 8H5v10h14V10zM7 8h10V6H7v2z"/></svg>') no-repeat center / 100%;
 }
 .header-seg .seg-option.icon-creditcard::before{
-  mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M3 4h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v2h18V8H3zm0 6v2h6v-2H3z"/></svg>') no-repeat center / 100%;
-  -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M3 4h18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 4v2h18V8H3zm0 6v2h6v-2H3z"/></svg>') no-repeat center / 100%;
+  /* Panorama icon: 4 bars only (medium, tall, shorter, very tall) */
+  width: 28px; height: 28px;
+  mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+    <g fill="white">\
+      <!-- medium -->\
+      <rect x="4"  y="11" width="3.5" height="9"  rx="1"/>\
+      <!-- tall -->\
+      <rect x="9"  y="6"  width="3.5" height="14" rx="1"/>\
+      <!-- shorter -->\
+      <rect x="14" y="13" width="3.5" height="7"  rx="1"/>\
+      <!-- very tall -->\
+      <rect x="19" y="3.5" width="3.5" height="16.5" rx="1"/>\
+    </g>\
+  </svg>') no-repeat center / 100%;
+  -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">\
+    <g fill="white">\
+      <rect x="4"  y="11" width="3.5" height="9"  rx="1"/>\
+      <rect x="9"  y="6"  width="3.5" height="14" rx="1"/>\
+      <rect x="14" y="13" width="3.5" height="7"  rx="1"/>\
+      <rect x="19" y="3.5" width="3.5" height="16.5" rx="1"/>\
+    </g>\
+  </svg>') no-repeat center / 100%;
 }
 
 /* esconder os botões antigos sem quebrar JS */
@@ -1684,6 +1815,9 @@ summary.day-summary .icon-invoice::before{
   -webkit-backdrop-filter: blur(16px) saturate(140%);
 }
 
+/* Ensure confirm-delete modal always stacks above other sheets (e.g., Panorama) */
+#confirmDeleteModal.bottom-modal { z-index: 2000 !important; }
+
 /* Caixa do modal: vidro escuro com leve textura/gradiente */
 /* For the primary bottom sheet modals (transactions, cards, planned items
    and recurrence confirmation), override the sheet variables instead of
@@ -1849,6 +1983,8 @@ html[data-theme="light"] #startGroup .start-input-row #setStartBtn{
 #accordion details[open] .month-summary::before{transform:rotate(90deg);} 
 #accordion .day-summary{display:flex;align-items:center;padding:10px 0;text-align:left;width:100%;}
 #accordion .day-summary>span:last-child{margin-left:auto;}
+#accordion details .acc-body{ overflow:hidden; }
+#accordion details.day .acc-body { padding-left: 0; }
 #accordion .operations{padding-left:16px;margin-bottom:8px;position:relative;}
 
 /* Day card */
@@ -1875,27 +2011,57 @@ summary.day-summary::before{
 }
 
 .details.day[open] > summary.day-summary,
-summary.day-summary.active{border:2px solid var(--green);background:rgba(42,42,44,.9);} 
+summary.day-summary.active{
+  /* Neutral open state: no neon border or glow */
+  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--glass-bg);
+}
 
 /* Indicador rotacionado */
 details.day[open] > summary.day-summary::before{transform:rotate(90deg);} 
 details.day:not([data-has="true"]) > summary.day-summary::before{visibility:hidden;}
 summary.day-summary > span:first-child{font-weight:400!important;letter-spacing:-.2px;font-size:12pt;color:#E0FFE0;}
-summary.day-summary .day-balance, summary.day-summary > span:last-child{font-family:'SF Pro Display',sans-serif;font-weight:600;font-size:12pt;color:#E0FFE0;white-space:nowrap;}
+summary.day-summary .right-col{ position:relative; display:flex; align-items:center; height:100%; margin-left:auto; }
+summary.day-summary .day-balance{font-family:'SF Pro Display',sans-serif;font-weight:600;font-size:12pt;color:var(--txt-main);white-space:nowrap;}
+/* Premium negative color for projected balance */
+summary.day-summary .day-balance.neg{ color: var(--red) !important; }
+/* Light theme: use a slightly deeper red for readability */
+html[data-theme="light"] summary.day-summary .day-balance.neg{ color:#DC2626 !important; }
+/* Light theme accessibility: add a subtle high‑contrast pill for negative values
+   so it pops even for users with color‑vision deficiencies. */
+html[data-theme="light"] summary.day-summary .day-balance.neg{
+  color: #B91C1C !important;            /* deeper red for contrast */
+  background: #FEE2E2;                  /* red‑50 */
+  border: 1px solid #FECACA;            /* red‑200 */
+  border-radius: 999px;
+  padding: 2px 8px;
+  line-height: 1.2;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+summary.day-summary .day-sub{position:absolute; right:0; bottom:6px; font-size:11px;color:var(--timestamp); opacity:.9; white-space:nowrap;}
 
 details.day{border:none!important;border-radius:0!important;padding-left:8px!important;margin:12px 0!important;background:transparent!important;}
 details.day.today summary.day-summary{width:calc(100% - 24px)!important;margin:4px 12px 4px 0!important;padding:8px 12px!important;background:linear-gradient(135deg,rgba(255,255,255,.12) 0%,rgba(255,255,255,.06) 100%)!important;border:4px solid #fff;border-radius:12px!important;box-shadow:0 0 12px 2px rgba(255,255,255,.4);} 
-details.day.negative summary.day-summary{width:calc(100% - 24px)!important;margin:4px 12px 4px 0!important;padding:8px 12px!important;background:var(--glass-bg)!important;box-shadow:0 0 8px 0 rgba(255,64,64,.6)!important;border:2px solid rgba(255,64,64,.5);border-radius:6px!important;}
+/* Neutralize negative-day highlight: keep standard card visuals */
+details.day.negative summary.day-summary{
+  width: calc(100% - 24px) !important;
+  margin: 4px 12px 4px 0 !important;
+  padding: 8px 12px !important;
+  background: var(--glass-bg) !important;
+  box-shadow: none !important;      /* remove red glow */
+  border: none !important;          /* remove red border */
+  border-radius: 6px !important;    /* keep soft rounding */
+}
 
 /* Light theme: mirror the red negative highlight for day headers */
+/* Light theme: also neutralize negative-day highlight */
 html[data-theme="light"] details.day.negative summary.day-summary{
   width: calc(100% - 24px) !important;
   margin: 4px 12px 4px 0 !important;
   padding: 8px 12px !important;
   background: var(--bg-card) !important;
-  /* stronger blood-red highlight for negative days on light bg */
-  box-shadow: 0 0 10px 0 rgba(153, 27, 27, 0.50) !important; /* #991b1b @ 50% */
-  border: 2px solid #991b1b !important;
+  box-shadow: none !important;   /* remove red glow */
+  border: none !important;       /* remove red border */
   border-radius: 6px !important;
 }
 
@@ -1938,9 +2104,25 @@ html[data-theme="light"] details.day[data-has="true"] > summary.day-summary{
   box-shadow: 0 6px 18px rgba(0,0,0,0.06), 0 0 10px rgba(31,111,72,0.06) !important;
 }
 
+/* Light theme — give empty days (sem transações) a aparência premium permanente */
+html[data-theme="light"] details.day:not([data-has="true"]) > summary.day-summary{
+  background:#fff !important;
+  border:1px solid rgba(0,0,0,0.06) !important;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04) !important;
+  color:#6b7280 !important; /* cinza médio para título */
+}
+
 html[data-theme="light"] summary.day-summary:hover{
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 12px rgba(31,111,72,0.08) !important;
+}
+
+/* Ensure ALL day cards in light theme have a premium baseline even when empty/not-open */
+html[data-theme="light"] summary.day-summary{
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,0.06) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+  color: #444 !important;
 }
 
 /* ensure the rotated/open state triangle stays visible and colored */
@@ -1952,9 +2134,10 @@ html[data-theme="light"] details.day[open] > summary.day-summary::before{
 /* Replicate the dark-mode 'open' glow for day headers but toned for light bg */
 html[data-theme="light"] details.day[open] > summary.day-summary,
 html[data-theme="light"] summary.day-summary.active{
-  border: 2px solid rgba(31,111,72,0.14) !important;
+  /* Neutral open state in light theme */
+  border: 1px solid rgba(0,0,0,0.08) !important;
   background: var(--bg-card) !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 22px rgba(31,111,72,0.12) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08) !important;
 }
 
 /* Slightly stronger glow when the open summary is hovered (keeps interaction feedback) */
@@ -2009,24 +2192,17 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
 .sticky-month.visible{opacity:1;visibility:visible;pointer-events:auto;}
 
 /* ===================== EXECUTADOS / PLANEJADOS BLOCKS ===================== */
+/* Unified day section header (eyebrow style) */
+.day-section { margin: 10px 0 8px; }
 .section-title {
   font-weight: 600;
-  font-size: 11pt;
-  color: #fff;
-  margin: 0 0 8px 0;
-  padding: 0 4px;
-  font-family: 'SF Pro Display', system-ui, sans-serif;
-  letter-spacing: 0.3px;
-  padding-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.75);
+  margin: 0 2px 4px;
 }
-
-.executed-cash .section-title {
-  border-bottom: 1px solid var(--green);
-}
-
-.planned-cash .section-title {
-  border-bottom: 1px solid var(--blue);
-}
+html[data-theme="light"] .section-title { color: rgba(0,0,0,0.65); }
 
 .executed-cash{
   padding:14px 10px;
@@ -2035,7 +2211,17 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   -webkit-backdrop-filter:blur(30px) saturate(180%);
   border-radius:12px;
   box-shadow:inset 0 0 0 1px #FFFFFF1A, 0 6px 20px rgba(0,0,0,.45);
-  margin:10px 0 8px;
+  margin:8px 0 8px;
+}
+.executed-cash:active, .planned-cash:active { transform: scale(0.99); transition: transform .12s ease; }
+.planned-cash{
+  padding:14px 10px;
+  background:var(--glass-bg);
+  backdrop-filter:blur(30px) saturate(180%);
+  -webkit-backdrop-filter:blur(30px) saturate(180%);
+  border-radius:12px;
+  box-shadow:inset 0 0 0 1px #FFFFFF1A, 0 6px 20px rgba(0,0,0,.45);
+  margin:8px 0 8px;
 }
 .executed-header,.planned-header{
   font-weight:700;
@@ -2059,18 +2245,17 @@ details.month > summary:not(.month-divider),details.month > .month-meta{display:
   gap:2px;
   height:64px;
   padding:0 10px;
-  /* Use tokens for operation line styles so light/dark themes share the same rule.
-     The colors and backgrounds are defined by --ops-* variables. */
-  background: var(--ops-op-line-bg);
-  border-radius:8px;
-  border: var(--ops-op-line-border);
-  box-shadow: var(--ops-op-line-shadow);
+  /* Lines dentro de containers não devem parecer novos cards */
+  background: transparent;
+  border-radius: 8px;
+  border: 0;
+  box-shadow: none;
   color: var(--ops-value-color);
 }
 .op-main{
   display:flex;
   justify-content:space-between;
-  align-items:center;
+  align-items:flex-start; /* align columns to top (line 1) */
   gap:12px;
   flex-wrap:nowrap;
   width:100%;
@@ -2109,16 +2294,22 @@ html[data-theme="light"] .op-left .left-title .invoice-payment-badge{
 }
 .executed-cash .op-right{
   display:flex;
-  align-items:center;
+  align-items:flex-start; /* align value with first line (title) */
   gap:16px;
   margin-left:auto;
   flex:0 0 auto;
 }
+/* Fine-tune vertical alignment of value to the first row */
+.swipe-wrapper .op-line .op-right{ margin-top: 0; }
+.swipe-wrapper .op-line[data-planned="1"] .plan-check{ align-self:flex-start; margin-top: 2px; }
 .executed-cash .op-right .value{
   font-weight:600;
   font-size:10pt;
   /* Use token for default value color; specific negative/positive classes override */
   color: var(--ops-value-color);
+  min-width: 96px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Checkbox (planejados) */
@@ -2216,7 +2407,60 @@ html[data-theme="light"] .op-left .left-title .invoice-payment-badge{
 .planned-list .op-right .value{
   font-weight:600;  /* match Executados default */
   font-size:10pt;   /* match Executados */
+  min-width: 96px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
+
+/* Divisores internos entre linhas */
+.executed-list li + li .op-line,
+.planned-list  li + li .op-line {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 10px;
+  /* Preserve card visual: keep the same rounded corners as the first item */
+  border-radius: var(--swipe-op-radius);
+}
+html[data-theme="light"] .executed-list li + li .op-line,
+html[data-theme="light"] .planned-list  li + li .op-line {
+  border-top-color: rgba(0,0,0,0.06);
+}
+
+/* Inside invoice groups we render explicit separators (invoice-divider).
+   Suppress the generic list border to avoid a faded duplicate line above items. */
+.invoice .executed-list li + li .op-line { border-top: none !important; padding-top: 6px; }
+html[data-theme="light"] .invoice .executed-list li + li .op-line { border-top: none !important; }
+
+/* Valor negativo/positivo sem gradiente dentro das seções */
+.executed-cash .op-right .value.negative,
+.planned-list  .op-right .value.negative { 
+  color: var(--red) !important; 
+  background: transparent !important; 
+  -webkit-background-clip: initial !important; 
+  background-clip: initial !important; 
+  -webkit-text-fill-color: initial !important; 
+}
+.executed-cash .op-right .value.positive,
+.planned-list  .op-right .value.positive { 
+  color: var(--green-soft) !important; 
+  background: transparent !important; 
+  -webkit-background-clip: initial !important; 
+  background-clip: initial !important; 
+  -webkit-text-fill-color: initial !important; 
+}
+
+/* Checkbox dos planejados (accordion) com micro-efeito */
+.planned-list .plan-check {
+  width: 22px; height: 22px; border-radius: 6px; transition: transform .12s ease;
+}
+.planned-list .plan-check:active { transform: scale(0.96); }
+.planned-list .plan-check:checked::after {
+  content: '✓'; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  color:#fff; font-size:12px; font-weight:600; line-height:1;
+}
+
+/* Align second line (date/tag/badge) with the start of the title
+   by offsetting the width of the method icon + its gap (18px + 8px). */
+.op-left .sub-row{ padding-left: 0; }
 .planned-list .op-left .icon-repeat{
   margin-left:4px;      /* tighter gap from checkbox */
   margin-right:0;
@@ -2372,6 +2616,10 @@ html[data-theme="light"] .op-left .left-title .invoice-payment-badge{
 
 #plannedModal .swipe-actions .icon-action {
   background-color: #fff !important;
+}
+/* In tema claro, ícones escuros para visibilidade */
+html[data-theme="light"] #plannedModal .swipe-actions .icon-action{
+  background-color:#111 !important;
 }
 
 /* O sistema de swipe controla opacity e transform via JS inline - remover conflitos CSS */
@@ -2534,6 +2782,8 @@ details.invoice[open] > summary::after{
   font-weight: 600;
   font-size: 10pt;
   text-align: right;
+  min-width: 96px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- ALIGNMENTS INSIDE CARD INVOICE OPERATIONS ---------------------------------- */
@@ -2661,6 +2911,21 @@ html[data-theme="light"] .invoice .invoice-group-date{ color: #111; }
   opacity: 1;
 }
 
+/* ============== Accordion lazy-loading placeholder ============== */
+.month-lazy-placeholder{ padding: 6px 0; }
+.month-lazy-placeholder .lazy-loading{
+  height: 64px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.05) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.1s linear infinite;
+  margin: 6px 0 2px;
+}
+html[data-theme="light"] .month-lazy-placeholder .lazy-loading{
+  background: linear-gradient(90deg, rgba(0,0,0,0.06) 0%, rgba(0,0,0,0.12) 50%, rgba(0,0,0,0.06) 100%);
+}
+@keyframes shimmer{ 0%{ background-position: 200% 0; } 100%{ background-position: -200% 0; } }
+
 /* ===================== SETTINGS (Ajustes) ===================== */
 .sheet-modal {
   top: calc(80px + constant(safe-area-inset-top));
@@ -2674,6 +2939,8 @@ html[data-theme="light"] .invoice .invoice-group-date{ color: #111; }
   min-height: calc(100vh - (80px + env(safe-area-inset-top)) - var(--modal-bottom-gap, 0px) - 24px);
   max-height: calc(100vh - (80px + constant(safe-area-inset-top)) - var(--modal-bottom-gap, 0px) - 24px);
   max-height: calc(100vh - (80px + env(safe-area-inset-top)) - var(--modal-bottom-gap, 0px) - 24px);
+  /* Unify scrolling within sheets: the sheet itself is the sole scroller */
+  overflow: auto;
 }
 
 #settingsModal .modal-content {
@@ -3138,6 +3405,119 @@ html[data-theme="light"] .invoice .invoice-group-date{ color: #111; }
   padding: 0;
   display: flex;
   flex-direction: column;
+  position: relative;        /* anchor budget autocomplete panel */
+  overflow-x: visible;       /* allow dropdown to overflow horizontally */
+  overflow-y: auto;          /* preserve vertical scrolling inside modal */
+}
+
+/* ===================== Premium look for Transaction Modal (visual-only) ===================== */
+#txModal .bottom-modal-box {
+  /* Match Panorama look & translucency */
+  --sheet-bg: var(--glass-bg-light);
+  --sheet-border: 1px solid rgba(255,255,255,0.08);
+  --sheet-shadow: inset 0 0 0 1px #FFFFFF1A, 0 6px 20px rgba(0,0,0,0.45);
+  --sheet-radius: 20px;
+}
+
+/* Planned modal: match Panorama perceived translucency (light glass) */
+#plannedModal .bottom-modal-box {
+  --sheet-bg: var(--glass-bg-light);
+  --sheet-border: 1px solid rgba(255,255,255,0.08);
+  --sheet-shadow: inset 0 0 0 1px #FFFFFF1A, 0 6px 20px rgba(0,0,0,0.45);
+  --sheet-radius: 20px;
+}
+
+/* Field cards */
+#txModal .form-grid input,
+#txModal .form-grid select,
+#txModal input[type="date"] {
+  background: var(--tx-field-bg) !important;
+  border: 1px solid var(--tx-field-border) !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25) !important;
+  color: var(--txt-main);
+}
+#txModal .form-grid input:focus,
+#txModal .form-grid select:focus,
+#txModal input[type="date"]:focus {
+  outline: none;
+  /* Draw the focus ring inside the field to avoid clipping by sheet overflow */
+  box-shadow: inset 0 0 0 2px var(--tx-field-focus) !important;
+  background: var(--tx-field-bg) !important;
+}
+#txModal ::placeholder { color: rgba(255,255,255,0.65); opacity: 1; }
+html[data-theme="light"] #txModal ::placeholder { color: #6b7280; }
+
+/* Unified segmented styling */
+#txModal .method-switch {
+  background: var(--tx-pill-bg);
+  border: 1px solid var(--tx-field-border);
+  padding: 6px;
+  border-radius: 16px;       /* alinhar com os demais campos */
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+#txModal .method-switch .switch-highlight {
+  background: var(--tx-pill-active);
+  box-shadow: inset 0 0 0 1px var(--txmodal-border);
+  left: 0;
+  width: 50%;
+  border-radius: 12px;      /* um pouco menor que o container */
+}
+#txModal .method-switch .switch-option {
+  color: rgba(255,255,255,0.85);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+/* Ensure icons inherit text color and look crisp in both themes */
+#txModal .method-switch .switch-option .icon-action { width: 18px; height: 18px; background-color: currentColor !important; filter: none; }
+html[data-theme="light"] #txModal .method-switch .switch-option { color: #111; }
+
+/* Value +/-: no bubble, larger touch targets, vibrant colors */
+#txModal .value-toggle { right: 12px; gap: 10px; background: transparent; border: 0; padding: 0; border-radius: 0; }
+#txModal .value-toggle button { width: 40px; height: 40px; border-radius: 50%; }
+#txModal .value-toggle button:not(.active) { opacity: .9; }
+#txModal .value-toggle button.active[data-type="expense"] { background: #dc2626; border-color: #b91c1c; filter: drop-shadow(0 6px 14px rgba(220,38,38,.4)); }
+#txModal .value-toggle button.active[data-type="income"]  { background: #22c55e; border-color: #16a34a; filter: drop-shadow(0 6px 14px rgba(34,197,94,.38)); }
+html[data-theme="light"] #txModal .value-toggle { border: 0; }
+
+/* Paid toggle (visual only) */
+.segmented { display: grid; grid-auto-flow: column; gap: 8px; padding: 6px; border-radius: 999px; background: var(--tx-pill-bg); border: 1px solid var(--tx-field-border); }
+.segmented .seg-option { border: 0; background: transparent; color: rgba(255,255,255,0.85); padding: 10px 14px; border-radius: 999px; transition: background .12s ease, color .12s ease; }
+.segmented .seg-option.active { background: var(--tx-pill-active); color: #fff; box-shadow: inset 0 0 0 1px var(--txmodal-border); }
+html[data-theme="light"] .segmented .seg-option { color: #111; }
+html[data-theme="light"] .segmented .seg-option.active { color: #111; }
+/* Disabled state for paid-toggle */
+.segmented.disabled { opacity: .6; pointer-events: none; }
+
+/* Paid toggle highlight animation (match method-switch) */
+#txModal .paid-toggle { position: relative; overflow: hidden; }
+#txModal .paid-toggle .switch-highlight {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 50%;
+  background: var(--tx-pill-active); box-shadow: inset 0 0 0 1px var(--txmodal-border);
+  border-radius: inherit; will-change: transform;
+  transition: transform .3s cubic-bezier(.5,1.5,.5,1);
+  z-index: 0;
+}
+#txModal .paid-toggle .seg-option { position: relative; z-index: 1; }
+#txModal .paid-toggle[data-state="planned"] .switch-highlight { transform: translateX(100%); }
+/* Remove the small pill on active state for paid-toggle: rely only on sliding highlight */
+#txModal .paid-toggle .seg-option { color: var(--txt-main); }
+#txModal .paid-toggle .seg-option.active { background: transparent; box-shadow: none; color: var(--txt-main); }
+html[data-theme="light"] #txModal .paid-toggle .seg-option { color: #111; }
+html[data-theme="light"] #txModal .paid-toggle .seg-option.active { color: #111; }
+
+#txModal .paid-field { margin-top: 6px; }
+#txModal .field-label { display: block; font-weight: 700; font-size: .95rem; color: var(--txt-main); margin: 2px 0 6px; opacity: .9; }
+#txModal .field-help { margin: 6px 8px 0; font-size: .85rem; color: var(--txt-muted); }
+
+/* CTA premium */
+#txModal #addBtn {
+  background: linear-gradient(180deg,var(--tx-btn-grad-a),var(--tx-btn-grad-b));
+  border: 0;
 }
 
 #txModal .form-grid {
@@ -3255,6 +3635,8 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
   color: #fff;
   font-size: 1rem;
   cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.06);
+  transition: background .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
 #cardSelector input[type="radio"] {
   appearance: none;
@@ -3273,6 +3655,18 @@ select,input[type="date"]{-webkit-appearance:none;-moz-appearance:none;appearanc
   background-color: var(--blue);
   border-color: var(--blue);
 }
+/* Inner dot and stronger label highlight on selection */
+#cardSelector input[type="radio"]:checked::after{
+  content:""; position:absolute; inset:4px; background:#fff; border-radius:50%;
+}
+#cardSelector label:has(input[type="radio"]:checked){
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.08);
+}
+html[data-theme="light"] #cardSelector label{ background:#f3f4f6; color:#111; border-color: rgba(0,0,0,0.08); }
+html[data-theme="light"] #cardSelector label:has(input[type="radio"]:checked){ background:#ffffff; border-color: rgba(0,0,0,0.28); box-shadow: 0 8px 18px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(0,0,0,0.06); }
+html[data-theme="light"] #cardSelector input[type="radio"]:checked{ background-color:#16a34a; border-color:#16a34a; }
 
 /* Field sizing */
 .bottom-modal-box input#value {
@@ -3668,6 +4062,13 @@ html[data-theme="light"] #cardModal .card-label{ color:#4b5563; }
 html[data-theme="light"] #cardModal .card-value{ color:#111; }
 html[data-theme="light"] #cardModal .card-content b{ color:#111; }
 
+/* Dark theme: empty state text inside Card modal */
+#cardModal .card-empty{
+  color: rgba(255,255,255,0.85);
+  text-align: center;
+  margin: 12px 0;
+}
+
 /* ===================== LIGHT THEME — PLANNED MODAL ===================== */
 /* ===================== LIGHT THEME — CONFIRM MOVE MODAL ===================== */
 html[data-theme="light"] #confirmMoveModal .bottom-modal-box{
@@ -3714,6 +4115,23 @@ html[data-theme="light"] #confirmResetModal #confirmResetText{ color:#111 !impor
 html[data-theme="light"] #confirmResetModal #confirmResetYes{ background:#ef4444; color:#fff; border:1px solid rgba(0,0,0,0.06); }
 html[data-theme="light"] #confirmResetModal #confirmResetNo{ background:#fff; color:#6b7280; border:1px solid rgba(0,0,0,0.06); }
 
+/* ===================== LIGHT THEME — CONFIRM DELETE MODAL ===================== */
+html[data-theme="light"] #confirmDeleteModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.88) 60%), rgba(255,255,255,0.88) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.10);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.16);
+}
+html[data-theme="light"] #confirmDeleteModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #confirmDeleteModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #confirmDeleteModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #confirmDeleteModal .modal-drag{ background:#d0d0d0; }
+html[data-theme="light"] #confirmDeleteModal #deleteMessage{ color:#111 !important; text-shadow:none; }
+/* Primary/secondary buttons */
+html[data-theme="light"] #confirmDeleteModal #confirmDeleteYes{ background:#ef4444; color:#fff; border:1px solid rgba(0,0,0,0.06); }
+html[data-theme="light"] #confirmDeleteModal #confirmDeleteNo{ background:#fff; color:#6b7280; border:1px solid rgba(0,0,0,0.06); }
+
 
 /* ===================== LIGHT THEME — DELETE RECURRENCE MODAL ===================== */
 html[data-theme="light"] #deleteRecurrenceModal .bottom-modal-box{
@@ -3753,6 +4171,13 @@ html[data-theme="light"] #plannedModal h2{ color:#111; text-shadow:none; }
 html[data-theme="light"] #plannedModal .modal-close-btn{ color:#111; opacity:.7; }
 html[data-theme="light"] #plannedModal .modal-close-btn:hover{ opacity:1; }
 html[data-theme="light"] #plannedModal .modal-drag{ background:#cfcfcf; }
+/* Light theme overrides for Budget Edit modals */
+html[data-theme="light"] #budgetEditModal .modal-close-btn,
+html[data-theme="light"] #budgetRecurringModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #budgetEditModal .modal-close-btn:hover,
+html[data-theme="light"] #budgetRecurringModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #budgetEditModal .modal-drag,
+html[data-theme="light"] #budgetRecurringModal .modal-drag{ background:#cfcfcf; }
 
 /* Headings and day labels */
 html[data-theme="light"] #plannedModal .subheader,
@@ -3781,6 +4206,19 @@ html[data-theme="light"] #plannedModal .planned-list .op-left input.plan-check:c
   background: var(--blue);
   border-color: var(--blue);
 }
+
+/* ===================== LIGHT THEME — PANORAMA MODAL ===================== */
+html[data-theme="light"] #panoramaModal .bottom-modal-box{
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.80) 60%), rgba(255,255,255,0.80) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] #panoramaModal h2{ color:#111; text-shadow:none; }
+html[data-theme="light"] #panoramaModal .modal-close-btn{ color:#111; opacity:.7; }
+html[data-theme="light"] #panoramaModal .modal-close-btn:hover{ opacity:1; }
+html[data-theme="light"] #panoramaModal .modal-drag{ background:#cfcfcf; }
 
 /* Values: flat colors (override gradient text) */
 html[data-theme="light"] #plannedModal .planned-list .op-right .value{ color:#111; background:none; -webkit-text-fill-color: initial; font-weight:700; }
@@ -3911,7 +4349,7 @@ details.day:not([open]) > .invoice{animation:fadeSlideOut .5s ease-in;}
 
 .day-title{font-weight:400;letter-spacing:-.2px;}
 .day-value{font-weight:600;}
-summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55), 0 0 12px #00FF0080;}
+summary.day-summary:hover{box-shadow:0 8px 24px rgba(0,0,0,.55);} 
 
 
 /* Modal Cartões: keep original card-list layout with swipe underneath */
@@ -4288,5 +4726,53 @@ html[data-theme="dark"] .year-indicator {
   .month-meta .skeleton-pill {
     animation: none !important;
     background-size: 100% 100% !important;
+  }
+}
+/* Monochrome SVG icons using CSS mask (matches app icon style) */
+/* Drop pseudo-element mask approach: use existing icon classes */
+
+/* ===================== PREMIUM MODAL ANIMATIONS ===================== */
+@keyframes modalEnterPremium {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.95);
+    backdrop-filter: blur(0px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    backdrop-filter: blur(20px) saturate(160%);
+  }
+}
+
+@keyframes modalExitPremium {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    backdrop-filter: blur(20px) saturate(160%);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.95);
+    backdrop-filter: blur(0px);
+  }
+}
+
+/* Aplicar animações ao abrir/fechar modais */
+.bottom-modal-box:not(.hidden) {
+  animation: modalEnterPremium 0.45s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+.bottom-modal-box.hidden {
+  animation: modalExitPremium 0.35s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+/* Respeitar preferência de movimento reduzido */
+@media (prefers-reduced-motion: reduce) {
+  .bottom-modal-box:not(.hidden),
+  .bottom-modal-box.hidden {
+    animation: none !important;
+    transform: scale(1) translateY(0) !important;
+    opacity: 1 !important;
   }
 }

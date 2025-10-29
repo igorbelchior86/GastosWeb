@@ -34,8 +34,6 @@ export async function hydratePreferences(config = {}) {
     // Load preferences from storage (only localStorage during hydration)
     const prefs = await preferenceService.load();
     
-    console.log('[PreferenceHydration] Loaded preferences:', prefs);
-    
     // Apply theme to document immediately (before any render)
     if (prefs.theme) {
       applyThemePreference(prefs.theme);
@@ -43,7 +41,6 @@ export async function hydratePreferences(config = {}) {
     
     // Apply currency profile
     if (prefs.currencyProfile) {
-      console.log('[PreferenceHydration] Applying currency profile from hydration:', prefs.currencyProfile);
       applyCurrencyProfile(prefs.currencyProfile, { persist: false });
     }
     
@@ -51,7 +48,6 @@ export async function hydratePreferences(config = {}) {
     appState.setPreferences(prefs, { emit: false });
     appState.setPreferencesHydrated(true, { emit: false });
     
-    console.log('[PreferenceHydration] Hydration complete, enabling Firebase loading');
     // Now that hydration is done, enable Firebase loading for future preference sync
     preferenceService.enableFirebaseLoad();
     
@@ -78,12 +74,9 @@ export async function hydratePreferences(config = {}) {
           // User just authenticated - sync LOCAL preferences to Firebase
           // IMPORTANT: We sync what the user has locally, not what's in Firebase
           // (which might be stale from a previous device/session)
-          console.log('[PreferenceHydration] User authenticated, syncing LOCAL preferences to Firebase');
           const currentPrefs = appState.getPreferences();
-          console.log('[PreferenceHydration] Syncing preferences to Firebase:', currentPrefs);
           try {
             await preferenceService.save(currentPrefs, { emit: false });
-            console.log('[PreferenceHydration] Preferences successfully synced to Firebase');
           } catch (err) {
             console.warn('[PreferenceHydration] Failed to sync preferences on auth:', err);
           }

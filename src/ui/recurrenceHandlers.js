@@ -220,15 +220,17 @@ export function setupRecurrenceHandlers() {
       
       const master = findMasterRuleFor(tx, g.pendingDeleteTxIso) || tx;
       const refreshPlanned = plannedModal && !plannedModal.classList.contains('hidden');
-      try {
-        // Remove master and any child occurrences
-        if (removeTransaction) removeTransaction(master.id);
-        const children = (getTransactions() || []).filter(t => sameId ? sameId(t.parentId, master.id) : (g.sameId && g.sameId(t.parentId, master.id)));
-        for (const c of children) { if (removeTransaction) removeTransaction(c.id); }
-      } catch (_) {
-        if (typeof setTransactions === 'function') setTransactions((getTransactions() || []).filter(t => !((sameId ? sameId(t.id, master.id) : (g.sameId && g.sameId(t.id, master.id))) || (sameId ? sameId(t.parentId, master.id) : (g.sameId && g.sameId(t.parentId, master.id))))));
-      }
-      try { save && save('tx', getTransactions()); } catch (_) {}
+      // Build next state in one shot to avoid intermediate recompute drift
+      const current = (getTransactions && Array.isArray(getTransactions())) ? getTransactions() : (transactions || []);
+      const next = current.filter(t => !(
+        (t && (sameId ? sameId(t.id, master.id) : (g.sameId && g.sameId(t.id, master.id)))) ||
+        (t && (sameId ? sameId(t.parentId, master.id) : (g.sameId && g.sameId(t.parentId, master.id))))
+      ));
+      try { if (typeof setTransactions === 'function') setTransactions(next); } catch (_) {}
+      try { save && save('tx', next); } catch (_) {}
+      try { window.__gastos && window.__gastos.computeMonthlyTotals && window.__gastos.computeMonthlyTotals(next); } catch (_) {}
+      try { window.__gastos && window.__gastos.rebuildBudgetsByTag && window.__gastos.rebuildBudgetsByTag(next); } catch (_) {}
+      // Clear daily balance cache by forcing a render compute
       if (typeof renderTable === 'function') renderTable();
       if (refreshPlanned) {
         try { renderPlannedModal && renderPlannedModal(); } catch (err) { console.error('renderPlannedModal failed', err); }

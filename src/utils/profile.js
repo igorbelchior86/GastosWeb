@@ -8,7 +8,7 @@
 
 export const DEFAULT_PROFILE = { id: 'BR', locale: 'pt-BR', currency: 'BRL', decimalPlaces: 2 };
 export const LEGACY_PROFILE_ID = DEFAULT_PROFILE.id;
-export const PROFILE_DATA_KEYS = new Set(['tx', 'cards', 'startBal', 'startDate', 'startSet']);
+export const PROFILE_DATA_KEYS = new Set(['tx', 'cards', 'startBal', 'startDate', 'startSet', 'budgets']);
 export const PROFILE_CACHE_KEYS = new Set([...PROFILE_DATA_KEYS, 'dirtyQueue']);
 
 /**

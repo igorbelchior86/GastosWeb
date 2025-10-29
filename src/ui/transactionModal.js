@@ -9,6 +9,9 @@
  * main.js for the assignment of these properties.
  */
 
+import { extractFirstHashtag } from '../utils/tag.js';
+import { upsertBudgetFromTransaction } from '../services/budgetManager.js';
+
 /**
  * Attaches listeners for invoice parcel and installment controls.
  * This function should be called once after `window.__gastos` has been
@@ -87,6 +90,38 @@ export function setupInvoiceHandlers() {
 }
 
 /**
+ * Setup the paid/planned status segmented control for the Add Operation modal.
+ * - Defaults to Paga for today/past
+ * - Forces Planejada and disables the control for future dates
+ */
+export function setupPaidStatusControl() {
+  try {
+    const group = document.querySelector('.paid-toggle');
+    const date = document.getElementById('opDate');
+    if (!group || !date) return;
+    const buttons = Array.from(group.querySelectorAll('.seg-option'));
+    const setActive = (paid) => {
+      buttons.forEach(b => b.classList.remove('active'));
+      const target = buttons.find(b => b.dataset.paid === (paid ? '1' : '0'));
+      if (target) target.classList.add('active');
+      try { group.dataset.state = paid ? 'paid' : 'planned'; } catch (_) {}
+      try { window.__gastos.markAsPaid = !!paid; } catch (_) {}
+    };
+    const todayFn = () => (window.todayISO ? window.todayISO() : new Date().toISOString().slice(0,10));
+    const syncForDate = () => {
+      const iso = date.value;
+      const isFuture = !!(iso && iso > todayFn());
+      if (isFuture) { group.classList.add('disabled'); setActive(false); }
+      else { group.classList.remove('disabled'); if (!buttons.some(b => b.classList.contains('active'))) setActive(true); }
+    };
+    buttons.forEach(btn => btn.addEventListener('click', () => { if (!group.classList.contains('disabled')) setActive(btn.dataset.paid === '1'); }));
+    date.addEventListener('change', syncForDate);
+    // Initial state on load
+    syncForDate();
+  } catch (_) {}
+}
+
+/**
  * Opens the payment modal for credit card invoices. This function mirrors
  * the original `openPayInvoiceModal` from main.js but accesses all
  * dependencies via `window.__gastos`. It sets the global flags
@@ -119,6 +154,7 @@ export function openPayInvoiceModal(cardName, dueISO, remaining, totalAbs, adjus
     addBtn,
     todayISO,
   } = g;
+  // Ensure paid status control is initialised for standard mode as well
   // Open modal first to avoid reset wiping the prefill
   const wasHidden = txModal && txModal.classList.contains('hidden');
   if (wasHidden && typeof toggleTxModal === 'function') toggleTxModal();
@@ -129,6 +165,18 @@ export function openPayInvoiceModal(cardName, dueISO, remaining, totalAbs, adjus
   // Prefill form fields
   const today = typeof todayISO === 'function' ? todayISO() : (new Date()).toISOString().slice(0,10);
   if (desc) desc.value = `Pagamento fatura – ${cardName}`;
+  // In invoice mode, treat as paid by nature; ensure toggle (if visible) is set to 'Paga'
+  try {
+    const group = document.querySelector('.paid-toggle');
+    if (group) {
+      group.classList.remove('disabled');
+      const all = Array.from(group.querySelectorAll('.seg-option'));
+      all.forEach(b => b.classList.remove('active'));
+      const paidBtn = all.find(b => b.dataset.paid === '1');
+      if (paidBtn) paidBtn.classList.add('active');
+      try { group.dataset.state = 'paid'; } catch (_) {}
+    }
+  } catch (_) {}
   // Ensure the value toggle reflects expense and keeps the formatted sign
   try {
     document.querySelectorAll('.value-toggle button').forEach(b => b.classList.remove('active'));
@@ -141,6 +189,8 @@ export function openPayInvoiceModal(cardName, dueISO, remaining, totalAbs, adjus
   // Lock method to Dinheiro
   if (hiddenSelect) hiddenSelect.value = 'Dinheiro';
   const methodSwitch = document.querySelector('.method-switch');
+
+  // Paid toggle is wired by setupPaidStatusControl() in normal mode
   if (methodSwitch) methodSwitch.dataset.selected = 'Dinheiro';
   if (methodButtons) methodButtons.forEach(b => { b.classList.toggle('active', b.dataset.method === 'Dinheiro'); });
   // Show parcel option (off by default)
@@ -307,8 +357,75 @@ export async function addTx() {
     }
     return iso;
   };
+  const budgetsEnabled = typeof g.isBudgetsFeatureEnabled === 'function' ? !!g.isBudgetsFeatureEnabled() : false;
+  const refreshBudgetsCache = budgetsEnabled && typeof g.maybeRefreshBudgetsCache === 'function'
+    ? (list) => {
+        try { g.maybeRefreshBudgetsCache(list); } catch (err) { console.warn('maybeRefreshBudgetsCache failed', err); }
+      }
+    : () => {};
+  const tryUpsertBudget = (tx, extraContext = {}) => {
+    if (!budgetsEnabled || !tx || !tx.budgetTag || typeof upsertBudgetFromTransaction !== 'function') return;
+    try {
+      upsertBudgetFromTransaction(tx, {
+        transactions: (typeof getTransactions === 'function' ? getTransactions() : transactions) || [],
+        recurrenceId: extraContext.recurrenceId || tx.recurrenceId || tx.parentId || null,
+        occurrenceISO: extraContext.occurrenceISO || tx.opDate,
+        nextOccurrenceISO: extraContext.nextOccurrenceISO || null,
+        creationDate: extraContext.creationDate || todayFn(),
+      });
+    } catch (err) {
+      console.warn('Budget upsert failed', err);
+    }
+  };
+  const findActiveBudgetFn = budgetsEnabled && typeof g.findActiveBudgetByTag === 'function'
+    ? g.findActiveBudgetByTag
+    : null;
+  const hasActiveRecurringBudgetForTag = (tag) => {
+    if (!budgetsEnabled || !tag || !findActiveBudgetFn) return false;
+    try {
+      const record = findActiveBudgetFn(tag);
+      return !!(record && record.status === 'active' && record.budgetType === 'recurring');
+    } catch (_) {
+      return false;
+    }
+  };
+  const isFutureDate = (iso) => iso && iso > todayFn();
+  const isRecurrenceActive = (value) => !!(value && String(value).trim());
+  const blockMessage = (msg) => {
+    if (msg) {
+      showToastFn(msg, 'error');
+    }
+    return Boolean(msg);
+  };
+  const isWithinCycle = (budget, iso) => {
+    if (!budget || !iso) return false;
+    const s = (budget.startDate || '').slice(0,10);
+    const e = (budget.endDate || '').slice(0,10);
+    if (s && iso < s) return false;
+    if (e && iso > e) return false;
+    return true;
+  };
+  const validateOccurrenceDateChange = ({ mode, originalTx, newISO, occurrenceISO }) => {
+    if (!newISO) return null;
+    if ((mode === 'single' || mode === 'future') && occurrenceISO && newISO !== occurrenceISO) {
+      return 'A data é controlada pela recorrência e não pode ser alterada.';
+    }
+    const originalISO = originalTx && originalTx.opDate;
+    const isMaster = !!(originalTx && originalTx.recurrence && String(originalTx.recurrence).trim());
+    const isChild = !!(originalTx && originalTx.parentId);
+    // When in 'single' or 'future' mode, don't validate against originalISO because the user
+    // may be editing a specific occurrence whose date differs from the master's opDate
+    if (!(mode === 'single' || mode === 'future') && (isMaster || isChild) && originalISO && newISO !== originalISO) {
+      return 'A data é controlada pela recorrência e não pode ser alterada.';
+    }
+    return null;
+  };
   // Start of original addTx logic
   try {
+    const normalizeTag = (s) => {
+      if (s == null) return s;
+      try { return String(s).replace(/^#+/, '').trim(); } catch (_) { return s; }
+    };
     // Edit mode
     if (isEditing !== null && isEditing !== undefined) {
       // (mantém lógica de edição original)
@@ -327,7 +444,8 @@ export async function addTx() {
         g.pendingEditMode = pendingEditMode;
         return;
       }
-      const newDesc    = desc && desc.value ? desc.value.trim() : '';
+  const newDesc    = desc && desc.value ? desc.value.trim() : '';
+      const newBudgetTag = normalizeTag((window.__gastos?.pendingBudgetTag) || extractFirstHashtag(newDesc));
       let newVal = parseCurrency(val && val.value);
       const activeTypeEl = document.querySelector('.value-toggle button.active');
       const activeType = activeTypeEl && activeTypeEl.dataset ? activeTypeEl.dataset.type : 'expense';
@@ -347,12 +465,24 @@ export async function addTx() {
         ? newRecurrenceRaw.trim()
         : newRecurrenceRaw;
       const newInstallments = parseInt(installments && installments.value, 10) || 1;
+      const originalPlanned = Boolean(t.planned);
       const compareIds = typeof sameId === 'function'
         ? (a, b) => {
             try { return sameId(a, b); }
             catch (_) { return String(a) === String(b); }
           }
         : (a, b) => String(a) === String(b);
+      const recurrenceActive = isRecurrenceActive(newRecurrence);
+      // Only validate future date with recurrence if NOT in edit-mode for an existing recurring transaction
+      // When editing via single/future/all mode, the user is editing a specific occurrence, not the master
+      if (recurrenceActive && isFutureDate(newOpDate) && !g.pendingEditMode) {
+        const msg = !isRecurrenceActive(t.recurrence)
+          ? 'Um orçamento com data futura não pode ser recorrente. Escolha apenas uma das opções.'
+          : 'A data selecionada é incompatível com recorrências. Use a data de hoje ou desative a recorrência.';
+        if (blockMessage(msg)) {
+          return;
+        }
+      }
       const findMaster = (tx) => {
         if (!tx) return null;
         if (tx.recurrence && String(tx.recurrence).trim()) return tx;
@@ -365,6 +495,33 @@ export async function addTx() {
       // because it may have been updated by the edit recurrence modal buttons
       const currentEditMode = g.pendingEditMode;
       const currentEditTxIso = g.pendingEditTxIso;
+
+      // Helper available to all edit modes: read paid/planned toggle
+      const readMarkAsPaid = () => {
+        try {
+          const group = document.querySelector('.paid-toggle');
+          const active = group ? group.querySelector('.seg-option.active') : null;
+          // Prefer current occurrence ISO when available; fallback to newOpDate
+          const refISO = currentEditTxIso || newOpDate;
+          // Default heuristic: past/today => paid
+          const defaultPaid = !(refISO && refISO > todayFn());
+          return active ? (active.dataset.paid === '1') : defaultPaid;
+        } catch (_) {
+          const refISO = currentEditTxIso || newOpDate;
+          return !(refISO && refISO > todayFn());
+        }
+      };
+
+      if (!isRecurrenceActive(t.recurrence) && recurrenceActive && newBudgetTag && hasActiveRecurringBudgetForTag(newBudgetTag)) {
+        if (blockMessage(`Já existe um orçamento recorrente ativo para ${newBudgetTag}.`)) {
+          return;
+        }
+      }
+
+      const dateBlockMsg = validateOccurrenceDateChange({ mode: currentEditMode, originalTx: t, newISO: newOpDate, occurrenceISO: currentEditTxIso || t.opDate });
+      if (blockMessage(dateBlockMsg)) {
+        return;
+      }
 
       switch (currentEditMode) {
         case 'single': {
@@ -398,8 +555,14 @@ export async function addTx() {
             existingDetached.method = newMethod;
             existingDetached.opDate = newOpDate;
             existingDetached.postDate = computePostDate(newOpDate, newMethod);
-            existingDetached.planned = newOpDate > todayFn();
+            existingDetached.planned = !readMarkAsPaid();
             existingDetached.modifiedAt = new Date().toISOString();
+            existingDetached.budgetTag = newBudgetTag;
+            tryUpsertBudget(existingDetached, {
+              occurrenceISO: existingDetached.opDate,
+              nextOccurrenceISO: existingDetached.postDate,
+              recurrenceId: existingDetached.recurrenceId || existingDetached.parentId || null,
+            });
           } else {
             // Create new standalone edited transaction
             const txObj = {
@@ -412,11 +575,17 @@ export async function addTx() {
               postDate: computePostDate(newOpDate, newMethod),
               recurrence: '',
               installments: 1,
-              planned: newOpDate > todayFn(),
+              planned: !readMarkAsPaid(),
               ts: new Date().toISOString(),
-              modifiedAt: new Date().toISOString()
+              modifiedAt: new Date().toISOString(),
+              budgetTag: newBudgetTag
             };
             try { addTxInternal(txObj); } catch (_) { setTxs(getTxs().concat([txObj])); }
+            tryUpsertBudget(txObj, {
+              occurrenceISO: txObj.opDate,
+              nextOccurrenceISO: txObj.postDate,
+              recurrenceId: txObj.recurrenceId || txObj.parentId || null,
+            });
           }
           break;
         }
@@ -442,11 +611,17 @@ export async function addTx() {
             postDate: computePostDate(currentEditTxIso, newMethod),
             recurrence: recurrenceValue,
             installments: installmentsValue,
-            planned: currentEditTxIso > todayFn(),
+            planned: !readMarkAsPaid(),
             ts: new Date().toISOString(),
-            modifiedAt: new Date().toISOString()
+            modifiedAt: new Date().toISOString(),
+            budgetTag: newBudgetTag
           };
           try { addTxInternal(txObj); } catch (_) { setTxs(getTxs().concat([txObj])); }
+          tryUpsertBudget(txObj, {
+            occurrenceISO: txObj.opDate,
+            nextOccurrenceISO: txObj.postDate,
+            recurrenceId: txObj.recurrence ? (txObj.recurrenceId || txObj.id) : null,
+          });
           break;
         }
         case 'all': {
@@ -463,6 +638,12 @@ export async function addTx() {
             master.recurrence   = recurrence ? recurrence.value : '';
             master.installments = parseInt(installments && installments.value, 10) || 1;
             master.modifiedAt   = new Date().toISOString();
+            master.budgetTag    = newBudgetTag;
+            tryUpsertBudget(master, {
+              occurrenceISO: master.opDate,
+              nextOccurrenceISO: master.postDate,
+              recurrenceId: master.recurrenceId || master.id || null,
+            });
           }
           break;
         }
@@ -475,13 +656,33 @@ export async function addTx() {
           t.postDate   = computePostDate(newOpDate, newMethod);
           if (recurrence) t.recurrence   = newRecurrence;
           if (installments) t.installments = newInstallments;
-          // Ajusta flag planned caso a data da operação ainda não tenha ocorrido
-          t.planned      = t.opDate > todayFn();
+          // Ajusta flag planned respeitando o toggle de status do modal
+          try {
+            const group = document.querySelector('.paid-toggle');
+            const active = group ? group.querySelector('.seg-option.active') : null;
+            const markAsPaid = active ? (active.dataset.paid === '1') : true;
+            t.planned = !markAsPaid;
+          } catch (_) {
+            // Fallback: se não houver controle, considerar futura como planejada
+            t.planned = (t.opDate > todayFn());
+          }
           t.modifiedAt   = new Date().toISOString();
+          t.budgetTag    = newBudgetTag;
+          tryUpsertBudget(t, {
+            occurrenceISO: t.opDate,
+            nextOccurrenceISO: t.postDate,
+            recurrenceId: t.recurrenceId || t.parentId || null,
+          });
           break;
         }
       }
+      // Force state update so UI observers pick up changes to master/occurrences
+      try {
+        const snap = (getTxs && Array.isArray(getTxs())) ? getTxs().slice() : [];
+        if (typeof setTxs === 'function') setTxs(snap);
+      } catch (_) {}
       // Reset editing state - update BOTH local variables AND global state
+      refreshBudgetsCache(getTxs());
       pendingEditMode    = null;
       pendingEditTxId    = null;
       pendingEditTxIso   = null;
@@ -492,16 +693,30 @@ export async function addTx() {
       g.isEditing        = null;
       if (addBtn) addBtn.textContent = 'Adicionar';
       if (txModalTitle) txModalTitle.textContent = 'Lançar operação';
-      saveFn('tx', getTxs());
+      try {
+        const snap = (getTxs && Array.isArray(getTxs())) ? getTxs().slice() : [];
+        saveFn('tx', snap);
+      } catch (_) { try { saveFn('tx', getTxs()); } catch(_) {} }
       toggleModalFn();
-      // No need to manually render - Firebase listener will trigger renderTable automatically
+      // Immediately refresh UI to reflect changes (especially on iOS PWA without realtime)
+      try { if (typeof renderTable === 'function') renderTable(); } catch (_) {}
       // Custom edit confirmation toast
       const formattedVal = fmtCurrency(parseCurrency(val && val.value));
       const recValue = recurrence ? recurrence.value : '';
       let toastMsg;
       if (!recValue) {
         const opDateVal = date && date.value;
-        toastMsg = `Edição: ${formattedVal} em ${opDateVal.slice(8,10)}/${opDateVal.slice(5,7)}`;
+        const fmtDM = (() => {
+          try {
+            const d = new Date(`${opDateVal}T00:00:00`);
+            const dd = String(d.getDate()).padStart(2, '0');
+            let mon = d.toLocaleDateString('pt-BR', { month: 'short' }) || '';
+            mon = mon.replace('.', '');
+            mon = mon ? mon.charAt(0).toUpperCase() + mon.slice(1) : '';
+            return `${dd} de ${mon}`;
+          } catch (_) { return `${opDateVal?.slice(8,10)}/${opDateVal?.slice(5,7)}`; }
+        })();
+        toastMsg = `Edição: ${formattedVal} em ${fmtDM}`;
       } else {
         const recText = recurrence && recurrence.options ? recurrence.options[recurrence.selectedIndex].text.toLowerCase() : '';
         toastMsg = `Edição: ${formattedVal} (${recText})`;
@@ -696,6 +911,42 @@ export async function addTx() {
       const newPostDate = computePostDate(newOpDate, newMethod);
       const newRecurrence  = recurrence && recurrence.value;
       const newInstallments = parseInt(installments && installments.value, 10) || 1;
+      const newBudgetTag = normalizeTag((window.__gastos?.pendingBudgetTag) || extractFirstHashtag(newDesc));
+      const recurrenceActive = isRecurrenceActive(newRecurrence);
+      // Only validate future date with recurrence if NOT in edit-mode for an existing recurring transaction
+      // When editing via single/future/all mode, the user is editing a specific occurrence, not the master
+      if (recurrenceActive && isFutureDate(newOpDate) && !g.pendingEditMode) {
+        if (blockMessage('A data selecionada é incompatível com recorrências. Use a data de hoje ou desative a recorrência.')) {
+          return;
+        }
+      }
+      if (recurrenceActive && hasActiveRecurringBudgetForTag(newBudgetTag)) {
+        if (blockMessage(`Já existe um orçamento recorrente ativo para ${newBudgetTag}.`)) {
+          return;
+        }
+      }
+      // Anti-duplicidade (ad-hoc): impedir criar novo orçamento futuro
+      // quando já existe ciclo ativo para a mesma tag abrangendo a data.
+      // Allow future planned launches tied to an EXISTING active budget cycle.
+      // Only prevent creating a NEW ad‑hoc budget if a cycle already covers the date.
+      let budgetCoversOpDate = false;
+      if (!recurrenceActive && isFutureDate(newOpDate) && budgetsEnabled && newBudgetTag && findActiveBudgetFn) {
+        try {
+          const activeBudget = findActiveBudgetFn(newBudgetTag);
+          if (activeBudget && activeBudget.status === 'active' && isWithinCycle(activeBudget, newOpDate)) {
+            budgetCoversOpDate = true; // ok to add planned tx; just don't create budget
+          }
+        } catch (_) { /* ignore */ }
+      }
+      // Determine planned/paga using the new status toggle
+      function isMarkAsPaid() {
+        try {
+          if (newOpDate && newOpDate > todayFn()) return false;
+          const group = document.querySelector('.paid-toggle');
+          const active = group ? group.querySelector('.seg-option.active') : null;
+          return active ? active.dataset.paid === '1' : true;
+        } catch (_) { return !(newOpDate > todayFn()); }
+      }
       const newTx = {
         id: Date.now(),
         desc: newDesc,
@@ -705,9 +956,10 @@ export async function addTx() {
         postDate: newPostDate,
         recurrence: newRecurrence || '',
         installments: newInstallments,
-        planned: newOpDate > todayFn(),
+        planned: !isMarkAsPaid(),
         ts: new Date().toISOString(),
-        modifiedAt: new Date().toISOString()
+        modifiedAt: new Date().toISOString(),
+        budgetTag: newBudgetTag
       };
       // Force add transaction to state immediately
       const currentTxs = getTxs() || [];
@@ -722,21 +974,40 @@ export async function addTx() {
       if (typeof window.setTransactions === 'function') {
         window.setTransactions(updatedTxs);
       }
+      // If a budget already covers the future date, do NOT attempt to create another
+      // ad‑hoc budget; otherwise upsert will materialize the reservation for that tag/date.
+      if (!(budgetCoversOpDate && isFutureDate(newOpDate))) {
+        tryUpsertBudget(newTx, {
+          occurrenceISO: newTx.opDate,
+          nextOccurrenceISO: newTx.postDate,
+          recurrenceId: newTx.recurrence ? newTx.id : null,
+          creationDate: todayFn(),
+        });
+      }
       
       // Persist to storage
+      console.log(`💾 Transaction: Saving "${newTx.desc}" (${newTx.val > 0 ? '+' : ''}${newTx.val}) on ${newTx.opDate}`);
       saveFn('tx', updatedTxs);
+      refreshBudgetsCache(updatedTxs);
       
       // Reset form before closing
       if (desc) desc.value = '';
       if (val) val.value = '';
       if (date) date.value = todayFn();
+      // Clear pending budget pill/state
+      try {
+        if (window.__gastos) window.__gastos.pendingBudgetTag = null;
+        const chip = document.getElementById('budgetTagChip');
+        if (chip && chip.parentElement) chip.parentElement.removeChild(chip);
+      } catch (_) {}
       
       // Close modal
       toggleModalFn();
+      try { g.__lastAddSucceeded = true; } catch (_) {}
       
       // No need to manually render - Firebase listener will trigger renderTable automatically
       
-      showToastFn('Operação adicionada', 'success');
+      showToastFn(newTx.planned ? 'Operação salva (planejada)' : 'Operação adicionada', 'success');
       // Write back state
       g.isEditing = isEditing;
       g.pendingEditMode = pendingEditMode;
@@ -755,3 +1026,105 @@ export async function addTx() {
     g.transactions = transactions;
   }
 }
+
+// ----- Budget tag pill (chip) selection API -----
+(function attachBudgetTagChip(){
+  try {
+    const g = (window.__gastos = window.__gastos || {});
+    if (g.setPendingBudgetTag) return; // don't re-register
+
+    const ensureStyles = () => {
+      if (document.getElementById('budget-chip-styles')) return;
+      const st = document.createElement('style');
+      st.id = 'budget-chip-styles';
+      st.textContent = `
+        #budgetTagChip{position:absolute;z-index:10000;display:inline-flex;gap:8px;align-items:center;padding:5px 10px;border-radius:999px;background:rgba(93,211,158,0.18);color:#EDEDEF;border:1px solid #5DD39E;box-shadow:0 4px 14px rgba(0,0,0,0.25);font-size:12.5px;font-weight:700; height:24px;}
+        #budgetTagChip .x{cursor:pointer;opacity:.9; font-weight:700}
+        #budgetTagChip .x:hover{opacity:1}
+        html[data-theme="light"] #budgetTagChip{background:rgba(46,191,140,0.12);color:#111;border:1px solid #2B8B66}
+      `;
+      document.head.appendChild(st);
+    };
+
+    const capitalise = (tag) => {
+      const t = String(tag || '').replace(/^#+/, '').trim();
+      if (!t) return '';
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    };
+
+    const positionChip = () => {
+      const chip = document.getElementById('budgetTagChip');
+      const modal = document.getElementById('txModal');
+      const descInput = document.getElementById('desc');
+      if (!chip || !modal || !descInput) return;
+      const r = descInput.getBoundingClientRect();
+      const host = modal.getBoundingClientRect();
+      // center the chip vertically inside the input and add left padding
+      const chipH = chip.getBoundingClientRect().height || 28;
+      const top = r.top - host.top + Math.max(0, (r.height - chipH) / 2);
+      const left = r.left - host.left + 8;
+      chip.style.top = `${top}px`;
+      chip.style.left = `${left}px`;
+    };
+
+    const setInputPaddingForChip = () => {
+      try {
+        const descInput = document.getElementById('desc');
+        const chip = document.getElementById('budgetTagChip');
+        if (!descInput || !chip) return;
+        const chipRect = chip.getBoundingClientRect();
+        const inputRect = descInput.getBoundingClientRect();
+        // padding-left equals chip width plus spacing to start typing after the chip
+        const leftPad = Math.max(0, (chipRect.width + 16));
+        // Keep right padding intact
+        descInput.style.paddingLeft = `${leftPad}px`;
+      } catch (_) {}
+    };
+
+    const clearInputPaddingForChip = () => {
+      try { const descInput = document.getElementById('desc'); if (descInput) descInput.style.paddingLeft = ''; } catch (_) {}
+    };
+
+    const showChip = (tag) => {
+      ensureStyles();
+      const modal = document.getElementById('txModal');
+      if (!modal) return;
+      let chip = document.getElementById('budgetTagChip');
+      if (!chip) {
+        chip = document.createElement('div');
+        chip.id = 'budgetTagChip';
+        chip.innerHTML = `<span class="label"></span><span class="x" aria-label="Remover">✕</span>`;
+        modal.appendChild(chip);
+        chip.querySelector('.x').onclick = () => {
+          try { g.pendingBudgetTag = null; } catch (_) {}
+          if (chip && chip.parentElement) chip.parentElement.removeChild(chip);
+          try {
+            const input = document.getElementById('desc');
+            if (input) {
+              input.style.paddingLeft = '';
+              input.focus();
+              if (typeof input.setSelectionRange === 'function') input.setSelectionRange(0, 0);
+            }
+          } catch (_) {}
+        };
+      }
+      const lbl = chip.querySelector('.label');
+      if (lbl) lbl.textContent = capitalise(tag);
+      positionChip();
+      // After layout, adjust input padding so typing starts after the pill
+      requestAnimationFrame(() => { positionChip(); setInputPaddingForChip(); });
+    };
+
+    g.setPendingBudgetTag = (tag /*, budget */) => {
+      g.pendingBudgetTag = tag;
+      showChip(tag);
+      try { document.getElementById('desc')?.focus(); } catch (_) {}
+    };
+
+    const reflow = () => { positionChip(); setInputPaddingForChip(); };
+    window.addEventListener('resize', reflow);
+    window.addEventListener('scroll', reflow, true);
+    // When modal closes or form resets elsewhere, ensure padding is cleared
+    document.addEventListener('txModalResetPadding', clearInputPaddingForChip);
+  } catch (_) {}
+})();

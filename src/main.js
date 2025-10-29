@@ -2,10 +2,10 @@ import { fmtCurrency, fmtNumber, parseCurrency, escHtml } from './utils/format.j
 import { normalizeStartBalance } from './utils/startBalance.js';
 import { formatToISO as utilFormatToISO,todayISO as utilTodayISO,addYearsIso as utilAddYearsIso,isSameDayOfMonth as utilIsSameDayOfMonth,occursOn as utilOccursOn,postDateForCard } from './utils/date.js';
 import { initTxUtils } from './ui/transactionUtils.js';
-import { setupInvoiceHandlers,openPayInvoiceModal as openPayInvoiceModalMod,addTx as addTxMod } from './ui/transactionModal.js';
+import { setupInvoiceHandlers,openPayInvoiceModal as openPayInvoiceModalMod,addTx as addTxMod, setupPaidStatusControl } from './ui/transactionModal.js';
 import { DEFAULT_PROFILE,LEGACY_PROFILE_ID,PROFILE_DATA_KEYS,PROFILE_CACHE_KEYS,getRuntimeProfile,getCurrencyName,getCurrentProfileId,scopedCacheKey,scopedDbSegment } from './utils/profile.js';
 import { cacheGet, cacheSet, cacheRemove, cacheClearProfile } from './utils/cache.js';
-import { appState,setStartBalance,setStartDate,setStartSet,setBootHydrated,setTransactions,getTransactions,setCards,getCards,subscribeState } from './state/appState.js';
+import { appState,setStartBalance,setStartDate,setStartSet,setBootHydrated,setTransactions,getTransactions,setCards,getCards,subscribeState,setMonthlyTotals,setBudgetsByTag } from './state/appState.js';
 
 import { resetHydration as hydrationReset,registerHydrationTarget as hydrationRegisterTarget,markHydrationTargetReady as hydrationTargetReady,completeHydration as hydrationComplete,isHydrating as hydrationIsInProgress,maybeCompleteHydration as hydrationMaybeComplete } from './ui/hydration.js';
 
@@ -22,6 +22,7 @@ import { initSwipe as initSwipeMod } from './utils/swipe.js';
 import { scrollTodayIntoView as scrollTodayIntoViewMod } from './ui/scroll.js';
 import { hydrateCache as hydrateCacheMod } from './utils/hydrateCache.js';
 import { setupServiceWorker } from './utils/serviceWorker.js';
+import { flushQueue as fbFlushQueue } from './services/firebaseService.js';
 import { setupPlannedModal } from './ui/plannedModal.js';
 import { setupRecurrenceHandlers } from './ui/recurrenceHandlers.js';
 import { runBootstrap } from './ui/bootstrap.js';
@@ -29,6 +30,9 @@ import { setupEditTransaction } from './ui/editTransaction.js';
 import { setupTransactionForm } from './ui/transactionForm.js';
 import { renderCardSelectorHelper } from './ui/transactionForm.js';
 import { initAccordion } from './ui/accordion.js';
+import { setupBudgetAutocomplete } from './ui/budgetAutocomplete.js';
+import { setupBudgetHistory } from './ui/budgetHistory.js';
+import { setupBudgetPanorama } from './ui/budgetPanorama.js';
 import { initOfflineQueue } from './utils/offlineQueue.js';
 import { initTransactionSanitize } from './utils/transactionSanitize.js';
 import { resetTxModal as resetTxModalMod,updateModalOpenState as updateModalOpenStateMod,focusValueField as focusValueFieldMod } from './ui/txModalUtils.js';
@@ -36,6 +40,15 @@ import { applyCurrencyProfile as applyCurrencyProfileMod } from './utils/currenc
 import { initThemeFromStorage } from './utils/theme.js';
 import { hydratePreferences } from './utils/preferenceHydration.js';
 import { initIOSDebug } from './utils/iosDebug.js';
+import { loadBudgets, saveBudgets, findActiveByTag, resetBudgetCache, getBudgetStorageKey, reconcileBudgetsWithRemote } from './services/budgetStorage.js';
+import { upsertBudgetFromTransaction } from './services/budgetManager.js';
+import { getReservedTotalForDate as calculateReservedTotal, spentNoPeriodo as calculateSpentNoPeriodo, refreshBudgetCache, recomputeBudget } from './services/budgetCalculations.js';
+import { closeExpiredBudgets, initDayChangeWatcher, ensureRecurringBudgets } from './services/budgetLifecycle.js';
+import { extractFirstHashtag } from './utils/tag.js';
+import { isBudgetsEnabled, isPanoramaEnabled, getFeatureFlagsApi } from './config/features.js';
+import { computeDailyBalances as computeDailyBalancesHelper } from './utils/dailyBalances.js';
+import { generateBudgetMaterializationTransactions, rebuildMaterializationCache } from './services/budgetMaterialization.js';
+import { injectBudgetMaterializationTransactions } from './utils/materializationInjector.js';
 
 //
 import { setupMainEventHandlers } from './uiEventHandlers.js';
@@ -51,8 +64,15 @@ import { createStartRealtime } from './startRealtimeHelper.js';
 import { askMoveToToday as askMoveToTodayMod,askConfirmLogout as askConfirmLogoutMod,askConfirmReset as askConfirmResetMod,scheduleAfterKeyboard as scheduleAfterKeyboardMod,flushKeyboardDeferredTasks as flushKeyboardDeferredTasksMod } from './ui/modalHelpers.js';
 
 const state = appState;
+const featureFlags = getFeatureFlagsApi();
 
-try { (window.__gastos = window.__gastos || {}).state = state; } catch (_) {}
+try {
+  const globalApi = (window.__gastos = window.__gastos || {});
+  globalApi.state = state;
+  if (!globalApi.featureFlags) {
+    globalApi.featureFlags = featureFlags;
+  }
+} catch (_) {}
 
 let startInputRef=null,reopenPlannedAfterEdit=false;
 const sameId = (a, b) => String(a ?? '') === String(b ?? '');
@@ -67,6 +87,8 @@ const flushKeyboardDeferredTasks = flushKeyboardDeferredTasksMod;
 const askMoveToToday    = askMoveToTodayMod;
 const askConfirmLogout  = askConfirmLogoutMod;
 const askConfirmReset   = askConfirmResetMod;
+let budgetHistory = null;
+let panorama = null;
 
 const resetTxModal       = resetTxModalMod;
 const updateModalOpenState = updateModalOpenStateMod;
@@ -76,6 +98,92 @@ let updatePendingBadge,markDirty,scheduleBgSync,tryFlushWithBackoff,queueTx,flus
 
 const initSwipe = initSwipeMod;
 const scrollTodayIntoView = scrollTodayIntoViewMod;
+
+function emitTelemetry(eventName, payload = {}) {
+  try {
+    window.__gastos?.telemetry?.emit?.(eventName, payload);
+  } catch (_) {}
+}
+
+function getReservedTotalForDateStub(dateISO) {
+  const txs = typeof getTransactions === 'function' ? getTransactions() : transactions || [];
+  try {
+    return calculateReservedTotal(dateISO || todayISO(), txs);
+  } catch (_) {
+    return 0;
+  }
+}
+
+function computeMonthlyTotals(transactionsList = (typeof getTransactions === 'function' ? getTransactions() : transactions) || []) {
+  const map = {};
+  (transactionsList || []).forEach((tx) => {
+    if (!tx || tx.planned) return;
+    const key = (tx.opDate || '').slice(0, 7);
+    if (!key) return;
+    if (!map[key]) map[key] = { income: 0, expense: 0 };
+    const val = Number(tx.val) || 0;
+    if (val > 0) map[key].income += val;
+    else map[key].expense += Math.abs(val);
+  });
+  try { setMonthlyTotals(map, { emit: true }); } catch (err) { console.warn('setMonthlyTotals failed', err); }
+  return map;
+}
+
+function rebuildBudgetsByTag(transactionsList = (typeof getTransactions === 'function' ? getTransactions() : transactions) || []) {
+  try {
+    const budgets = (loadBudgets() || []).filter((b) => b && b.status === 'active');
+    const index = {};
+    budgets.forEach((budget) => {
+      if (!budget || !budget.tag) return;
+      const normalized = recomputeBudget ? (recomputeBudget({ ...budget }, transactionsList) || budget) : budget;
+      index[budget.tag] = normalized;
+    });
+    setBudgetsByTag(index, { emit: true });
+    return index;
+  } catch (err) {
+    console.warn('rebuildBudgetsByTag failed', err);
+    return {};
+  }
+}
+
+function maybeRefreshBudgetsCache(candidateTxs) {
+  if (!isBudgetsEnabled()) return;
+  const list = Array.isArray(candidateTxs)
+    ? candidateTxs
+    : (typeof getTransactions === 'function' ? getTransactions() : transactions || []);
+  try {
+    refreshBudgetCache(list);
+  } catch (err) {
+    console.warn('refreshBudgetCache failed', err);
+  }
+  try { rebuildBudgetsByTag(list); } catch (_) {}
+}
+
+function runDailyBudgetMaintenance() {
+  if (!isBudgetsEnabled()) return;
+  const txs = typeof getTransactions === 'function' ? getTransactions() : transactions || [];
+  try { refreshBudgetCache(txs); } catch (_) {}
+  try { rebuildBudgetsByTag(txs); } catch (_) {}
+  // Ensure budgets are persisted to remote so other devices stay in sync
+  try { saveBudgets(loadBudgets()); } catch (_) {}
+  // Materialize today's recurring cycle budgets so reservations work off persisted data
+  try {
+    const { created } = ensureRecurringBudgets(txs, todayISO());
+    if (created > 0) {
+      try { refreshBudgetCache(txs); } catch (_) {}
+      try { rebuildBudgetsByTag(txs); } catch (_) {}
+    }
+  } catch (err) { console.warn('ensureRecurringBudgets failed', err); }
+  try {
+    const { closed } = closeExpiredBudgets(txs, todayISO());
+    if (closed > 0) {
+      try { renderTable(); } catch (_) {}
+    }
+  } catch (err) {
+    console.warn('closeExpiredBudgets failed', err);
+  }
+  try { computeMonthlyTotals(txs); } catch (_) {}
+}
 
 function normalizeISODate(input){if(!input)return null;if(input instanceof Date)return input.toISOString().slice(0,10);const str=String(input).trim();if(!str)return null;const match=str.match(/^(\d{4}-\d{2}-\d{2})/);return match?match[1]:null;}
 
@@ -159,6 +267,36 @@ const settingsApi = setupSettings(settingsModalEl);
 let isPayInvoiceMode=false,pendingInvoiceCtx=null;
 
 const openPlannedBtn=document.getElementById('openPlannedBtn'),plannedModal=document.getElementById('plannedModal'),closePlannedModal=document.getElementById('closePlannedModal'),plannedList=document.getElementById('plannedList'),headerSeg=document.querySelector('.header-seg');
+
+/**
+ * Close ALL open modals (pseudo-footer priority: these 3 buttons take precedence)
+ */
+function closeAllModals() {
+  console.log('[main.js] closeAllModals() called');
+  const modals = [
+    'txModal',
+    'cardModal',
+    'plannedModal',
+    'settingsModal',
+    'yearModal',
+    'panoramaModal',
+    'currencyProfileModal',
+    'deleteRecurrenceModal',
+    'editRecurrenceModal',
+    'confirmMoveModal',
+    'confirmLogoutModal',
+    'confirmResetModal'
+  ];
+  modals.forEach(id => {
+    const modal = document.getElementById(id);
+    if (modal && !modal.classList.contains('hidden')) {
+      console.log(`[main.js] Closing modal: ${id}`);
+      modal.classList.add('hidden');
+    }
+  });
+  updateModalOpenState && updateModalOpenState();
+}
+
 function renderSettingsModal() {
   return settingsApi.renderSettings();
 }
@@ -199,7 +337,6 @@ function applyCurrencyProfile(profileId, options = {}) {
 
 try{
   const savedProfile = localStorage.getItem('ui:profile') || (window.CURRENCY_PROFILES ? Object.keys(window.CURRENCY_PROFILES)[0] : null);
-  console.log('[main] Initial currency profile from localStorage ui:profile:', savedProfile);
   if (savedProfile) applyCurrencyProfile(savedProfile);
 }catch(e){}
 
@@ -287,7 +424,7 @@ function resolvePathForUser(user){
   return personalPath;
 }
 
-const APP_VERSION = 'v1.4.9(b86)';
+const APP_VERSION = 'v1.5.0(c05)';
 
 const METRICS_ENABLED = true;
 const _bootT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -326,6 +463,7 @@ if (!USE_MOCK) {
       if (k === 'cards') cacheSet('cards', v);
       if (k === 'startBal') cacheSet('startBal', v);
       if (k === 'startSet') cacheSet('startSet', v);
+      if (k === 'budgets') cacheSet('budgets', v);
       return; // no remote write while offline
     }
     const remoteKey = scopedDbSegment(k);
@@ -492,8 +630,15 @@ if (!USE_MOCK) {
     profileListenersRef: {
       get: () => profileListeners,
       set: (val) => { profileListeners = val; }
-    }
-});
+    },
+    // budgets sync
+    loadBudgets,
+    saveBudgets,
+    refreshBudgetCache,
+    rebuildBudgetsByTag,
+    // budget materialization
+    rebuildMaterializationCache,
+  });
   startRealtimeFn = startRealtime;
 
   const readyUser = (window.Auth && window.Auth.currentUser) ? window.Auth.currentUser : null;
@@ -573,6 +718,10 @@ if (!USE_MOCK) {
     cacheSet('startBal', state.startBalance);
     initStart(); renderTable();
   }
+  try { computeMonthlyTotals(transactions); rebuildBudgetsByTag(transactions); } catch (_) {}
+
+  // Initialize budget materialization cache after hydration
+  try { rebuildMaterializationCache(transactions); } catch (_) {}
 
   completeHydration();
 }
@@ -661,7 +810,24 @@ const currency=v=>safeFmtCurrency(v),meses=['Jan','Fev','Mar','Abr','Mai','Jun',
 
 
 
-const desc=$('desc'),val=$('value'),met=$('method'),date=$('opDate'),addBtn=$('addBtn');if(addBtn&&!addBtn.dataset.toastSaveHook){addBtn.dataset.toastSaveHook='1';addBtn.addEventListener('click',()=>{const label=(addBtn.textContent||'').toLowerCase();if(!label.includes('adicion'))return;setTimeout(()=>{if(!Array.isArray(transactions)||!transactions.length)return;let latest=null;for(const t of transactions){if(!latest||(t.ts||'')>(latest.ts||''))latest=t;}if(!latest)return;try{showToast(buildSaveToast(latest),'success');}catch(_){}} ,0);},{capture:true});}
+const desc=$('desc'),val=$('value'),met=$('method'),date=$('opDate'),addBtn=$('addBtn');
+if(addBtn&&!addBtn.dataset.toastSaveHook){
+  addBtn.dataset.toastSaveHook='1';
+  addBtn.addEventListener('click',()=>{
+    const label=(addBtn.textContent||'').toLowerCase();
+    if(!label.includes('adicion'))return;
+    setTimeout(()=>{
+      // Only show auto-save toast if addTx actually succeeded and modal closed
+      try { if(!(window.__gastos && window.__gastos.__lastAddSucceeded)) return; } catch(_) { return; }
+      try { if (txModal && !txModal.classList.contains('hidden')) return; } catch(_) {}
+      try { window.__gastos.__lastAddSucceeded = false; } catch(_) {}
+      if(!Array.isArray(transactions)||!transactions.length)return;
+      let latest=null;for(const t of transactions){if(!latest||(t.ts||'')>(latest.ts||''))latest=t;}
+      if(!latest)return;
+      try{showToast(buildSaveToast(latest),'success');}catch(_){}}
+    ,0);
+  },{capture:true});
+}
 try {
   setupTransactionForm({
     valueInput: val,
@@ -672,6 +838,8 @@ try {
     safeFmtNumber,
     safeFmtCurrency,
   });
+  setupBudgetAutocomplete({ txModal, descInput: desc, getTransactions, isBudgetsEnabled });
+  budgetHistory = setupBudgetHistory({ txModal, getTransactions, isBudgetsEnabled, findActiveBudgetByTag });
 } catch (_) {}
 
 const recurrence=$('recurrence'),parcelasBlock=$('parcelasBlock'),installments=$('installments'),invoiceParcelCheckbox=document.getElementById('invoiceParcel'),invoiceParcelRow=document.getElementById('invoiceParcelRow');let isEditing=null;
@@ -680,7 +848,168 @@ const notify=(msg,type='error')=>{const t=document.getElementById('toast');if(!t
 
 let makeLine=null,addTx=null;if(typeof window!=='undefined')window.addTx=addTx;
 
-window.__gastos={txModal,toggleTxModal,desc,val,safeFmtNumber,safeFmtCurrency,safeParseCurrency,date,hiddenSelect:document.getElementById('method'),methodButtons:document.querySelectorAll('.switch-option'),invoiceParcelRow:document.getElementById('invoiceParcel'),invoiceParcelCheckbox:document.getElementById('invoiceParcel'),installments,parcelasBlock,recurrence,txModalTitle,addBtn,todayISO,isEditing,pendingEditMode,pendingEditTxIso,pendingEditTxId,isPayInvoiceMode,pendingInvoiceCtx,transactions,getTransactions,setTransactions,addTransaction,sameId,post,occursOn,save,load,renderTable,safeRenderTable,showToast,notify,askMoveToToday,askConfirmLogout,askConfirmReset,plannedModal,openPlannedBtn,closePlannedModal,plannedList,updateModalOpenState,makeLine,initSwipe,deleteRecurrenceModal,closeDeleteRecurrenceModal,deleteSingleBtn,deleteFutureBtn,deleteAllBtn,cancelDeleteRecurrence,editRecurrenceModal,closeEditRecurrenceModal,cancelEditRecurrence,editSingleBtn,editFutureBtn,editAllBtn,pendingDeleteTxId,pendingDeleteTxIso,pendingEditTxId,pendingEditTxIso,pendingEditMode,reopenPlannedAfterEdit,removeTransaction,renderPlannedModal,renderCardSelectorHelper,wrapperEl,stickyHeightGuess,animateWrapperScroll,hydrateStateFromCache,performResetAllData,yearSelectorApi,getViewYear:()=>VIEW_YEAR,VIEW_YEAR,cards,openPayInvoiceModal,resetTxModal,resetAppStateForProfileChange,addTx:null};
+const globalGastos = typeof window !== 'undefined'
+  ? (window.__gastos = window.__gastos || {})
+  : {};
+
+Object.assign(globalGastos, {
+  appVersion: APP_VERSION,
+  txModal,
+  toggleTxModal,
+  desc,
+  val,
+  safeFmtNumber,
+  safeFmtCurrency,
+  safeParseCurrency,
+  date,
+  hiddenSelect: document.getElementById('method'),
+  methodButtons: document.querySelectorAll('.switch-option'),
+  invoiceParcelRow: document.getElementById('invoiceParcel'),
+  invoiceParcelCheckbox: document.getElementById('invoiceParcel'),
+  installments,
+  parcelasBlock,
+  recurrence,
+  txModalTitle,
+  addBtn,
+  todayISO,
+  budgetHistory,
+  isEditing,
+  pendingEditMode,
+  pendingEditTxIso,
+  pendingEditTxId,
+  isPayInvoiceMode,
+  pendingInvoiceCtx,
+  transactions,
+  getTransactions,
+  setTransactions,
+  addTransaction,
+  sameId,
+  post,
+  occursOn,
+  save,
+  load,
+  renderTable,
+  safeRenderTable,
+  showToast,
+  notify,
+  extractFirstHashtag,
+  askMoveToToday,
+  askConfirmLogout,
+  askConfirmReset,
+  plannedModal,
+  openPlannedBtn,
+  closePlannedModal,
+  plannedList,
+  updateModalOpenState,
+  makeLine,
+  initSwipe,
+  deleteRecurrenceModal,
+  closeDeleteRecurrenceModal,
+  deleteSingleBtn,
+  deleteFutureBtn,
+  deleteAllBtn,
+  cancelDeleteRecurrence,
+  editRecurrenceModal,
+  closeEditRecurrenceModal,
+  cancelEditRecurrence,
+  editSingleBtn,
+  editFutureBtn,
+  editAllBtn,
+  pendingDeleteTxId,
+  pendingDeleteTxIso,
+  pendingEditTxId,
+  pendingEditTxIso,
+  pendingEditMode,
+  reopenPlannedAfterEdit,
+  removeTransaction,
+  renderPlannedModal,
+  renderCardSelectorHelper,
+  wrapperEl,
+  stickyHeightGuess,
+  animateWrapperScroll,
+  hydrateStateFromCache,
+  performResetAllData,
+  maybeRefreshBudgetsCache,
+  loadBudgets,
+  saveBudgets,
+  findActiveByTag,
+  resetBudgetCache,
+  getBudgetStorageKey,
+  upsertBudgetFromTransaction,
+  refreshBudgetCache,
+  yearSelectorApi,
+  getViewYear: () => VIEW_YEAR,
+  VIEW_YEAR,
+  cards,
+  openPayInvoiceModal,
+  resetTxModal,
+  resetAppStateForProfileChange,
+  addTx: null,
+});
+
+if (!globalGastos.featureFlags) {
+  globalGastos.featureFlags = featureFlags;
+}
+if (!globalGastos.getFeatureFlags) {
+  globalGastos.getFeatureFlags = featureFlags.getAll;
+}
+if (!globalGastos.setFeatureFlag) {
+  globalGastos.setFeatureFlag = () => true;
+}
+if (!globalGastos.clearFeatureFlags) {
+  globalGastos.clearFeatureFlags = featureFlags.clearOverrides;
+}
+globalGastos.isBudgetsFeatureEnabled = isBudgetsEnabled;
+globalGastos.isPanoramaFeatureEnabled = isPanoramaEnabled;
+globalGastos.getReservedTotalForDate = getReservedTotalForDateStub;
+globalGastos.loadBudgets = loadBudgets;
+globalGastos.saveBudgets = saveBudgets;
+globalGastos.findActiveBudgetByTag = findActiveByTag;
+globalGastos.resetBudgetCache = resetBudgetCache;
+globalGastos.getBudgetStorageKey = getBudgetStorageKey;
+globalGastos.upsertBudgetFromTransaction = upsertBudgetFromTransaction;
+globalGastos.spentNoPeriodo = calculateSpentNoPeriodo;
+globalGastos.refreshBudgetCache = () => {
+  const txs = typeof getTransactions === 'function' ? getTransactions() : transactions || [];
+  try { refreshBudgetCache(txs); } catch (_) {}
+};
+globalGastos.maybeRefreshBudgetsCache = maybeRefreshBudgetsCache;
+
+// Expor utilidades para outros módulos e garantir telemetria
+if (!globalGastos.computeMonthlyTotals) {
+  globalGastos.computeMonthlyTotals = (list) => {
+    try { return computeMonthlyTotals(list); } catch (_) { return {}; }
+  };
+}
+if (!globalGastos.computeDailyBalances) {
+  globalGastos.computeDailyBalances = (list, sb, sd) => {
+    try {
+      return computeDailyBalancesHelper(
+        list || transactions,
+        sb ?? state.startBalance,
+        sd ?? state.startDate,
+        { ignoreInvoiceMeta: true, useTxByDate: true }
+      );
+    } catch (_) { return {}; }
+  };
+}
+if (!globalGastos.rebuildBudgetsByTag) {
+  globalGastos.rebuildBudgetsByTag = (list) => {
+    try { return rebuildBudgetsByTag(list); } catch (_) { return {}; }
+  };
+}
+if (!globalGastos.emitTelemetry) {
+  globalGastos.emitTelemetry = (name, payload = {}) => {
+    try { emitTelemetry(name, payload); } catch (_) {}
+  };
+}
+if (!globalGastos.telemetry || typeof globalGastos.telemetry.emit !== 'function') {
+  globalGastos.telemetry = {
+    emit: (name, payload = {}) => {
+      try { console.info('[telemetry]', name, payload); } catch (_) {}
+    }
+  };
+}
 
 window.performResetAllData = performResetAllData;
 window.safeRenderTable = safeRenderTable;
@@ -709,6 +1038,7 @@ window.setTransactions = (list) => {
     transactions = Array.isArray(next) ? next.slice() : [];
     if (window.__gastos) window.__gastos.transactions = transactions.slice();
     try { renderTable(); } catch (_) {}
+    maybeRefreshBudgetsCache(transactions);
   } catch (_) {}
   return next;
 };
@@ -729,6 +1059,7 @@ subscribeState(({ changedKeys = [], state: snapshot } = {}) => {
   if (changedKeys.includes('transactions')) {
     transactions = Array.isArray(snapshot.transactions) ? snapshot.transactions.slice() : [];
     try { window.__gastos.transactions = transactions.slice(); } catch (_) {}
+    maybeRefreshBudgetsCache(transactions);
   }
 });
 
@@ -754,6 +1085,7 @@ try {
 } catch (e) { console.error('initOfflineQueue failed', e); }
 
 setupInvoiceHandlers();
+try { setupPaidStatusControl(); } catch (_) {}
 
 setupPlannedModal();
 setupRecurrenceHandlers();
@@ -1045,23 +1377,56 @@ try {
     getTransactions,
     setTransactions,
     post: (iso, method) => post(iso, method),
+  todayISO,
+  save,
+  renderTable,
+  renderPlannedModal,
+  notify,
+  refreshBudgetsCache: maybeRefreshBudgetsCache
+});
+  panorama = setupBudgetPanorama({
+    button: openCardBtn,
+    isPanoramaEnabled,
+    getTransactions,
+    safeFmtCurrency,
     todayISO,
-    save,
-    renderTable,
-    renderPlannedModal,
-    notify
+    showBudgetHistory: (tag) => budgetHistory?.showHistory?.(tag)
   });
+
+  if (openCardBtn) {
+    console.info('[panorama] attaching handler to header button');
+    openCardBtn.dataset.panoramaHook = '1';
+    openCardBtn.addEventListener('click', (event) => {
+      console.info('[panorama] header button click', { hasPanorama: !!panorama, hasHandle: panorama && typeof panorama.handleOpen === 'function' });
+      if (panorama && typeof panorama.handleOpen === 'function') {
+        try {
+          const opened = panorama.handleOpen();
+          if (opened) {
+            console.info('[panorama] opened sheet');
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+        } catch (err) {
+          console.error('[panorama] handleOpen failed', err);
+        }
+      }
+      console.info('[panorama] falling back to cards modal');
+      showCardModal();
+    });
+  } else {
+    console.warn('[panorama] header button not found');
+  }
+
   // Update the deps object passed to makeLine so it can access togglePlanned
   // This is safe because getTogglePlanned() reads from deps dynamically
   if (makeLine.__deps__) {
     makeLine.__deps__.togglePlanned = togglePlanned;
-    console.log('[main] Updated makeLine.__deps__.togglePlanned', typeof togglePlanned);
   }
   
   // Ensure togglePlanned is available to transactionLine event handlers
   if (window.__gastos) {
     window.__gastos.togglePlanned = togglePlanned;
-    console.log('[main] togglePlanned assigned to window.__gastos', typeof togglePlanned);
   }
   
   performResetAllData = createPerformResetAllData({
@@ -1077,7 +1442,11 @@ try {
     initStart,
     renderTable,
     showToast,
-    syncStartInputFromState
+    syncStartInputFromState,
+    saveBudgets,
+    resetBudgetCache,
+    maybeRefreshBudgetsCache,
+    flushQueue: fbFlushQueue,
   });
   // Expose the new reset routine globally so existing code can invoke it.
   try { window.performResetAllData = performResetAllData; } catch (_) {}
@@ -1089,6 +1458,15 @@ try {
     window.__gastos.showCardModal = showCardModal;
     window.__gastos.hideCardModal = hideCardModal;
     window.__gastos.setCards = window.setCards;  // Export setCards for Firebase sync
+    window.__gastos.openPanorama = () => {
+      try { return panorama && typeof panorama.handleOpen === 'function' ? panorama.handleOpen() : false; } catch (_) { return false; }
+    };
+    window.__gastos.refreshPanorama = () => {
+      try { return panorama && typeof panorama.refresh === 'function' ? panorama.refresh() : false; } catch (_) { return false; }
+    };
+    window.__gastos.reconcileBudgets = () => {
+      try { return reconcileBudgetsWithRemote(); } catch (_) { return Promise.resolve(); }
+    };
   } catch (_) {}
   // Rebind the scroll animation helper. Use getters/setters so that
   // assignments inside the helper update module‑level variables.
@@ -1230,7 +1608,63 @@ document.addEventListener('click',e=>{
 });
 
 function renderTable(){
+  // Preserve position robustly: anchor nearest day to the sticky header line
+  let prevScrollTop = null;
+  let restoreScrollByAnchor = null;
+  // Lock auto-scrollers during re-render to avoid external jumps (iOS PWA)
+  try { if (window.__gastos) window.__gastos.__lockAutoScroll = true; } catch (_) {}
+  try {
+    if (wrapperEl && typeof wrapperEl.scrollTop === 'number') prevScrollTop = wrapperEl.scrollTop;
+    const wrap = wrapperEl;
+    if (wrap) {
+      const header = document.querySelector('.app-header');
+      const headerHeight = header ? (header.offsetHeight || 0) : 0;
+      const sticky = document.querySelector('.sticky-month');
+      let stickyHeight = 0;
+      if (sticky) {
+        const measured = sticky.offsetHeight || stickyHeightGuess || 0;
+        if (measured > 0) stickyHeight = measured;
+      }
+      const gap = 8;
+      const anchorY = headerHeight + stickyHeight + gap; // target line inside viewport
+      const days = Array.from(document.querySelectorAll('details.day'));
+      if (days.length) {
+        let best = null; let bestDelta = Infinity;
+        days.forEach((el) => {
+          const r = el.getBoundingClientRect();
+          const d = Math.abs(r.top - anchorY);
+          if (d < bestDelta) { bestDelta = d; best = el; }
+        });
+        const key = best && best.dataset ? best.dataset.key : null;
+        const beforeTop = best ? best.getBoundingClientRect().top : null;
+        if (key && beforeTop != null) {
+          restoreScrollByAnchor = () => {
+            try {
+              const after = document.querySelector(`details.day[data-key="${key}"]`);
+              if (!after) return;
+              const afterTop = after.getBoundingClientRect().top;
+              const adjust = afterTop - beforeTop;
+              if (Math.abs(adjust) > 1 && wrapperEl) wrapperEl.scrollTop += adjust;
+            } catch (_) {}
+          };
+        }
+      }
+    }
+  } catch (_) {}
   const hydrating=isHydrating();
+  // Ensure dual daily balances (projected vs available) are computed
+  // before rendering so the day-headers can use them instead of the
+  // legacy single running balance fallback.
+  try {
+    let txs = (typeof getTransactions === 'function' ? getTransactions() : transactions) || [];
+    // Apply budget materialization transactions for balance calculations
+    // These are temporary injections that don't persist to storage
+    try {
+      txs = injectBudgetMaterializationTransactions(txs);
+    } catch (_) {}
+    const res = computeDailyBalancesHelper(txs, state.startBalance, state.startDate, { ignoreInvoiceMeta: true });
+    try { if (window.__gastos) window.__gastos.dailyBalances = res.byDay; } catch (_) {}
+  } catch (_) {}
   clearTableContent();
   const acc=document.getElementById('accordion');
   
@@ -1250,6 +1684,16 @@ function renderTable(){
     try{
       if(typeof recalculateHeaderOffset==='function') recalculateHeaderOffset();
     } catch(_) {}
+    // First try anchor-based restoration to keep the same day under the header
+    try { if (typeof restoreScrollByAnchor === 'function') restoreScrollByAnchor(); } catch (_) {}
+    // Fallback: restore previous scroll exactly (helps iOS 17/26 PWA)
+    try {
+      if (wrapperEl != null && prevScrollTop != null && Math.abs((wrapperEl.scrollTop||0) - prevScrollTop) > 1) {
+        wrapperEl.scrollTop = prevScrollTop;
+      }
+    } catch (_) {}
+    // Release auto-scroll lock shortly after layout settles
+    setTimeout(() => { try { if (window.__gastos) window.__gastos.__lockAutoScroll = false; } catch (_) {} }, 80);
   }, 100);
 }
 
@@ -1261,9 +1705,21 @@ function renderTransactionGroups(groups){accordionApi.renderAccordion();}
 
 
 
+// Create a wrapped getTransactions that includes budget materializations
+const getTransactionsWithMaterializations = () => {
+  try {
+    const txs = typeof getTransactions === 'function' ? getTransactions() : transactions;
+    const result = injectBudgetMaterializationTransactions(txs);
+    return result;
+  } catch (err) {
+    console.error('[getTransactionsWithMaterializations] Error:', err);
+    return typeof getTransactions === 'function' ? getTransactions() : transactions;
+  }
+};
+
 const { txByDate, calculateDateRange } = initTxUtils({
   cards,
-  getTransactions,
+  getTransactions: getTransactionsWithMaterializations,
   transactions,
   post,
   occursOn,
@@ -1272,9 +1728,20 @@ const { txByDate, calculateDateRange } = initTxUtils({
   getViewYear: () => VIEW_YEAR
 });
 
+// Expose the exact helpers the accordion uses so the Planned modal can
+// mirror its source-of-truth expansion logic.
+try {
+  if (window.__gastos) {
+    window.__gastos.txByDate = txByDate;
+    window.__gastos.calculateDateRange = calculateDateRange;
+    // Expose wrapped getTransactions with materializations
+    window.__gastos.getTransactionsWithMaterializations = getTransactionsWithMaterializations;
+  }
+} catch (_) {}
+
 const accordionApi = initAccordion({
   acc: document.getElementById('accordion'),
-  getTransactions,
+  getTransactions: getTransactionsWithMaterializations,
   transactions,
   cards,
   getCards,
@@ -1286,10 +1753,16 @@ const accordionApi = initAccordion({
   safeFmtCurrency,
   SALARY_WORDS,
   makeLine,
+  getReservedTotalForDate: getReservedTotalForDateStub,
+  isBudgetsFeatureEnabled: isBudgetsEnabled,
 });
 
 // Renderizar o accordion imediatamente (com shimmer nos valores durante hidratação)
 renderTable();
+// Close past-due budgets on app open
+  try { runDailyBudgetMaintenance(); } catch (_) {}
+  // Kick a reconciliation in the background to align devices after startup
+  try { reconcileBudgetsWithRemote(); } catch (_) {}
 
 
 
@@ -1301,7 +1774,13 @@ const YEAR_SELECTOR_MAX = 3000;
 
 function initStart(){const g=typeof window!=='undefined'?window.__gastos:undefined;if(g&&typeof g.initStart==='function')return g.initStart();}
 
-setupServiceWorker({ USE_MOCK, flushQueue });
+// Use Firebase service flushQueue so profile-scoped dirtyQueue is flushed
+setupServiceWorker({ USE_MOCK, flushQueue: fbFlushQueue });
+
+// Also flush pending profile-scoped writes when the browser comes online
+try {
+  window.addEventListener('online', () => { try { fbFlushQueue(); } catch (_) {} });
+} catch (_) {}
 
 initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.op-line', 'opsSwipeInit');
 if (cardList) initSwipe(cardList, '.swipe-wrapper', '.swipe-actions', '.card-line', 'cardsSwipeInit');
@@ -1309,6 +1788,13 @@ initSwipe(document.body, '.swipe-wrapper', '.swipe-actions', '.invoice-header-li
 
 yearSelectorApi.updateYearTitle();
 initKeyboardAndScrollHandlers();
+
+// Watch for day change to close expired budgets automatically
+try {
+  initDayChangeWatcher(() => {
+    try { runDailyBudgetMaintenance(); } catch (_) {}
+  });
+} catch (_) {}
 
 // Wire up UI event handlers using the extracted module. Only pass
 // references that should be managed by the helper; omit others
@@ -1336,6 +1822,7 @@ try {
     scrollTodayIntoView,
     openSettings,
     closeSettings,
+    closeAllModals,
     settingsModalEl,
     closeSettingsModalBtn,
     updateModalOpenState,

@@ -15,8 +15,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Caveat&display=swap" rel="stylesheet">
   <!-- Stylesheets live in the public folder now that index.html is at the root -->
-  <link rel="stylesheet" href="public/style.css?v=b86">
-  <link rel="stylesheet" href="public/login.css?v=1.4.9(b86)">
+  <link rel="stylesheet" href="public/style.css?v=b89">
+  <link rel="stylesheet" href="public/login.css?v=1.4.10(b89)">
 
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="icon" type="image/png" sizes="192x192" href="public/icons/icon-192x192.png">
@@ -200,8 +200,8 @@
         <select id="method" name="method" hidden></select>
         <div class="method-switch">
           <div class="switch-highlight"></div>
-          <button type="button" data-method="Dinheiro" class="switch-option active">Dinheiro</button>
-          <button type="button" data-method="Cartão" class="switch-option">Cartão</button>
+          <button type="button" data-method="Dinheiro" class="switch-option active"><span class="icon-action icon-money" aria-hidden="true"></span>Dinheiro</button>
+          <button type="button" data-method="Cartão" class="switch-option"><span class="icon-action icon-card" aria-hidden="true"></span>Cartão</button>
         </div>
         <div id="cardSelector" class="form-row" hidden></div>
         <select id="recurrence" name="recurrence">
@@ -222,6 +222,18 @@
         </div>
         <div class="date-input-wrapper">
           <input id="opDate" name="opDate" type="date">
+        </div>
+        <!-- Visual-only status segmented (no logic yet) -->
+        <div class="field paid-field">
+          <div class="field-row">
+            <label class="field-label">Status do lançamento</label>
+          </div>
+          <div class="segmented paid-toggle" role="group" aria-label="Status do lançamento">
+            <div class="switch-highlight" aria-hidden="true"></div>
+            <button type="button" class="seg-option active" data-paid="1">Paga</button>
+            <button type="button" class="seg-option" data-paid="0">Planejada</button>
+          </div>
+          <p class="field-help">Sem marcar como paga, a operação fica planejada.</p>
         </div>
         <!-- Pagamento de fatura: parcelar -->
         <label class="form-row" id="invoiceParcelRow" style="display:none; align-items:center; gap:8px;">

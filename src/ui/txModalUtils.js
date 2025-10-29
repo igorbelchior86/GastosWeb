@@ -23,6 +23,8 @@ export function resetTxModal() {
     // Reset form fields
     if (val) val.value = '';
     if (desc) desc.value = '';
+    const date = document.getElementById('opDate');
+    if (date) date.value = new Date().toISOString().split('T')[0]; // Reset to today
     if (method && method.options.length > 0) method.selectedIndex = 0;
     if (recurrence) recurrence.value = '';
 
@@ -80,6 +82,41 @@ export function resetTxModal() {
     if (invoiceCheckbox) invoiceCheckbox.checked = false;
     if (parcelasBlock) parcelasBlock.classList.add('hidden');
     if (installments) installments.disabled = true;
+
+    // Reset paid/planned toggle to default (Paga) and enable control
+    try {
+      const group = document.querySelector('.paid-toggle');
+      if (group) {
+        group.classList.remove('disabled');
+        const btns = Array.from(group.querySelectorAll('.seg-option'));
+        btns.forEach(b => b.classList.remove('active'));
+        const paidBtn = btns.find(b => b.dataset && b.dataset.paid === '1');
+        if (paidBtn) paidBtn.classList.add('active');
+        group.dataset.state = 'paid';
+      }
+    } catch (_) {}
+
+    // Reset modal scroll position and content layout height
+    try {
+      const content = modal ? modal.querySelector('.modal-content') : null;
+      if (content) {
+        content.scrollTop = 0;
+      }
+      const box = modal ? modal.querySelector('.bottom-modal-box') : null;
+      if (box) {
+        box.style.height = '';
+        box.style.maxHeight = '';
+      }
+    } catch (_) {}
+
+    // Clear budget pill/state
+    try {
+      const chip = document.getElementById('budgetTagChip');
+      if (chip && chip.parentElement) chip.parentElement.removeChild(chip);
+      if (window.__gastos) window.__gastos.pendingBudgetTag = null;
+      // Inform any listeners to clear input padding adjustments
+      document.dispatchEvent(new Event('txModalResetPadding'));
+    } catch (_) {}
 
     // Clear any error states
     clearFieldErrors();

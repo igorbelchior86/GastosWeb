@@ -10,6 +10,8 @@
  */
 
 import { setStartBalance, setStartDate, setStartSet } from './state/appState.js';
+import { PROFILE_CACHE_KEYS } from './utils/profile.js';
+import { cacheClearProfile } from './utils/cache.js';
 
 /**
  * None of these helpers rely on variables defined in the original
@@ -51,6 +53,19 @@ export function showToast(msg, type = 'error', duration = 3000, documentRef = do
   }
 }
 
+// Format ISO date (YYYY-MM-DD) to "DD de Mon" (pt-BR, month short, capitalized, no dot)
+function formatDayMonthShort(iso) {
+  try {
+    if (!iso) return '';
+    const d = new Date(`${iso}T00:00:00`);
+    const dd = String(d.getDate()).padStart(2, '0');
+    let mon = d.toLocaleDateString('pt-BR', { month: 'short' }) || '';
+    mon = mon.replace('.', '');
+    mon = mon ? mon.charAt(0).toUpperCase() + mon.slice(1) : '';
+    return `${dd} de ${mon}`;
+  } catch (_) { return iso; }
+}
+
 /**
  * Compute a human‑friendly message describing where a transaction has
  * been saved. The logic mirrors the original implementation in
@@ -87,13 +102,17 @@ export function buildSaveToast(tx, deps) {
     // If it’s a credit card transaction that posts in a different period
     // than the operation date, mention the invoice month/day.
     if (isCard && renderIso && !tx.planned && (!hasOpDate || renderIso !== tx.opDate)) {
-      const [, mm, dd] = renderIso.split('-');
-      return `${formattedVal} salva na fatura de ${dd}/${mm}`;
+      return `${formattedVal} salva na fatura de ${formatDayMonthShort(renderIso)}`;
+    }
+    // Ad‑hoc budget creation (planned + budgetTag): show the START day where the card appears
+    if (!tx.recurrence && tx.planned && tx.budgetTag) {
+      const startIso = typeof todayISO === 'function' ? todayISO() : (new Date()).toISOString().slice(0,10);
+      return `${formattedVal} salvo em ${formatDayMonthShort(startIso)}`;
     }
     // Non‑recurring transactions default to the operation date or today.
     if (!tx.recurrence) {
       const iso = hasOpDate ? tx.opDate : (typeof todayISO === 'function' ? todayISO() : '');
-      return `${formattedVal} salvo em ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+      return `${formattedVal} salvo em ${formatDayMonthShort(iso)}`;
     }
     // Recurring transactions get a descriptor based on their recurrence code.
     const recurrenceLabels = {
@@ -191,6 +210,10 @@ export function createPerformResetAllData(context) {
       renderTable,
       showToast,
       syncStartInputFromState: syncStart,
+      saveBudgets,
+      resetBudgetCache,
+      maybeRefreshBudgetsCache,
+      flushQueue,
     } = context;
     if (askConfirm) {
       // Use the global confirm dialogue for user confirmation.
@@ -221,19 +244,31 @@ export function createPerformResetAllData(context) {
       
       // Update the UI input reflecting the start balance.
       try { syncStart && syncStart(); } catch (_) {}
-      // Persist cleared values to the local cache.
-      try { cacheSet && cacheSet('tx', getTransactions()); } catch (_) {}
-      try { cacheSet && cacheSet('cards', getCards()); } catch (_) {}
-      try { cacheSet && cacheSet('startBal', null); } catch (_) {}
-      try { cacheSet && cacheSet('startDate', null); } catch (_) {}
-      try { cacheSet && cacheSet('startSet', false); } catch (_) {}
-      try { cacheSet && cacheSet('dirtyQueue', []); } catch (_) {}
+      // Limpar completamente o cache do perfil para evitar dados remanescentes
+      try { cacheClearProfile && cacheClearProfile(Array.from(PROFILE_CACHE_KEYS)); } catch (_) {
+        // Fallback para sobrescrita caso não seja possível
+        try { cacheSet && cacheSet('tx', getTransactions()); } catch (_) {}
+        try { cacheSet && cacheSet('cards', getCards()); } catch (_) {}
+        try { cacheSet && cacheSet('startBal', null); } catch (_) {}
+        try { cacheSet && cacheSet('startDate', null); } catch (_) {}
+        try { cacheSet && cacheSet('startSet', false); } catch (_) {}
+        try { cacheSet && cacheSet('dirtyQueue', []); } catch (_) {}
+        try { cacheSet && cacheSet('budgets', []); } catch (_) {}
+      }
       // Persist cleared values to the remote database.
       try { await (save && save('tx', getTransactions())); } catch (_) {}
       try { await (save && save('cards', getCards())); } catch (_) {}
       try { await (save && save('startBal', null)); } catch (_) {}
       try { await (save && save('startDate', null)); } catch (_) {}
       try { await (save && save('startSet', false)); } catch (_) {}
+      try { await (save && save('budgets', [])); } catch (_) {}
+      // Garante que alterações offline sejam enviadas imediatamente
+      try { await (flushQueue && flushQueue()); } catch (_) {}
+      // Limpa todos os orçamentos localmente e remotamente (com fila offline se necessário)
+      try { saveBudgets && saveBudgets([]); resetBudgetCache && resetBudgetCache(); } catch (_) {}
+      // Tente novamente a fila após atualizar orçamentos — importante para sincronizar 'budgets'
+      try { await (flushQueue && flushQueue()); } catch (_) {}
+      try { maybeRefreshBudgetsCache && maybeRefreshBudgetsCache([]); } catch (_) {}
       // Refresh derived views.
       try { refreshMethods && refreshMethods(); } catch (_) {}
       try { renderCardList && renderCardList(); } catch (_) {}
@@ -322,6 +357,7 @@ export function createFloatingResetButton(performResetAllData, documentRef = doc
  *   - renderTable: Function re-rendering the main transactions table.
  *   - renderPlannedModal: Function re-rendering the planned modal.
  *   - notify: Function (msg, type) showing a toast notification.
+ *   - refreshBudgetsCache: Optional function to refresh budget caches when transactions change.
  */
 export function createTogglePlanned(context) {
   return async function togglePlanned(id, iso) {
@@ -338,6 +374,7 @@ export function createTogglePlanned(context) {
       renderTable,
       renderPlannedModal,
       notify,
+      refreshBudgetsCache,
     } = context;
     
     // Get current transactions list
@@ -377,6 +414,7 @@ export function createTogglePlanned(context) {
           planned: false,
           ts: new Date().toISOString(),
           modifiedAt: new Date().toISOString(),
+          budgetTag: master.budgetTag,
         };
         // Attempt to use a provided addTransaction; fall back to setTransactions.
         let added = false;
@@ -393,8 +431,7 @@ export function createTogglePlanned(context) {
           setTransactions && setTransactions((current || []).concat([execTx]));
         }
         if (execTx.method !== 'Dinheiro' && execTx.postDate) {
-          const [, mm, dd] = execTx.postDate.split('-');
-          toastMsg = `Movida para fatura de ${dd}/${mm}`;
+          toastMsg = `Movida para fatura de ${formatDayMonthShort(execTx.postDate)}`;
         }
       }
     } else {
@@ -417,8 +454,7 @@ export function createTogglePlanned(context) {
       if (!master.planned && master.method !== 'Dinheiro') {
         master.postDate = typeof post === 'function' ? post(master.opDate, master.method) : master.opDate;
         if (master.postDate) {
-          const [, mm, dd] = master.postDate.split('-');
-          toastMsg = `Movida para fatura de ${dd}/${mm}`;
+          toastMsg = `Movida para fatura de ${formatDayMonthShort(master.postDate)}`;
         }
       }
     }
@@ -438,6 +474,14 @@ export function createTogglePlanned(context) {
     // Notify the user if applicable.
     if (toastMsg && typeof notify === 'function') {
       try { notify(toastMsg, 'success'); } catch (_) {}
+    }
+    if (typeof refreshBudgetsCache === 'function') {
+      try {
+        const latest = typeof getTransactions === 'function' ? getTransactions() : transactions;
+        refreshBudgetsCache(latest);
+      } catch (err) {
+        console.warn('refreshBudgetsCache failed after toggle', err);
+      }
     }
   };
 }
@@ -715,6 +759,7 @@ export function createAnimateWrapperScroll(context) {
   return function animateWrapperScroll(targetTop) {
     const { wrapperEl } = context;
     if (!wrapperEl) return;
+    try { if (window.__gastos && window.__gastos.__lockAutoScroll) return; } catch (_) {}
     if (context.wrapperScrollAnimation) return;
     const startTop = wrapperEl.scrollTop || 0;
     const distance = targetTop - startTop;
